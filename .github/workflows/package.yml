@@ -5,7 +5,8 @@ name: Package
 # пакети цього контейнера, а не список програм чийогось комп'ютера.
 #   * реліз опубліковано — збирає й прикріплює до нього;
 #   * вручну (Actions → Package → Run workflow, тег) — те саме для наявного релізу;
-#   * PR, що змінює packaging/ чи цей файл, — лише збирає (перевірка PKGBUILD).
+#   * PR, що змінює packaging/ чи цей файл, — лише збирає з вихідних кодів PR, з тестами
+#     (перевірка PKGBUILD).
 
 on:
   release:
@@ -39,15 +40,24 @@ jobs:
       - name: Build
         run: |
           cp -r packaging /home/builder/pkg
-          chown -R builder: /home/builder/pkg
           cd /home/builder/pkg
-          # Для релізу — версія з тегу й свіжі контрольні суми його архіву.
           if [ -n "$TAG" ]; then
+            # Реліз: архів тегу з GitHub, версія з тегу й свіжі контрольні суми. Тести цього
+            # коміту вже пройшли в CI (ci.yml), тож check() тут не повторюємо.
             sed -i "s/^pkgver=.*/pkgver=${TAG#v}/; s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+            chown -R builder: .
             sudo -u builder updpkgsums
+            opts=--nocheck
+          else
+            # PR: ті самі кроки з вихідних кодів цього PR, разом із тестами в чистому Arch.
+            ver=$(sed -n 's/^pkgver=//p' PKGBUILD)
+            git -C "$GITHUB_WORKSPACE" archive --format=tar.gz --prefix="OBS-Legacy-$ver/" \
+              -o "$PWD/obs-legacy-$ver.tar.gz" HEAD
+            chown -R builder: .
+            opts=--skipchecksums
           fi
           sudo -u builder env PACKAGER='YellowHearth1 <111094130+YellowHearth1@users.noreply.github.com>' \
-            makepkg --noconfirm --noprogressbar
+            makepkg --noconfirm --noprogressbar "$opts"
           for f in *.pkg.tar.zst; do sha256sum "$f" > "$f.sha256"; done
           ls -l *.pkg.tar.zst*
 
