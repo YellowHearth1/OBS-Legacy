@@ -27,6 +27,48 @@ impl Step {
     }
 }
 
+/// Префікс рядка виводу скрипта. Скрипт друкує їх мовою інтерфейсу, а старі звіти — українською,
+/// тож розуміємо обидві.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tag {
+    Step,
+    Ok,
+    Warning,
+    Error,
+    Hint,
+    Fix,
+    Cancelled,
+    Report,
+    Summary,
+    Result,
+}
+
+const TAGS: &[(&str, Tag)] = &[
+    ("==> ", Tag::Step),
+    ("[OK] ", Tag::Ok),
+    ("[УВАГА] ", Tag::Warning),
+    ("[WARNING] ", Tag::Warning),
+    ("[ПОМИЛКА] ", Tag::Error),
+    ("[ERROR] ", Tag::Error),
+    ("[ПОРАДА] ", Tag::Hint),
+    ("[HINT] ", Tag::Hint),
+    ("[ВИПРАВИТИ] ", Tag::Fix),
+    ("[FIX] ", Tag::Fix),
+    ("[СКАСОВАНО] ", Tag::Cancelled),
+    ("[CANCELLED] ", Tag::Cancelled),
+    ("Звіт: ", Tag::Report),
+    ("Report: ", Tag::Report),
+    ("Підсумок: ", Tag::Summary),
+    ("Summary: ", Tag::Summary),
+    ("Результат: ", Tag::Result),
+    ("Result: ", Tag::Result),
+];
+
+/// Префікс рядка й решта тексту після нього.
+pub fn tag(line: &str) -> Option<(Tag, &str)> {
+    TAGS.iter().find_map(|(prefix, t)| line.strip_prefix(prefix).map(|rest| (*t, rest)))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Prompt {
     /// [y/N] або [Y/n].
@@ -160,7 +202,8 @@ impl Analyzer {
         if s.is_empty() {
             return;
         }
-        if let Some(title) = s.strip_prefix("==> ") {
+        let tagged = tag(s);
+        if let Some((Tag::Step, title)) = tagged {
             self.close_step(now, None);
             self.compile = None;
             self.download = None;
@@ -170,7 +213,7 @@ impl Analyzer {
                 ended: None,
                 state: StepState::Running,
             });
-        } else if let Some(msg) = s.strip_prefix("[УВАГА] ") {
+        } else if let Some((Tag::Warning, msg)) = tagged {
             self.warnings.push(msg.to_string());
             self.problems.push(Problem { level: Level::Warning, text: msg.to_string(), hints: Vec::new(), fix: None });
             if let Some(step) = self.current()
@@ -178,26 +221,26 @@ impl Analyzer {
             {
                 step.state = StepState::Warn;
             }
-        } else if let Some(msg) = s.strip_prefix("[ПОМИЛКА] ") {
+        } else if let Some((Tag::Error, msg)) = tagged {
             self.errors.push(msg.to_string());
             self.problems.push(Problem { level: Level::Error, text: msg.to_string(), hints: Vec::new(), fix: None });
             if let Some(step) = self.current() {
                 step.state = StepState::Failed;
             }
-        } else if let Some(msg) = s.strip_prefix("[ПОРАДА] ") {
+        } else if let Some((Tag::Hint, msg)) = tagged {
             match self.problems.last_mut() {
                 Some(p) => p.hints.push(msg.to_string()),
                 None => self.notes.push(msg.to_string()),
             }
-        } else if let Some(msg) = s.strip_prefix("[ВИПРАВИТИ] ") {
+        } else if let Some((Tag::Fix, msg)) = tagged {
             if let (Some(p), Some((command, label))) = (self.problems.last_mut(), msg.split_once(": ")) {
                 p.fix = Some(Fix { command: command.trim().to_string(), label: label.trim().to_string() });
             }
-        } else if let Some(msg) = s.strip_prefix("[СКАСОВАНО] ") {
+        } else if let Some((Tag::Cancelled, msg)) = tagged {
             self.cancelled = Some(msg.to_string());
-        } else if let Some(path) = s.strip_prefix("Звіт: ") {
+        } else if let Some((Tag::Report, path)) = tagged {
             self.report = Some(path.trim().to_string());
-        } else if let Some(text) = s.strip_prefix("Підсумок: ") {
+        } else if let Some((Tag::Summary, text)) = tagged {
             self.summary = Some(text.trim().to_string());
         } else if let Some((done, total)) = ninja_progress(s) {
             let reset = match self.compile {

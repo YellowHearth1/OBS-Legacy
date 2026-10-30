@@ -7,7 +7,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use crate::analyzer::{Analyzer, Problem};
+use crate::analyzer::{Analyzer, Problem, Tag, tag};
 use crate::script;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,11 +104,14 @@ pub fn analyze(text: &str) -> (Outcome, usize, Option<Problem>) {
     let mut a = Analyzer::new();
     a.feed(text.as_bytes(), Instant::now());
     a.feed(b"\n", Instant::now());
-    let result = text.lines().rev().find_map(|l| l.trim().strip_prefix("Результат: "));
+    let result = text.lines().rev().find_map(|l| match tag(l.trim()) {
+        Some((Tag::Result, r)) => Some(r),
+        _ => None,
+    });
     let outcome = match result {
-        Some(r) if r.starts_with("успішно") => Outcome::Success,
-        Some(r) if r.starts_with("скасовано") => Outcome::Cancelled,
-        Some(r) if r.starts_with("помилка") => Outcome::Failed,
+        Some(r) if r.starts_with("успішно") || r.starts_with("success") => Outcome::Success,
+        Some(r) if r.starts_with("скасовано") || r.starts_with("cancelled") => Outcome::Cancelled,
+        Some(r) if r.starts_with("помилка") || r.starts_with("error") => Outcome::Failed,
         // Звіти старіших версій скрипта — без рядка «Результат».
         _ if a.cancelled.is_some() => Outcome::Cancelled,
         _ if ["ПЕРЕВІРКУ ПРОЙДЕНО", "ПЕРЕВІРКУ ЗАВЕРШЕНО", "ГОТОВО:"].iter().any(|m| text.contains(m)) => {
@@ -188,20 +191,14 @@ impl LineKind {
 }
 
 pub fn classify(line: &str) -> LineKind {
-    if line.starts_with("==> ") {
-        LineKind::Step
-    } else if line.starts_with("[OK]") {
-        LineKind::Ok
-    } else if line.starts_with("[УВАГА]") {
-        LineKind::Warn
-    } else if line.starts_with("[ПОМИЛКА]") {
-        LineKind::Error
-    } else if line.starts_with("[ПОРАДА]") {
-        LineKind::Hint
-    } else if line.starts_with("[СКАСОВАНО]") {
-        LineKind::Cancel
-    } else {
-        LineKind::Plain
+    match tag(line) {
+        Some((Tag::Step, _)) => LineKind::Step,
+        Some((Tag::Ok, _)) => LineKind::Ok,
+        Some((Tag::Warning, _)) => LineKind::Warn,
+        Some((Tag::Error, _)) => LineKind::Error,
+        Some((Tag::Hint, _)) => LineKind::Hint,
+        Some((Tag::Cancelled, _)) => LineKind::Cancel,
+        _ => LineKind::Plain,
     }
 }
 

@@ -1338,6 +1338,7 @@ impl App {
         let env = [
             ("OBS_LEGACY_TUI", "1".to_string()),
             ("OBS_LEGACY_SETTINGS", settings::settings_path().display().to_string()),
+            ("OBS_LEGACY_LANG", crate::i18n::lang().code().to_string()),
         ];
         match Job::spawn(
             program,
@@ -1794,14 +1795,19 @@ impl App {
             Ok(()) => {
                 self.editor = None;
                 self.settings_error = None;
-                self.toast(ToastKind::Ok, format!("{}: збережено", f.label));
+                // Мова — одразу, щоб і підтвердження вже було нею.
+                if f.key == "UI_LANG" {
+                    crate::i18n::set(self.settings.ui_lang());
+                }
+                let label = f.label();
+                self.toast(ToastKind::Ok, trf!("{label}: збережено", "{label}: saved"));
                 match f.key {
                     "NV_HEADERS_TAG" => self.refresh(),
                     "UI_BACKGROUND" => self.theme = Theme::detect(self.settings.solid_background()),
                     _ => {}
                 }
             }
-            Err(e) => self.settings_error = Some(format!("не вдалося зберегти: {e}")),
+            Err(e) => self.settings_error = Some(trf!("не вдалося зберегти: {e}", "couldn't save: {e}")),
         }
     }
 

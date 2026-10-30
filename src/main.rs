@@ -4,6 +4,9 @@
 //! Створено за допомогою Claude Code (Anthropic) на замовлення і під керівництвом
 //! автора репозиторію. Натхнення: https://github.com/sl5net/build-obs-nvenc-legacy
 
+#[macro_use]
+mod i18n;
+
 mod advice;
 mod analyzer;
 mod app;
@@ -63,6 +66,7 @@ fn print_help() {
 }
 
 fn main() -> ExitCode {
+    i18n::set(settings::Settings::load().ui_lang());
     let mut no_relaunch = env::var_os(launcher::NO_RELAUNCH_ENV).is_some_and(|v| v == "1");
     let args: Vec<String> = env::args().skip(1).collect();
     for (i, arg) in args.iter().enumerate() {

@@ -302,7 +302,7 @@ pub fn settings(f: &mut Frame, app: &mut App, area: Rect) {
         rows.push(Some(i));
     }
     let sel_row = rows.iter().position(|r| *r == Some(app.settings_sel)).unwrap_or(0);
-    let label_w = settings::FIELDS.iter().map(|f| f.label.chars().count()).max().unwrap_or(20) + 2;
+    let label_w = settings::FIELDS.iter().map(|f| f.label().chars().count()).max().unwrap_or(20) + 2;
     let mut seen_header = 0;
     let range = visible_range(sel_row, rows.len(), usize::from(inner.height));
     // Номер заголовка, з якого починається видима частина.
@@ -320,7 +320,7 @@ pub fn settings(f: &mut Frame, app: &mut App, area: Rect) {
         };
         let field = &settings::FIELDS[i];
         let sel = i == app.settings_sel;
-        let label = Span::styled(format!("   {:<label_w$}", field.label), Style::new().add_modifier(Modifier::BOLD));
+        let label = Span::styled(format!("   {:<label_w$}", field.label()), Style::new().add_modifier(Modifier::BOLD));
         if sel && let Some(ed) = &app.editor {
             let text = ed.text();
             let line =
@@ -343,7 +343,7 @@ pub fn settings(f: &mut Frame, app: &mut App, area: Rect) {
     let mut lines = vec![
         Line::from(Span::styled(field.key, Style::new().fg(t.accent2))),
         Line::from(""),
-        Line::from(field.help),
+        Line::from(field.help()),
         Line::from(""),
         kv(
             &t,
@@ -362,7 +362,7 @@ pub fn settings(f: &mut Frame, app: &mut App, area: Rect) {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(format!("✗ {e}"), t.err())));
     }
-    f.render_widget(details_panel(&t, field.label, lines), details_r);
+    f.render_widget(details_panel(&t, field.label(), lines), details_r);
 
     let hints: &[(&str, &str)] = if app.editor.is_some() {
         &[("Enter", "зберегти"), ("Esc", "скасувати"), ("Ctrl+U", "очистити")]
