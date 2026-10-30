@@ -139,8 +139,9 @@ You need Artix or Arch and the NVIDIA 580xx driver. Pick one of two ways.
 sudo pacman -U obs-legacy-0.0.2-1-x86_64.pkg.tar.zst
 ```
 
-The program lands in `/usr/bin/obs-legacy` with an **OBS-Legacy** entry in the application menu. When a new
-version is out, the program says so; update with the package from the new release the same way.
+The program lands in `/usr/bin/obs-legacy` with an **OBS-Legacy** entry in the application menu. Turn on
+[update notifications](#update-notifications) (**More → Update notifications**) to hear about new versions;
+update with the package from the new release the same way.
 
 **From source** (needs `git` and Rust; if Rust is missing, the installer offers to install the `rust`
 package):
