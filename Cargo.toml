@@ -1,0 +1,22 @@
+[package]
+name = "obs-legacy"
+version = "0.0.2"
+edition = "2024"
+rust-version = "1.88"
+description = "TUI для збирання OBS Studio з NVENC під драйвери NVIDIA 580xx на Artix/Arch Linux"
+license = "Apache-2.0"
+repository = "https://github.com/YellowHearth1/OBS-Legacy"
+readme = "README.md"
+publish = false
+
+[dependencies]
+anyhow = "1.0.104"
+libc = "0.2.191"
+portable-pty = "0.9.0"
+ratatui = { version = "0.30.2", features = ["unstable-rendered-line-info"] }
+vt100 = "0.18.1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+strip = true
