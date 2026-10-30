@@ -1,6 +1,14 @@
 <p align="center">
-  <a href="https://standforukraine.com/"><img src="https://yellowhearth1.neocities.org/img/support-ukraine-full.webp" alt="Support Ukraine — standforukraine.com" width="600"></a>
+  <a href="https://standforukraine.com/"><img src="https://yellowhearth1.neocities.org/img/support-ukraine-full.webp" alt="Support Ukraine" width="520"></a>
 </p>
+
+<p align="center">
+  <b>Ukraine is defending itself against Russia's full-scale invasion.</b><br>
+  Support the Armed Forces of Ukraine and humanitarian aid through vetted funds and charities:<br>
+  <a href="https://standforukraine.com/"><b>standforukraine.com</b></a>
+</p>
+
+---
 
 <p align="center">
   <img src="assets/banner.png" alt="OBS-Legacy — OBS Studio with working NVENC on NVIDIA 580xx legacy drivers" width="820">
