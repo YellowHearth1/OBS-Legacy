@@ -51,8 +51,9 @@ jobs:
           else
             # PR: ті самі кроки з вихідних кодів цього PR, разом із тестами в чистому Arch.
             ver=$(sed -n 's/^pkgver=//p' PKGBUILD)
-            git -C "$GITHUB_WORKSPACE" archive --format=tar.gz --prefix="OBS-Legacy-$ver/" \
-              -o "$PWD/obs-legacy-$ver.tar.gz" HEAD
+            # Теку checkout створено від іншого користувача, тож git її сам не читає.
+            git -c safe.directory="$GITHUB_WORKSPACE" -C "$GITHUB_WORKSPACE" archive --format=tar.gz \
+              --prefix="OBS-Legacy-$ver/" -o "$PWD/obs-legacy-$ver.tar.gz" HEAD
             chown -R builder: .
             opts=--skipchecksums
           fi
