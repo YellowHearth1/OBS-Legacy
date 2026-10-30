@@ -206,11 +206,16 @@ fn persistent_supervisor_dir(program: &str) -> Option<PathBuf> {
     supervisor_dirs(program).into_iter().find(|d| d.starts_with(&home) && d.is_dir())
 }
 
+/// Систему завантажив systemd (як `sd_booted()`): самої програми systemctl для цього замало.
+fn systemd_booted() -> bool {
+    Path::new("/run/systemd/system").is_dir()
+}
+
 /// Що підходить для цієї системи — від найкращого; автозапуск завжди останній.
 pub fn available() -> Vec<Place> {
     let mut out = Vec::new();
     let fixed = |b: Backend| Place { backend: b, path: b.fixed_path().unwrap_or_default() };
-    if Path::new("/run/systemd/system").is_dir() && quiet_ok("systemctl", &["--user", "show-environment"]) {
+    if systemd_booted() && quiet_ok("systemctl", &["--user", "show-environment"]) {
         out.push(fixed(Backend::Systemd));
     }
     if quiet_ok("dinitctl", &["--user", "list"]) {
@@ -985,7 +990,11 @@ mod tests {
 
     #[test]
     fn systemd_unit_is_valid() {
-        // systemd-analyze є лише там, де systemd (наприклад, у CI на Ubuntu).
+        // Лише там, де systemd справді працює (наприклад, у CI на Ubuntu): у контейнері без нього
+        // (збирання пакета в Arch) systemd-analyze є, але падає на /run/systemd.
+        if !systemd_booted() {
+            return;
+        }
         let Some(analyze) = find_in_path("systemd-analyze") else { return };
         let dir = std::env::temp_dir().join(format!("{NAME}-unit-{}", std::process::id()));
         let unit = dir.join(format!("{NAME}.service"));

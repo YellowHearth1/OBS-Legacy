@@ -1,0 +1,5 @@
+# makepkg -si у цій теці
+src/
+pkg/
+*.tar.gz
+*.pkg.tar.*

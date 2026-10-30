@@ -204,6 +204,10 @@ do_install() {   # $1 = yes|no|ask — ярлик на робочому стол
   (( EUID != 0 )) || die "Не запускай від root: TUI ставиться для звичайного користувача."
   [[ -f "$SRC_DIR/Cargo.toml" ]] || die "Не знайдено Cargo.toml поруч з install.sh ($SRC_DIR)."
   banner
+  # Програма вже стоїть готовим пакетом: копія в ~/.local/bin перекриє її (PATH, ярлик).
+  if have pacman && pacman -Qq obs-legacy >/dev/null 2>&1; then
+    warn "Пакет obs-legacy уже встановлено (/usr/bin/obs-legacy), і копія в $BIN_DIR його перекриє. Залиш щось одне: sudo pacman -R obs-legacy або потім ./install.sh --uninstall."
+  fi
   ensure_rust
 
   say "Збираю obs-legacy (cargo build --release --locked) — це займе хвилину-дві"

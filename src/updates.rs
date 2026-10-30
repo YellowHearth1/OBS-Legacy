@@ -26,11 +26,16 @@ use crate::catalog::{self, PluginInfo};
 use crate::cli;
 use crate::notify;
 use crate::script;
+use crate::service;
 use crate::settings::Settings;
 use crate::system::{self, BuildInfo, Updates, newer};
 
 /// Репозиторій OBS-Legacy, якщо тека з вихідними кодами невідома.
 pub const SELF_REPO: &str = "https://github.com/YellowHearth1/OBS-Legacy.git";
+/// Релізи з готовим пакетом obs-legacy.
+const RELEASES: &str = "https://github.com/YellowHearth1/OBS-Legacy/releases";
+/// Куди ставить програму пакет pacman (packaging/PKGBUILD).
+const PACKAGE_EXE: &str = "/usr/bin/obs-legacy";
 const PACMAN_DB: &str = "/var/lib/pacman/local";
 const PACMAN_LOCK: &str = "/var/lib/pacman/db.lck";
 
@@ -169,6 +174,8 @@ pub struct Facts {
     pub self_latest: Option<String>,
     /// OBS-Legacy можна оновити з меню (відома тека з вихідними кодами).
     pub self_menu: bool,
+    /// OBS-Legacy поставлено пакетом pacman (`/usr/bin/obs-legacy`): оновлення — новим пакетом з релізу.
+    pub self_package: bool,
     /// З якої версії ffmpeg з репозиторію зібрано ffmpeg-legacy-580xx (None — не встановлено).
     pub ffmpeg_built: Option<String>,
     /// Новіша версія ffmpeg у репозиторії — ffmpeg-legacy-580xx пора перезібрати.
@@ -288,10 +295,13 @@ pub fn notices(f: &Facts) -> Vec<Notice> {
         });
     }
     if let Some(latest) = f.self_update() {
+        let file = format!("obs-legacy-{}-1-x86_64.pkg.tar.zst", latest.trim_start_matches('v'));
         let how = if f.self_menu {
-            "Онови: OBS-Legacy → Додатково → «Оновити OBS-Legacy»."
+            "Онови: OBS-Legacy → Додатково → «Оновити OBS-Legacy».".to_string()
+        } else if f.self_package {
+            format!("Завантаж пакет {file} з {RELEASES} і постав: sudo pacman -U {file}")
         } else {
-            "Онови так само, як встановлював: git pull і ./install.sh у теці з вихідними кодами."
+            "Онови так само, як встановлював: git pull і ./install.sh у теці з вихідними кодами.".to_string()
         };
         out.push(Notice {
             items: vec![("self".into(), latest.to_string())],
@@ -432,6 +442,7 @@ pub fn facts_from(
         self_version: env!("CARGO_PKG_VERSION").to_string(),
         self_latest: u.self_latest.clone(),
         self_menu,
+        self_package: !self_menu && service::exe_path() == Path::new(PACKAGE_EXE),
         ffmpeg_built,
         ffmpeg_new,
     }
@@ -792,6 +803,8 @@ mod tests {
         assert!(n[0].body.contains("«Оновити OBS-Legacy»"));
         let n = notices(&Facts { self_latest: Some("v0.0.2".into()), self_menu: false, ..facts() });
         assert!(n[0].body.contains("./install.sh"));
+        let n = notices(&Facts { self_latest: Some("v0.0.3".into()), self_menu: false, self_package: true, ..facts() });
+        assert!(n[0].body.contains("sudo pacman -U obs-legacy-0.0.3-1-x86_64.pkg.tar.zst"));
     }
 
     #[test]

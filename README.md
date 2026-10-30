@@ -129,8 +129,22 @@ to the same places as the repo OBS (`/usr`), so pacman itself offers to replace 
 
 ## Installation
 
-You need Artix or Arch, the NVIDIA 580xx driver, `git` and Rust. If Rust is missing, the installer offers
-to install the `rust` package.
+You need Artix or Arch and the NVIDIA 580xx driver. Pick one of two ways.
+
+**Ready package.** Every [release](https://github.com/YellowHearth1/OBS-Legacy/releases) comes with
+`obs-legacy-<version>-1-x86_64.pkg.tar.zst`, built from the release sources in a clean Arch container
+([`packaging/PKGBUILD`](packaging/PKGBUILD)). No Rust needed: download it and install it with pacman.
+
+```bash
+sudo pacman -U obs-legacy-0.0.2-1-x86_64.pkg.tar.zst
+```
+
+The program lands in `/usr/bin/obs-legacy` with an **OBS-Legacy** entry in the application menu. Turn on
+[update notifications](#update-notifications) (**More → Update notifications**) to hear about new versions;
+update with the package from the new release the same way.
+
+**From source** (needs `git` and Rust; if Rust is missing, the installer offers to install the `rust`
+package):
 
 ```bash
 git clone https://github.com/YellowHearth1/OBS-Legacy.git
@@ -140,10 +154,13 @@ git clone https://github.com/YellowHearth1/OBS-Legacy.git
 cd OBS-Legacy && ./install.sh
 ```
 
-The installer builds `obs-legacy`, puts it into `~/.local/bin` and adds an **OBS-Legacy** entry to the
-application menu (and, if you like, to the desktop). It also offers to turn on
+The installer builds `obs-legacy` for your processor, puts it into `~/.local/bin` and adds an **OBS-Legacy**
+entry to the application menu (and, if you like, to the desktop). It also offers to turn on
 [update notifications](#update-notifications). Then just click the entry or type `obs-legacy` in a
 terminal.
+
+Use one way, not both: a copy in `~/.local/bin` hides the packaged one. Switching to the package? Run
+`./install.sh --uninstall` first.
 
 ## Usage
 
@@ -337,7 +354,8 @@ applies to the script without it. An environment variable always takes priority 
   and reuses the previous build, so it is faster. **Rebuild** (or **More → Rebuild OBS**) builds from
   scratch.
 - **Update the program itself** — **More → Update OBS-Legacy** (*«Додатково → Оновити OBS-Legacy»*), or
-  `git pull && ./install.sh --update` in the repository folder.
+  `git pull && ./install.sh --update` in the repository folder. Installed from the ready package? Install the
+  package from the new release: `sudo pacman -U obs-legacy-<version>-1-x86_64.pkg.tar.zst`.
 - **Roll back** — **More → Roll back to another build**: installs a saved package set with `pacman -U`,
   no rebuild.
 - **Uninstall** — **More → Remove OBS-Legacy** (*«Додатково → Видалити OBS-Legacy»*): `pacman -R` of the
@@ -348,6 +366,8 @@ applies to the script without it. An environment variable always takes priority 
 ```bash
 ./install.sh --uninstall
 ```
+
+From the ready package: `sudo pacman -R obs-legacy`.
 
 ### Update notifications
 
@@ -433,7 +453,7 @@ messages are in Ukrainian. Portable packages for another computer: `CPU_TUNING=g
 | OBS settings backups | `~/.local/share/obs-studio-nvenc-artix/config-backups/` |
 | OBS-Legacy settings | `~/.config/obs-legacy/settings.env` |
 | Update notifications | state and log `~/.local/state/obs-legacy/`; the service — see [above](#update-notifications) |
-| Program | `~/.local/bin/obs-legacy`, menu entry `~/.local/share/applications/obs-legacy.desktop` |
+| Program | `~/.local/bin/obs-legacy`, menu entry `~/.local/share/applications/obs-legacy.desktop`; from the ready package — `/usr/bin/obs-legacy`, `/usr/share/applications/obs-legacy.desktop` |
 
 ## Development
 
