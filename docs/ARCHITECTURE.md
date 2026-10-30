@@ -14,6 +14,7 @@
 | Імітатор | `dev/fake-build.sh` | Друкує те саме, що рушій (разом зі звітом), але нічого не робить — для розробки інтерфейсу |
 | Скріншоти | `dev/screenshot.py` | PNG зі знімка `tmux capture-pane -e -p -N` (Pillow) — для `docs/screenshots/` |
 | Іконка й банер | `dev/make-assets.py`, `assets/third-party/` | `assets/obs-legacy.svg` і `assets/banner.png` (1280×640, шапка README і прев'ю репозиторію) з іконки «graphics-card» Phosphor Icons (MIT) і шрифту JetBrains Mono (OFL), текст — кривими. Без логотипів NVIDIA й OBS: це чужі торгові марки, а їхні правила забороняють використання без ліцензії |
+| Пакет програми | `packaging/PKGBUILD`, `packaging/obs-legacy.desktop`, `.github/workflows/package.yml` | Готовий пакет pacman самої програми (`obs-legacy-<версія>-1-x86_64.pkg.tar.zst`) для кожного релізу — див. «Пакет програми» |
 | CI | `.github/workflows/ci.yml` | `cargo fmt --check`, `clippy -D warnings`, `cargo test`, `shellcheck`, `plugins --tsv` |
 
 TUI **вбудовує** скрипт (`include_str!` у `src/script.rs`) і перед запуском розпаковує його в
@@ -509,6 +510,27 @@ xfce4-terminal, mate-terminal, qterminal, lxterminal, terminator, tilix, urxvt, 
 `install.sh` записує шлях до клону в `~/.local/share/obs-legacy/source-dir`. Тоді в меню з'являється
 «Оновити OBS-Legacy»: `git pull --ff-only` + `./install.sh --update` (неінтерактивно; бінарник
 замінюється атомарно через `mv`). Після цього TUI треба перезапустити.
+
+Поставлену готовим пакетом програму (`/usr/bin/obs-legacy`, теки з вихідними кодами немає) меню не
+оновлює: сповіщення про новий OBS-Legacy (`Facts::self_package`) радить завантажити пакет з релізу й
+поставити його `sudo pacman -U`. `install.sh` попереджає, якщо пакет `obs-legacy` уже стоїть: копія в
+`~/.local/bin` його перекрила б.
+
+### Пакет програми
+
+`packaging/PKGBUILD` збирає з архіву тегу (`archive/refs/tags/v<версія>.tar.gz`) звичайний пакет `obs-legacy`:
+`cargo fetch --locked`, `cargo build --frozen --release` **без** `target-cpu=native` (пакет ставиться на будь-який
+комп'ютер; під процесор програму збирає лише `install.sh`), `cargo test`, а в пакет — `/usr/bin/obs-legacy`,
+ярлик `packaging/obs-legacy.desktop` (`Exec=obs-legacy`), іконка, README і ліцензія. OBS, плагіни й ffmpeg у ньому
+немає: їх програма збирає вже на комп'ютері користувача. Залежності: `bash`, `gcc-libs`, `git`, `glibc`; решту
+пакетів для збирання OBS ставить сама програма (`deps`).
+
+`.github/workflows/package.yml` збирає його в контейнері `archlinux:base-devel` (у `.BUILDINFO` — лише пакети
+контейнера): на опублікований реліз — з `pkgver` тегу, `pkgrel=1` і свіжими сумами (`updpkgsums`), і прикріплює
+пакет і `.sha256` до релізу; вручну (Actions → Package → Run workflow, тег) — те саме для наявного релізу; на PR,
+що змінює `packaging/` чи сам workflow, — лише збирає й зберігає пакет як артефакт. Для релізного пакета
+версію тегу й суми підставляє сам workflow; `pkgver` і `sha256sums` у `PKGBUILD` репозиторію оновлюють після
+релізу (`updpkgsums`), щоб працювало й ручне `makepkg -si` у теці `packaging/`.
 
 ## Сповіщення про оновлення
 

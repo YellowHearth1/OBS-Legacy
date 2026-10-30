@@ -1,0 +1,64 @@
+# Maintainer: YellowHearth1 <111094130+YellowHearth1@users.noreply.github.com>
+#
+# Пакет самої програми OBS-Legacy (меню в терміналі). OBS, плагіни й ffmpeg вона
+# збирає вже на твоєму комп'ютері — під твій процесор і драйвер, тож їх тут немає.
+# Готовий пакет для кожного релізу збирає .github/workflows/package.yml у чистому
+# контейнері Arch; вручну: makepkg -si у цій теці.
+#
+# Новий реліз: pkgver, pkgrel=1 і sha256sums (makepkg -g) — після того, як тег
+# з'явився на GitHub.
+
+pkgname=obs-legacy
+pkgver=0.0.2
+pkgrel=1
+pkgdesc='Terminal menu that builds and installs OBS Studio with working NVENC for NVIDIA 580xx legacy drivers'
+arch=('x86_64')
+url='https://github.com/YellowHearth1/OBS-Legacy'
+license=('Apache-2.0')
+depends=('bash' 'gcc-libs' 'git' 'glibc')
+makedepends=('cargo')
+options=('!debug')
+optdepends=(
+  'sudo: install the built packages with pacman (or opendoas)'
+  'opendoas: install the built packages with pacman (instead of sudo)'
+  'libnotify: desktop notifications about updates'
+  'wl-clipboard: copy report paths on Wayland'
+  'xclip: copy report paths on X11'
+)
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
+        'obs-legacy.desktop')
+sha256sums=('03600d361bbcca7a239fb51dcdb3552707facaaf67c2d18b8071407c85ac0464'
+            'd1abd90d7d040e5f73286aa3bf864d66e128271d3bf2aa1c5a2642767f1e0bff')
+
+_srcdir="OBS-Legacy-$pkgver"
+
+prepare() {
+  cd "$_srcdir"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$_srcdir"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  # Пакет ставиться на будь-який комп'ютер, тож без -C target-cpu=native
+  # (його додає лише install.sh, що збирає програму на тому самому комп'ютері).
+  cargo build --frozen --release
+}
+
+check() {
+  cd "$_srcdir"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo test --frozen --release
+}
+
+package() {
+  cd "$_srcdir"
+  install -Dm755 target/release/obs-legacy "$pkgdir/usr/bin/obs-legacy"
+  install -Dm644 "$srcdir/obs-legacy.desktop" "$pkgdir/usr/share/applications/obs-legacy.desktop"
+  install -Dm644 assets/obs-legacy.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/obs-legacy.svg"
+  install -Dm644 README.md README.uk.md -t "$pkgdir/usr/share/doc/$pkgname/"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

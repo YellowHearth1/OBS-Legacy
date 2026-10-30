@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=OBS-Legacy
+GenericName=OBS Studio with NVENC for NVIDIA 580xx
+GenericName[uk]=OBS Studio з NVENC для NVIDIA 580xx
+Comment=Build, install and update OBS Studio with NVENC for NVIDIA 580xx legacy drivers
+Comment[uk]=Збирання, встановлення й оновлення OBS Studio з NVENC під драйвери NVIDIA 580xx
+Exec=obs-legacy
+Icon=obs-legacy
+Terminal=false
+Categories=AudioVideo;Recorder;
+Keywords=OBS;NVENC;NVIDIA;580;stream;record;
+StartupNotify=false

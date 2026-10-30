@@ -58,6 +58,21 @@ git clone https://github.com/YellowHearth1/OBS-Legacy.git && cd OBS-Legacy
 - [ ] Ярлик на робочому столі запускається (у GNOME/Xfce може знадобитися «Дозволити запуск»).
 - [ ] `obs-legacy --version` у терміналі (якщо `~/.local/bin` є в PATH).
 
+### 1а. Готовий пакет замість `install.sh`
+
+Спершу `./install.sh --uninstall`, якщо програма вже стоїть з вихідних кодів. Пакет — з релізу на GitHub:
+
+```bash
+sudo pacman -U obs-legacy-0.0.2-1-x86_64.pkg.tar.zst
+```
+
+- [ ] `pacman -Qi obs-legacy` — версія релізу; `command -v obs-legacy` → `/usr/bin/obs-legacy`.
+- [ ] Ярлик «OBS-Legacy» з іконкою є в меню й відкриває вікно термінала з першим екраном.
+- [ ] У «Додатково» немає «Оновити OBS-Legacy» (теки з вихідними кодами немає) — так і має бути.
+- [ ] Коли вийде новіший реліз, сповіщення радить пакет із нього й `sudo pacman -U …`, а не `git pull`.
+- [ ] `./install.sh` поруч із пакетом попереджає, що копія в `~/.local/bin` його перекриє.
+- [ ] `sudo pacman -R obs-legacy` прибирає програму; пакети `*-legacy-580xx` лишаються.
+
 ## 2. Головний екран
 
 - [ ] «Твоя система» (клавіша `d`): відеокарта, «Драйвер … ✓ гілка 580xx (legacy)», «NVENC API 13.0 ✓».

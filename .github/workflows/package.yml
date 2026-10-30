@@ -1,0 +1,65 @@
+name: Package
+
+# Пакет pacman самої програми (obs-legacy-<версія>-1-x86_64.pkg.tar.zst) для релізу.
+# Збирається в чистому контейнері Arch з архіву тегу: у .BUILDINFO пакета лише
+# пакети цього контейнера, а не список програм чийогось комп'ютера.
+#   * реліз опубліковано — збирає й прикріплює до нього;
+#   * вручну (Actions → Package → Run workflow, тег) — те саме для наявного релізу;
+#   * PR, що змінює packaging/ чи цей файл, — лише збирає (перевірка PKGBUILD).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Тег релізу, напр. v0.0.2'
+        required: true
+  pull_request:
+    paths:
+      - 'packaging/**'
+      - '.github/workflows/package.yml'
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - name: Prepare Arch
+        run: |
+          pacman -Syu --noconfirm --needed git rust github-cli pacman-contrib
+          useradd -m builder
+
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          cp -r packaging /home/builder/pkg
+          chown -R builder: /home/builder/pkg
+          cd /home/builder/pkg
+          # Для релізу — версія з тегу й свіжі контрольні суми його архіву.
+          if [ -n "$TAG" ]; then
+            sed -i "s/^pkgver=.*/pkgver=${TAG#v}/; s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+            sudo -u builder updpkgsums
+          fi
+          sudo -u builder env PACKAGER='YellowHearth1 <111094130+YellowHearth1@users.noreply.github.com>' \
+            makepkg --noconfirm --noprogressbar
+          for f in *.pkg.tar.zst; do sha256sum "$f" > "$f.sha256"; done
+          ls -l *.pkg.tar.zst*
+
+      - name: Upload to the release
+        if: env.TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" /home/builder/pkg/*.pkg.tar.zst /home/builder/pkg/*.pkg.tar.zst.sha256 --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Keep the package (PR)
+        if: env.TAG == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: obs-legacy-package
+          path: /home/builder/pkg/*.pkg.tar.zst*
