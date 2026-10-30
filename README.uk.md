@@ -1,6 +1,14 @@
 <p align="center">
-  <a href="https://standforukraine.com/"><img src="https://yellowhearth1.neocities.org/img/support-ukraine-full.webp" alt="Підтримай Україну — standforukraine.com" width="600"></a>
+  <a href="https://standforukraine.com/"><img src="https://yellowhearth1.neocities.org/img/support-ukraine-full.webp" alt="Підтримай Україну" width="520"></a>
 </p>
+
+<p align="center">
+  <b>Україна захищається від повномасштабного вторгнення Росії.</b><br>
+  Підтримай Збройні сили України й гуманітарну допомогу через перевірені фонди:<br>
+  <a href="https://standforukraine.com/"><b>standforukraine.com</b></a>
+</p>
+
+---
 
 <p align="center">
   <img src="assets/banner.png" alt="OBS-Legacy — OBS Studio з робочим NVENC на драйверах NVIDIA 580xx" width="820">
