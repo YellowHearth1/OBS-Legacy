@@ -121,7 +121,8 @@ to the same places as the repo OBS (`/usr`), so pacman itself offers to replace 
   Bridge Xeon instead of the generic x86-64 of the repo packages), everything else from your
   distribution's `makepkg.conf`; the newest NVENC headers your driver knows; the CUDA architecture of your
   GPU for ffmpeg's CUDA filters (with several NVIDIA GPUs, the oldest one, so the filters run on all of
-  them). The `obs-legacy` program itself is compiled for your CPU too. You see the whole profile in the
+  them). Built from source, the `obs-legacy` program itself is compiled for your CPU too (the ready-made one
+  from a release is generic x86-64: it is only the menu). You see the whole profile in the
   **Hardware optimization** step of the report.
 - **Real pacman packages.** `obs-studio-legacy-580xx` provides `obs-studio`, so AUR plugins that depend on
   it install as usual, and `pacman -Qs legacy-580xx` shows everything OBS-Legacy installed.
@@ -297,8 +298,8 @@ report and under **Your system** (key `d`). Note that packages built for `native
 only on this CPU; after replacing the CPU the program asks you to rebuild, and **Settings → Tune for
 CPU** offers portable options.
 
-**Is every library rebuilt for my CPU?** OBS itself, its plugins, ffmpeg (`ffmpeg-legacy-580xx`) and the
-`obs-legacy` program are. Qt, x264, mbedTLS and the other system libraries stay from the repositories: the
+**Is every library rebuilt for my CPU?** OBS itself, its plugins and ffmpeg (`ffmpeg-legacy-580xx`) are, and
+so is the `obs-legacy` program when built from source. Qt, x264, mbedTLS and the other system libraries stay from the repositories: the
 heavy ones (x264, ffmpeg's hand-written assembly, Qt's drawing code) choose SIMD code for your CPU at run
 time anyway, and rebuilding the whole system is not worth it. CEF, the Browser Source engine, is the
 prebuilt archive from the OBS Project; only its debug information is stripped (about 2.1 GB → 550 MB).

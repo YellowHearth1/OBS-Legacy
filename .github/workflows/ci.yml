@@ -1,8 +1,13 @@
 name: CI
 
+# push — лише в main: гілки PR перевіряє pull_request (інакше кожен PR перевірявся б двічі).
 on:
   push:
+    branches: [main]
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   rust:
@@ -15,6 +20,16 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
+
+  # Найстаріший Rust, на який розраховано (rust-version у Cargo.toml, значок «Rust 1.88+» у README).
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.88'
+      - run: cargo check --all-targets --locked
 
   shell:
     runs-on: ubuntu-latest

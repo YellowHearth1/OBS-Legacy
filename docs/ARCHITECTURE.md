@@ -15,7 +15,7 @@
 | Скріншоти | `dev/screenshot.py` | PNG зі знімка `tmux capture-pane -e -p -N` (Pillow) — для `docs/screenshots/` |
 | Іконка й банер | `dev/make-assets.py`, `assets/third-party/` | `assets/obs-legacy.svg` і `assets/banner.png` (1280×640, шапка README і прев'ю репозиторію) з іконки «graphics-card» Phosphor Icons (MIT) і шрифту JetBrains Mono (OFL), текст — кривими. Без логотипів NVIDIA й OBS: це чужі торгові марки, а їхні правила забороняють використання без ліцензії |
 | Пакет програми | `packaging/PKGBUILD`, `packaging/obs-legacy.desktop`, `.github/workflows/package.yml` | Готовий пакет pacman самої програми (`obs-legacy-<версія>-1-x86_64.pkg.tar.zst`) для кожного релізу — див. «Пакет програми» |
-| CI | `.github/workflows/ci.yml` | `cargo fmt --check`, `clippy -D warnings`, `cargo test`, `shellcheck`, `plugins --tsv` |
+| CI | `.github/workflows/ci.yml` | `cargo fmt --check`, `clippy -D warnings`, `cargo test`, `cargo check` на Rust 1.88 (MSRV), `shellcheck`, `plugins --tsv`; `push` — лише в `main`, PR — через `pull_request` |
 
 TUI **вбудовує** скрипт (`include_str!` у `src/script.rs`) і перед запуском розпаковує його в
 `~/.local/share/obs-legacy/build-obs-nvenc-legacy-artix.sh`. Тому зміни в скрипті потрапляють у TUI лише
