@@ -183,6 +183,14 @@ impl Analyzer {
             let text = visible_text(&String::from_utf8_lossy(&line[..line.len() - 1]));
             self.line(&text, now);
         }
+        // Рядок, що оновлюється через \r (прогрес curl, git, pacman), видно лише з останнього
+        // сегмента (visible_text) — решту відкидаємо, щоб буфер не ріс і не розбирався щоразу
+        // наново. \r у самому кінці лишаємо: це може бути початок \r\n.
+        if let Some(cr) = self.pending.iter().rposition(|&b| b == b'\r')
+            && cr + 1 < self.pending.len()
+        {
+            self.pending.drain(..=cr);
+        }
         let partial = visible_text(&String::from_utf8_lossy(&self.pending));
         if partial != self.partial {
             self.partial = partial;
@@ -390,8 +398,9 @@ pub fn curl_percent(s: &str) -> Option<f64> {
     if !t.trim_start().starts_with('#') && !t.trim_start().starts_with(|c: char| c.is_ascii_digit()) {
         return None;
     }
-    let start = num.rfind(|c: char| !(c.is_ascii_digit() || c == '.' || c == ',')).map_or(0, |i| i + 1);
-    let value: f64 = num[start..].replace(',', ".").parse().ok()?;
+    // Число — хвіст із цифр, крапок і ком; межа завжди між символами, навіть після «—» чи кирилиці.
+    let digits = &num[num.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.' || c == ',').len()..];
+    let value: f64 = digits.replace(',', ".").parse().ok()?;
     (0.0..=100.0).contains(&value).then_some(value)
 }
 
@@ -575,5 +584,30 @@ mod tests {
         assert_eq!(curl_percent("100.0%"), Some(100.0));
         assert_eq!(curl_percent("########     28,5%"), Some(28.5));
         assert_eq!(curl_percent("звантажено 5%"), None);
+    }
+
+    #[test]
+    fn curl_percent_after_multibyte_char() {
+        // Перед числом — багатобайтовий символ: раніше зріз «+1 байт» падав посеред нього.
+        assert_eq!(curl_percent("1 файл—50%"), Some(50.0));
+        assert_eq!(curl_percent("#━━━75,5%"), Some(75.5));
+        assert_eq!(curl_percent("#—%"), None);
+    }
+
+    #[test]
+    fn carriage_return_progress_stays_small() {
+        let mut a = Analyzer::new();
+        let now = Instant::now();
+        for _ in 0..20 {
+            for p in 0..=100 {
+                a.feed(format!("\r######## {p}.0%").as_bytes(), now);
+            }
+        }
+        assert!(a.pending.len() < 32, "буфер: {} байт", a.pending.len());
+        assert_eq!(a.download, Some(100.0));
+        // \r у кінці шматка може бути початком \r\n — рядок не губиться.
+        let mut b = Analyzer::new();
+        feed_all(&mut b, &["==> Збирання\r", "\n"]);
+        assert_eq!(b.steps.last().map(|s| s.title.as_str()), Some("Збирання"));
     }
 }
