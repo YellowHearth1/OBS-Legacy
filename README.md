@@ -176,7 +176,7 @@ with `obs-legacy-<version>-1-x86_64.pkg.tar.zst`, built from the release sources
 ([`packaging/PKGBUILD`](packaging/PKGBUILD)). No Rust needed: download it and install it with pacman.
 
 ```bash
-sudo pacman -U obs-legacy-0.0.4-1-x86_64.pkg.tar.zst
+sudo pacman -U obs-legacy-0.0.5-1-x86_64.pkg.tar.zst
 ```
 
 The program lands in `/usr/bin/obs-legacy` with an **OBS-Legacy** entry in the application menu. Turn on
@@ -523,8 +523,10 @@ plan — [`docs/TESTING.md`](docs/TESTING.md).
 
 ## Versions
 
-The current version is **0.0.4**: install with one command (`curl … | bash`, the ready-made program from the
-release, no build), and **More → Update OBS-Legacy** updates such an install too. **0.0.3** brought the
+The current version is **0.0.5**: reliability fixes from a code audit — a build no longer hangs when the
+internet drops mid-download or a plugin repository disappears, plus a fix for a rare crash. **0.0.4** brought
+installing with one command (`curl … | bash`, the ready-made program from the release, no build), and
+**More → Update OBS-Legacy** updates such an install too. **0.0.3** brought the
 interface in English as well as Ukrainian and a ready pacman package of the program in every release.
 **0.0.2** was the first public release: pacman packages
 (`obs-studio-legacy-580xx` and the rest), builds tuned to your hardware, ffmpeg with NVENC, update
