@@ -13,7 +13,7 @@ use crate::system::find_in_path;
 /// Відкриває файл або теку через xdg-open, не прив'язуючи програму до термінала.
 pub fn open(path: &Path) -> Result<()> {
     if find_in_path("xdg-open").is_none() {
-        bail!("немає xdg-open (пакет xdg-utils)");
+        bail!(tr!("немає xdg-open (пакет xdg-utils)", "xdg-open is missing (package xdg-utils)"));
     }
     let mut cmd = Command::new("xdg-open");
     cmd.arg(path).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
@@ -24,7 +24,7 @@ pub fn open(path: &Path) -> Result<()> {
             Ok(())
         });
     }
-    cmd.spawn().context("не вдалося запустити xdg-open")?;
+    cmd.spawn().context(tr!("не вдалося запустити xdg-open", "couldn't start xdg-open"))?;
     Ok(())
 }
 

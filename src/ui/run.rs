@@ -28,27 +28,40 @@ struct Outcome {
 /// Підпис головної кнопки картки результату.
 fn primary_label(action: Action, wide: bool) -> &'static str {
     match (action, wide) {
-        (Action::Deps, true) => "Виправити: встановити пакети",
-        (Action::Deps, false) => "Встановити пакети",
-        (Action::Clean, true) => "Виправити: очистити кеш",
-        (Action::Clean, false) => "Очистити кеш",
-        (Action::Check, true) => "Перевірити систему ще раз",
-        (Action::Check, false) => "Перевірити ще раз",
-        (Action::Rebuild, true) => "Виправити: перезібрати начисто",
-        (Action::Rebuild, false) => "Перезібрати",
-        (other, _) => crate::app::menu_item(other).label,
+        (Action::Deps, true) => tr!("Виправити: встановити пакети", "Fix: install packages"),
+        (Action::Deps, false) => tr!("Встановити пакети", "Install packages"),
+        (Action::Clean, true) => tr!("Виправити: очистити кеш", "Fix: clean the cache"),
+        (Action::Clean, false) => tr!("Очистити кеш", "Clean the cache"),
+        (Action::Check, true) => tr!("Перевірити систему ще раз", "Check the system again"),
+        (Action::Check, false) => tr!("Перевірити ще раз", "Check again"),
+        (Action::Rebuild, true) => tr!("Виправити: перезібрати начисто", "Fix: rebuild from scratch"),
+        (Action::Rebuild, false) => tr!("Перезібрати", "Rebuild"),
+        (other, _) => crate::app::menu_item(other).label(),
     }
 }
 
 fn next_step(action: Action) -> Option<&'static str> {
     match action {
-        Action::Check => Some("Обери «Встановити / оновити OBS»: він збере й встановить OBS з NVENC."),
-        Action::Deps => Some("Перевір систему ще раз (Enter) — тепер усі етапи мають бути ✓."),
-        Action::Install | Action::Rebuild => {
-            Some("Запускай OBS як завжди — з меню програм, командою obs або пунктом «Запустити OBS».")
-        }
-        Action::Rollback => Some("OBS уже перемкнено. Якщо OBS зараз відкритий — перезапусти його."),
-        Action::SelfUpdate => Some("Закрий і знову відкрий OBS-Legacy, щоб запрацювала нова версія."),
+        Action::Check => Some(tr!(
+            "Обери «Встановити / оновити OBS»: він збере й встановить OBS з NVENC.",
+            "Choose “Install / update OBS”: it builds and installs OBS with NVENC."
+        )),
+        Action::Deps => Some(tr!(
+            "Перевір систему ще раз (Enter) — тепер усі етапи мають бути ✓.",
+            "Check the system again (Enter) — now every step should get a ✓."
+        )),
+        Action::Install | Action::Rebuild => Some(tr!(
+            "Запускай OBS як завжди — з меню програм, командою obs або пунктом «Запустити OBS».",
+            "Start OBS as usual — from the application menu, with the obs command or with “Launch OBS”."
+        )),
+        Action::Rollback => Some(tr!(
+            "OBS уже перемкнено. Якщо OBS зараз відкритий — перезапусти його.",
+            "OBS has been switched. If OBS is open right now, restart it."
+        )),
+        Action::SelfUpdate => Some(tr!(
+            "Закрий і знову відкрий OBS-Legacy, щоб запрацювала нова версія.",
+            "Close and reopen OBS-Legacy to start the new version."
+        )),
         _ => None,
     }
 }
@@ -59,18 +72,22 @@ fn outcome(t: &Theme, run: &RunState) -> Option<Outcome> {
     let elapsed = fmt_duration(run.job.elapsed());
     if let Some(msg) = &a.cancelled {
         return Some(Outcome {
-            title: format!("■ {} — скасовано", run.title),
+            title: trf!("■ {} — скасовано", "■ {} — cancelled", run.title),
             color: t.warn,
-            rows: vec![("Що сталося", msg.clone())],
+            rows: vec![(tr!("Що сталося", "What happened"), msg.clone())],
         });
     }
     if run.interrupted {
         return Some(Outcome {
-            title: format!("■ {} — перервано (Ctrl+C)", run.title),
+            title: trf!("■ {} — перервано (Ctrl+C)", "■ {} — interrupted (Ctrl+C)", run.title),
             color: t.warn,
             rows: vec![(
-                "Що сталося",
-                "Завдання зупинено. Поточний OBS не змінювався, поки нову збірку не перевірено.".into(),
+                tr!("Що сталося", "What happened"),
+                tr!(
+                    "Завдання зупинено. Поточний OBS не змінювався, поки нову збірку не перевірено.",
+                    "The task was stopped. Your current OBS was not changed: the new build had not been checked yet."
+                )
+                .into(),
             )],
         });
     }
@@ -78,42 +95,51 @@ fn outcome(t: &Theme, run: &RunState) -> Option<Outcome> {
         let mut rows = Vec::new();
         // Що саме змінилося («OBS 33.0.0 → 33.0.1», «оновлень немає») — першим рядком.
         if let Some(sum) = &a.summary {
-            rows.push(("Підсумок", sum.clone()));
+            rows.push((tr!("Підсумок", "Summary"), sum.clone()));
         }
         if let Some(p) = a.last_notice().filter(|p| p.level == Level::Warning && !p.hints.is_empty()) {
-            rows.push(("Зверни увагу", p.text.clone()));
-            rows.extend(p.hints.iter().map(|h| ("Що далі", h.clone())));
+            rows.push((tr!("Зверни увагу", "Note"), p.text.clone()));
+            rows.extend(p.hints.iter().map(|h| (tr!("Що далі", "What next"), h.clone())));
         } else if let Some(step) = run.next.as_deref().or(next_step(run.action)) {
-            rows.push(("Що далі", step.to_string()));
+            rows.push((tr!("Що далі", "What next"), step.to_string()));
         }
         return Some(Outcome {
-            title: format!("✓ {} — готово за {elapsed}", run.title), color: t.ok, rows
+            title: trf!("✓ {} — готово за {elapsed}", "✓ {} — done in {elapsed}", run.title),
+            color: t.ok,
+            rows,
         });
     }
     let mut rows = Vec::new();
     match a.last_error() {
         Some(p) => {
-            rows.push(("Що сталося", p.text.clone()));
-            rows.extend(p.hints.iter().map(|h| ("Що робити", h.clone())));
+            rows.push((tr!("Що сталося", "What happened"), p.text.clone()));
+            rows.extend(p.hints.iter().map(|h| (tr!("Що робити", "What to do"), h.clone())));
             if p.hints.is_empty() {
                 rows.push((
-                    "Що робити",
-                    "Переглянь звіт (o): там повний вивід. Якщо незрозуміло, що робити, створи issue на GitHub \
-                     і додай звіт."
-                        .into(),
+                    tr!("Що робити", "What to do"),
+                    tr!(
+                        "Переглянь звіт (o): там повний вивід. Якщо незрозуміло, що робити, створи issue на GitHub \
+                         і додай звіт.",
+                        "View the report (o): it has the full output. If it's unclear what to do, open an issue on \
+                         GitHub and attach the report."
+                    )
+                    .into(),
                 ));
             }
         }
-        None => rows.push(("Що сталося", format!("Скрипт завершився з кодом {}.", exit.code))),
+        None => rows.push((
+            tr!("Що сталося", "What happened"),
+            trf!("Скрипт завершився з кодом {}.", "The script exited with code {}.", exit.code),
+        )),
     }
-    Some(Outcome { title: format!("✗ {} — помилка", run.title), color: t.err, rows })
+    Some(Outcome { title: trf!("✗ {} — помилка", "✗ {} — error", run.title), color: t.err, rows })
 }
 
 /// Рядки картки результату для заданої ширини тексту.
 fn outcome_lines(t: &Theme, o: &Outcome, width: u16) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     for (label, text) in &o.rows {
-        let marker = Span::styled(format!("{label:<13}"), t.muted());
+        let marker = Span::styled(format!("{label:<14}"), t.muted());
         lines.extend(hanging(marker, text, Style::new(), width));
     }
     lines
@@ -179,7 +205,7 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
         (None, body)
     };
     if let Some(sr) = steps_r {
-        let block = panel(&t, Line::from(Span::styled(" Етапи ", t.title())), false);
+        let block = panel(&t, Line::from(Span::styled(tr!(" Етапи ", " Steps "), t.title())), false);
         let inner = block.inner(sr);
         f.render_widget(block, sr);
         let visible = usize::from(inner.height);
@@ -212,11 +238,17 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     let scrolled = run.scroll > 0;
-    let mut title = vec![Span::styled(" Вивід ", t.title())];
+    let mut title = vec![Span::styled(tr!(" Вивід ", " Output "), t.title())];
     if scrolled {
-        title.push(Span::styled(format!("↑ прокручено на {} · End — до кінця ", run.scroll), t.warn()));
+        title.push(Span::styled(
+            trf!("↑ прокручено на {} · End — до кінця ", "↑ scrolled up {} · End — to the end ", run.scroll),
+            t.warn(),
+        ));
     } else if running {
-        title.push(Span::styled("(відповідай на запитання прямо тут) ", t.muted()));
+        title.push(Span::styled(
+            tr!("(відповідай на запитання прямо тут) ", "(answer questions right here) "),
+            t.muted(),
+        ));
     }
     let block = panel(&t, Line::from(title), running && prompt.is_some());
     let inner = block.inner(out_r);
@@ -238,14 +270,18 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
     if progress_h > 0 {
         let a = &run.job.analyzer;
         let (ratio, label) = if let Some(p) = a.compile {
-            let what = a.steps.last().map_or("Компіляція", |s| {
-                if s.title.starts_with("Плагін") { "Плагін" } else { "Компіляція" }
+            let what = a.steps.last().map_or(tr!("Компіляція", "Compiling"), |s| {
+                if s.title.starts_with("Плагін") || s.title.starts_with("Plugin") {
+                    tr!("Плагін", "Plugin")
+                } else {
+                    tr!("Компіляція", "Compiling")
+                }
             });
-            let eta = p.eta().map(|d| format!(" · залишилось ~{}", fmt_duration(d))).unwrap_or_default();
+            let eta = p.eta().map(|d| trf!(" · залишилось ~{}", " · ~{} left", fmt_duration(d))).unwrap_or_default();
             (p.ratio(), format!("{what} {}/{} · {:.0}%{eta}", p.done, p.total, p.ratio() * 100.0))
         } else {
             let pct = a.download.unwrap_or(0.0);
-            (pct / 100.0, format!("Завантаження {pct:.1}%"))
+            (pct / 100.0, trf!("Завантаження {pct:.1}%", "Downloading {pct:.1}%"))
         };
         let gauge = Gauge::default()
             .ratio(ratio.clamp(0.0, 1.0))
@@ -258,9 +294,18 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
     // Скрипт чекає відповіді
     if let Some(p) = prompt {
         let text = match p {
-            Prompt::Confirm => " ⌨  Скрипт питає: введи y (так) або n (ні) і натисни Enter ",
-            Prompt::Password => " ⌨  Введи пароль sudo/doas і натисни Enter (символів не видно — так і має бути) ",
-            Prompt::Input => " ⌨  Схоже, скрипт чекає на відповідь — введи її у вікні виводу ",
+            Prompt::Confirm => tr!(
+                " ⌨  Скрипт питає: введи y (так) або n (ні) і натисни Enter ",
+                " ⌨  The script is asking: type y (yes) or n (no) and press Enter "
+            ),
+            Prompt::Password => tr!(
+                " ⌨  Введи пароль sudo/doas і натисни Enter (символів не видно — так і має бути) ",
+                " ⌨  Type your sudo/doas password and press Enter (the characters stay hidden — that's expected) "
+            ),
+            Prompt::Input => tr!(
+                " ⌨  Схоже, скрипт чекає на відповідь — введи її у вікні виводу ",
+                " ⌨  The script seems to be waiting for an answer — type it in the output window "
+            ),
         };
         f.render_widget(Paragraph::new(Span::styled(text, t.banner(t.warn))), banner);
     }
@@ -293,27 +338,65 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
             items.push(("Enter", primary_label(action, wide), true, Target::RunPrimary));
         }
         if has_report {
-            items.push(("o", if roomy { "Переглянути звіт" } else { "Звіт" }, false, Target::OpenReport));
-            items.push(("c", if roomy { "Скопіювати шлях" } else { "Шлях" }, false, Target::CopyPath));
-            items.push(("e", if roomy { "Відкрити в програмі" } else { "У програмі" }, false, Target::OpenExternal));
+            items.push((
+                "o",
+                if roomy { tr!("Переглянути звіт", "View report") } else { tr!("Звіт", "Report") },
+                false,
+                Target::OpenReport,
+            ));
+            items.push((
+                "c",
+                if roomy { tr!("Скопіювати шлях", "Copy path") } else { tr!("Шлях", "Path") },
+                false,
+                Target::CopyPath,
+            ));
+            items.push((
+                "e",
+                if roomy {
+                    tr!("Відкрити в програмі", "Open in an app")
+                } else {
+                    tr!("У програмі", "In app")
+                },
+                false,
+                Target::OpenExternal,
+            ));
         }
         if primary.is_some() {
-            items.push(("Esc", "До меню", false, Target::Continue));
+            items.push(("Esc", tr!("До меню", "To menu"), false, Target::Continue));
         } else {
-            items.push(("Enter", "До меню", true, Target::Continue));
+            items.push(("Enter", tr!("До меню", "To menu"), true, Target::Continue));
         }
         buttons(f, app, buttons_r, &items, false);
     }
 
     let hints: Vec<(&str, &str)> = if running {
-        vec![("↑↓ PgUp/PgDn", "прокрутка"), ("Ctrl+C ×2", "перервати"), ("", "літери й Enter ідуть у скрипт")]
+        vec![
+            ("↑↓ PgUp/PgDn", tr!("прокрутка", "scroll")),
+            ("Ctrl+C ×2", tr!("перервати", "interrupt")),
+            ("", tr!("літери й Enter ідуть у скрипт", "letters and Enter go to the script")),
+        ]
     } else if let Some(action) = primary {
-        let what = if action == Action::Check { "перевірити ще раз" } else { "виправити" };
-        vec![("Enter", what), ("Esc", "до меню"), ("o", "звіт"), ("c", "копіювати шлях"), ("PgUp/PgDn", "прокрутка")]
+        let what = if action == Action::Check {
+            tr!("перевірити ще раз", "check again")
+        } else {
+            tr!("виправити", "fix")
+        };
+        vec![
+            ("Enter", what),
+            ("Esc", tr!("до меню", "to menu")),
+            ("o", tr!("звіт", "report")),
+            ("c", tr!("копіювати шлях", "copy path")),
+            ("PgUp/PgDn", tr!("прокрутка", "scroll")),
+        ]
     } else if has_report {
-        vec![("Enter", "до меню"), ("o", "звіт"), ("c", "копіювати шлях"), ("PgUp/PgDn", "прокрутка")]
+        vec![
+            ("Enter", tr!("до меню", "to menu")),
+            ("o", tr!("звіт", "report")),
+            ("c", tr!("копіювати шлях", "copy path")),
+            ("PgUp/PgDn", tr!("прокрутка", "scroll")),
+        ]
     } else {
-        vec![("Enter", "до меню"), ("PgUp/PgDn", "прокрутка")]
+        vec![("Enter", tr!("до меню", "to menu")), ("PgUp/PgDn", tr!("прокрутка", "scroll"))]
     };
     footer(f, app, foot, &hints, false);
 }

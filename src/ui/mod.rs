@@ -30,8 +30,11 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
         let msg = Paragraph::new(vec![
             Line::from(Span::styled("OBS-Legacy", app.theme.title())),
-            Line::from(format!("Збільш вікно термінала: потрібно щонайменше {MIN_WIDTH}×{MIN_HEIGHT}")),
-            Line::from(format!("(зараз {}×{})", area.width, area.height)),
+            Line::from(trf!(
+                "Збільш вікно термінала: потрібно щонайменше {MIN_WIDTH}×{MIN_HEIGHT}",
+                "Make the terminal window bigger: at least {MIN_WIDTH}×{MIN_HEIGHT} is needed"
+            )),
+            Line::from(trf!("(зараз {}×{})", "(now {}×{})", area.width, area.height)),
         ])
         .alignment(Alignment::Center)
         .wrap(Wrap { trim: true });
@@ -76,6 +79,11 @@ pub fn plural<'a>(n: usize, one: &'a str, few: &'a str, many: &'a str) -> &'a st
         (2..=4, r) if !(12..=14).contains(&r) => few,
         _ => many,
     }
+}
+
+/// Слово поточною мовою для числа `n`: `count_word(5, ["потік", "потоки", "потоків"], ["thread", "threads"])`.
+pub fn count_word<'a>(n: usize, uk: [&'a str; 3], en: [&'a str; 2]) -> &'a str {
+    if crate::i18n::en() { if n == 1 { en[0] } else { en[1] } } else { plural(n, uk[0], uk[1], uk[2]) }
 }
 
 /// Перенесення тексту за словами в рядки шириною до `width` символів.
@@ -362,7 +370,7 @@ fn dialog(f: &mut Frame, app: &mut App, area: Rect) {
     if let Some(label) = alt {
         items.push(("R", label, false, Target::DialogAlt));
     }
-    items.push(("Esc", "Скасувати", false, Target::DialogCancel));
+    items.push(("Esc", tr!("Скасувати", "Cancel"), false, Target::DialogCancel));
     buttons(f, app, buttons_r, &items, true);
 }
 

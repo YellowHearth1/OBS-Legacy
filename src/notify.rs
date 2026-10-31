@@ -38,7 +38,6 @@ const SESSION_VARS: &[&str] = &[
 ];
 
 /// Підпис кнопки на сповіщенні.
-const OPEN_LABEL: &str = "Відкрити OBS-Legacy";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Session {
@@ -73,10 +72,13 @@ impl Session {
         let display = match (self.get("WAYLAND_DISPLAY"), self.get("DISPLAY")) {
             (Some(w), _) => format!("Wayland {w}"),
             (None, Some(d)) => format!("X11 {d}"),
-            _ => "без дисплея".into(),
+            _ => tr!("без дисплея", "no display").into(),
         };
-        let bus = self.get("DBUS_SESSION_BUS_ADDRESS").map(|b| b.split(',').next().unwrap_or(b)).unwrap_or("типова");
-        format!("{display}, шина {bus}")
+        let bus = self
+            .get("DBUS_SESSION_BUS_ADDRESS")
+            .map(|b| b.split(',').next().unwrap_or(b))
+            .unwrap_or(tr!("типова", "default"));
+        trf!("{display}, шина {bus}", "{display}, bus {bus}")
     }
 }
 
@@ -212,7 +214,7 @@ fn notify_send(session: &Session, msg: &Message, with_action: bool) -> Result<()
         .arg(format!("--urgency={}", if msg.urgent { "critical" } else { "normal" }))
         .arg("--hint=string:desktop-entry:obs-legacy");
     if with_action {
-        cmd.arg(format!("--action=open={OPEN_LABEL}"));
+        cmd.arg(format!("--action=open={}", tr!("Відкрити OBS-Legacy", "Open OBS-Legacy")));
     }
     cmd.arg("--").arg(msg.title).arg(msg.body).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| format!("notify-send: {e}"))?;
@@ -226,7 +228,11 @@ fn notify_send(session: &Session, msg: &Message, with_action: bool) -> Result<()
                 let err = read_all(child.stderr.take());
                 if !status.success() {
                     let err = err.trim();
-                    return Err(if err.is_empty() { format!("notify-send: код {status}") } else { err.to_string() });
+                    return Err(if err.is_empty() {
+                        trf!("notify-send: код {status}", "notify-send: code {status}")
+                    } else {
+                        err.to_string()
+                    });
                 }
                 if with_action && out.trim() == "open" {
                     open_app(msg.open, session);
@@ -282,7 +288,11 @@ fn gv_str(s: &str) -> String {
 /// Запасний шлях без libnotify: gdbus з glib2 (кнопки не буде).
 fn gdbus(session: &Session, msg: &Message) -> Result<(), String> {
     if system::find_in_path("gdbus").is_none() {
-        return Err("немає ні notify-send (пакет libnotify), ні gdbus (glib2)".into());
+        return Err(tr!(
+            "немає ні notify-send (пакет libnotify), ні gdbus (glib2)",
+            "neither notify-send (package libnotify) nor gdbus (glib2) is available"
+        )
+        .into());
     }
     let urgency = if msg.urgent { 2 } else { 1 };
     let mut cmd = Command::new("gdbus");

@@ -54,7 +54,7 @@ impl Job {
         let pty = native_pty_system();
         let pair = pty
             .openpty(PtySize { rows: rows.max(2), cols: cols.max(10), pixel_width: 0, pixel_height: 0 })
-            .context("не вдалося відкрити псевдотермінал")?;
+            .context(tr!("не вдалося відкрити псевдотермінал", "couldn't open a pseudo-terminal"))?;
         let mut cmd = CommandBuilder::new(program);
         cmd.args(args);
         cmd.cwd(cwd);
@@ -62,7 +62,10 @@ impl Job {
         for (k, v) in env {
             cmd.env(k, v);
         }
-        let child = pair.slave.spawn_command(cmd).with_context(|| format!("не вдалося запустити {program}"))?;
+        let child = pair
+            .slave
+            .spawn_command(cmd)
+            .with_context(|| trf!("не вдалося запустити {program}", "couldn't start {program}"))?;
         // Без цього читач не отримає EOF, коли процес завершиться.
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader()?;
