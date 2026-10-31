@@ -578,7 +578,7 @@ fn summary(app: &App, width: u16) -> Vec<Line<'static>> {
             Some(trf!("у репозиторії новий ffmpeg {v} — перезбери", "new ffmpeg {v} in the repository — rebuild"))
         } else {
             f.self_update()
-                .filter(|_| app.self_update_src.is_some())
+                .filter(|_| app.self_source.is_some())
                 .map(|l| trf!("вийшов OBS-Legacy {}", "OBS-Legacy {} is out", l.trim_start_matches('v')))
         };
         match (active, news) {

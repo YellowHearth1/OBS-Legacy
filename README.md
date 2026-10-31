@@ -24,11 +24,32 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/YellowHearth1/OBS-Legacy/actions/workflows/ci.yml"><img src="https://github.com/YellowHearth1/OBS-Legacy/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
-  <img src="https://img.shields.io/badge/Artix%20%7C%20Arch-Linux-1793d1" alt="Artix | Arch Linux">
-  <img src="https://img.shields.io/badge/NVIDIA-580xx-76b900" alt="NVIDIA 580xx">
-  <img src="https://img.shields.io/badge/version-0.0.3-555" alt="Version 0.0.3">
+  <a href="https://github.com/YellowHearth1/OBS-Legacy/releases/latest"><img src="https://img.shields.io/github/v/release/YellowHearth1/OBS-Legacy?style=for-the-badge&label=release&color=76b900" alt="Latest release"></a>
+  <a href="https://github.com/YellowHearth1/OBS-Legacy/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/YellowHearth1/OBS-Legacy/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI" alt="CI"></a>
+  <a href="https://github.com/obsproject/obs-studio/releases/latest"><img src="https://img.shields.io/github/v/release/obsproject/obs-studio?style=for-the-badge&label=OBS%20Studio&color=302e31" alt="OBS Studio (latest release)"></a>
+  <img src="https://img.shields.io/badge/NVIDIA-580xx-76b900?style=for-the-badge" alt="NVIDIA 580xx">
+  <img src="https://img.shields.io/badge/NVENC%20SDK-13.0-76b900?style=for-the-badge" alt="NVENC SDK 13.0">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Artix-Linux-10a0cc?style=for-the-badge&logo=artixlinux&logoColor=white" alt="Artix Linux">
+  <img src="https://img.shields.io/badge/Arch-Linux-1793d1?style=for-the-badge&logo=archlinux&logoColor=white" alt="Arch Linux">
+  <img src="https://img.shields.io/badge/init-dinit%20%C2%B7%20OpenRC%20%C2%B7%20runit%20%C2%B7%20s6%20%C2%B7%20systemd-4e9a06?style=for-the-badge" alt="init: dinit, OpenRC, runit, s6, systemd">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Rust-1.88%2B-b7410e?style=for-the-badge&logo=rust&logoColor=white" alt="Rust 1.88+">
+  <img src="https://img.shields.io/badge/TUI-ratatui-1e90ff?style=for-the-badge&logo=ratatui&logoColor=white" alt="TUI: ratatui">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-2b5797?style=for-the-badge" alt="License: Apache-2.0"></a>
+  <a href="https://claude.com/claude-code"><img src="https://img.shields.io/badge/made%20with-Claude%20Code-d97757?style=for-the-badge" alt="Made with Claude Code"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/YellowHearth1/OBS-Legacy/commits/main"><img src="https://img.shields.io/github/last-commit/YellowHearth1/OBS-Legacy?style=flat&label=last%20commit" alt="Last commit"></a>
+  <a href="https://github.com/YellowHearth1/OBS-Legacy/stargazers"><img src="https://img.shields.io/github/stars/YellowHearth1/OBS-Legacy?style=flat&label=stars" alt="Stars"></a>
+  <a href="https://github.com/YellowHearth1/OBS-Legacy/issues"><img src="https://img.shields.io/github/issues/YellowHearth1/OBS-Legacy?style=flat&label=issues" alt="Issues"></a>
+  <a href="https://github.com/YellowHearth1/OBS-Legacy/releases"><img src="https://img.shields.io/github/downloads/YellowHearth1/OBS-Legacy/total?style=flat&label=downloads" alt="Downloads"></a>
+  <img src="https://img.shields.io/github/repo-size/YellowHearth1/OBS-Legacy?style=flat&label=size" alt="Repository size">
 </p>
 
 > [!WARNING]
@@ -129,7 +150,25 @@ to the same places as the repo OBS (`/usr`), so pacman itself offers to replace 
 
 ## Installation
 
-You need Artix or Arch and the NVIDIA 580xx driver. Pick one of two ways.
+You need Artix or Arch (x86_64) and the NVIDIA 580xx driver. Pick one of three ways.
+
+**One command** — the quickest. It downloads the ready-made program from the latest
+[release](https://github.com/YellowHearth1/OBS-Legacy/releases/latest), checks its SHA-256, puts it into
+`~/.local/bin`, adds an **OBS-Legacy** entry to the application menu and starts it. No Rust, no build:
+
+```bash
+curl -fsSL https://github.com/YellowHearth1/OBS-Legacy/releases/latest/download/install.sh | bash
+```
+
+The same with `wget`:
+
+```bash
+wget -qO- https://github.com/YellowHearth1/OBS-Legacy/releases/latest/download/install.sh | bash
+```
+
+Want to read the script first? Download `install.sh` from the release, look through it and run
+`bash install.sh`. To update, run the same command again (or use **More → Update OBS-Legacy**). To remove the
+program, add `-s -- --uninstall` after `bash`.
 
 **Ready package.** Every [release](https://github.com/YellowHearth1/OBS-Legacy/releases) since 0.0.3 comes
 with `obs-legacy-<version>-1-x86_64.pkg.tar.zst`, built from the release sources in a clean Arch container
@@ -159,8 +198,8 @@ entry to the application menu (and, if you like, to the desktop). It also offers
 [update notifications](#update-notifications). Then just click the entry or type `obs-legacy` in a
 terminal.
 
-Use one way, not both: a copy in `~/.local/bin` hides the packaged one. Switching to the package? Run
-`./install.sh --uninstall` first.
+Use one way, not both: a copy in `~/.local/bin` hides the packaged one. Switching to the package? Remove the
+copy first: `./install.sh --uninstall` (or the one command with `-s -- --uninstall`).
 
 ## Usage
 
@@ -353,9 +392,10 @@ applies to the script without it. An environment variable always takes priority 
 - **Update OBS and plugins** — **Install / update OBS** → **Update**: builds only when something is new
   and reuses the previous build, so it is faster. **Rebuild** (or **More → Rebuild OBS**) builds from
   scratch.
-- **Update the program itself** — **More → Update OBS-Legacy**, or
-  `git pull && ./install.sh --update` in the repository folder. Installed from the ready package? Install the
-  package from the new release: `sudo pacman -U obs-legacy-<version>-1-x86_64.pkg.tar.zst`.
+- **Update the program itself** — **More → Update OBS-Legacy**, or `git pull && ./install.sh --update` in the
+  repository folder. Installed with the one command? The same menu item fetches the ready-made program from
+  the latest release, or just run the command again. Installed from the ready package? Install the package
+  from the new release: `sudo pacman -U obs-legacy-<version>-1-x86_64.pkg.tar.zst`.
 - **Roll back** — **More → Roll back to another build**: installs a saved package set with `pacman -U`,
   no rebuild.
 - **Uninstall** — **More → Remove OBS-Legacy**: `pacman -R` of the
@@ -367,7 +407,8 @@ applies to the script without it. An environment variable always takes priority 
 ./install.sh --uninstall
 ```
 
-From the ready package: `sudo pacman -R obs-legacy`.
+Installed with the one command: `curl -fsSL https://github.com/YellowHearth1/OBS-Legacy/releases/latest/download/install.sh | bash -s -- --uninstall`. From the ready package:
+`sudo pacman -R obs-legacy`.
 
 ### Update notifications
 
@@ -454,7 +495,7 @@ another computer: `CPU_TUNING=generic … package`.
 | OBS settings backups | `~/.local/share/obs-studio-nvenc-artix/config-backups/` |
 | OBS-Legacy settings | `~/.config/obs-legacy/settings.env` |
 | Update notifications | state and log `~/.local/state/obs-legacy/`; the service — see [above](#update-notifications) |
-| Program | `~/.local/bin/obs-legacy`, menu entry `~/.local/share/applications/obs-legacy.desktop`; from the ready package — `/usr/bin/obs-legacy`, `/usr/share/applications/obs-legacy.desktop` |
+| Program | `~/.local/bin/obs-legacy` (from source or with the one command), menu entry `~/.local/share/applications/obs-legacy.desktop`; from the ready package — `/usr/bin/obs-legacy`, `/usr/share/applications/obs-legacy.desktop` |
 
 ## Development
 

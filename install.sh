@@ -9,10 +9,13 @@
 #  https://github.com/sl5net/build-obs-nvenc-legacy
 #
 #  Що робить:
-#    * збирає obs-legacy (cargo build --release --locked), а після встановлення
-#      прибирає проміжні файли збирання (target/, сотні мегабайтів);
-#    * кладе його в ~/.local/bin, додає ярлик «OBS-Legacy» у меню програм та
-#      іконку, за бажанням — ярлик на робочий стіл. Клацання по ярлику одразу
+#    * у теці з вихідними кодами (git clone) збирає obs-legacy під цей процесор
+#      (cargo build --release --locked), а після встановлення прибирає проміжні
+#      файли збирання (target/, сотні мегабайтів);
+#    * без неї (curl … | bash) завантажує з релізу на GitHub готову програму й
+#      перевіряє її суму SHA-256 — без Rust і без збирання;
+#    * кладе obs-legacy в ~/.local/bin, додає ярлик «OBS-Legacy» у меню програм
+#      та іконку, за бажанням — ярлик на робочий стіл. Клацання по ярлику одразу
 #      відкриває вікно термінала з меню OBS-Legacy;
 #    * за бажанням вмикає сповіщення про нові версії OBS, плагінів і самого
 #      OBS-Legacy: службу користувача systemd, dinit, OpenRC, runit чи s6 або
@@ -20,17 +23,31 @@
 #  У систему нічого не ставить, крім (лише з твоєї згоди) пакета rust.
 #
 #  Використання:
+#    curl -fsSL https://github.com/YellowHearth1/OBS-Legacy/releases/latest/download/install.sh | bash
 #    ./install.sh              встановити або оновити (запитає про ярлик на столі)
 #    ./install.sh --desktop    те саме + ярлик на робочому столі без запитання
 #    ./install.sh --no-desktop без ярлика на робочому столі
+#    ./install.sh --prebuilt   готова програма з релізу, навіть у теці з вихідними кодами
 #    ./install.sh --update     без запитань (так його викликає сам obs-legacy)
 #    ./install.sh --uninstall  прибрати TUI і сповіщення (зібраний OBS не чіпає)
+#  Параметри разом із curl: … | bash -s -- --uninstall
 # =============================================================================
 set -Eeuo pipefail
 
-SRC_DIR=$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd)
-# Явно, а не з CARGO_TARGET_DIR: звідси беремо бінарник і цю теку потім прибираємо.
-TARGET_DIR="$SRC_DIR/target"
+REPO_URL="https://github.com/YellowHearth1/OBS-Legacy"
+# Реліз, з якого брати готову програму; порожньо — найновіший. У копію install.sh,
+# яку робочий процес Package прикріплює до релізу, підставляється тег цього релізу.
+RELEASE_TAG="${OBS_LEGACY_TAG:-}"
+ASSET="obs-legacy-x86_64"
+
+# Тека з вихідними кодами — лише коли install.sh лежить поруч із Cargo.toml. Під
+# «curl … | bash» файлу скрипта немає взагалі: тоді програма — готова, з релізу.
+SRC_DIR=''
+if [[ -f "${BASH_SOURCE[0]:-}" ]]; then
+  SRC_DIR=$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd)
+  [[ -f "$SRC_DIR/Cargo.toml" && -d "$SRC_DIR/src" ]] || SRC_DIR=''
+fi
+TARGET_DIR=''
 BIN_DIR="$HOME/.local/bin"
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 APPS_DIR="$DATA_HOME/applications"
@@ -38,6 +55,10 @@ ICON_DIR="$DATA_HOME/icons/hicolor/scalable/apps"
 STATE_DIR="$DATA_HOME/obs-legacy"
 DESKTOP_ID="obs-legacy.desktop"
 readonly MARKER="Managed by OBS-Legacy install.sh"
+
+TMP_DIR=''
+cleanup() { if [[ -n "$TMP_DIR" ]]; then rm -rf -- "$TMP_DIR"; fi; }
+trap cleanup EXIT
 
 if [[ -t 2 ]]; then
   C_RED=$'\e[31m' C_GRN=$'\e[32m' C_YEL=$'\e[33m' C_BLU=$'\e[34m' C_BLD=$'\e[1m' C_RST=$'\e[0m'
@@ -73,8 +94,8 @@ warn() { printf '%s[%s]%s %s\n' "$C_YEL" "$(t УВАГА WARNING)" "$C_RST" "$*"
 die()  { printf '%s[%s]%s %s\n' "$C_RED" "$(t ПОМИЛКА ERROR)" "$C_RST" "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
-INTERACTIVE=1
-[[ -t 0 ]] || INTERACTIVE=0
+# Чи можна питати (stdin — термінал); визначає main.
+INTERACTIVE=0
 
 # Відповідь без пробілів і керівних символів (коди стрілок, Esc). LC_ALL=C: в
 # українській локалі діапазон [@-~] не охоплює латинських літер.
@@ -116,6 +137,38 @@ put() {   # $1 = джерело, $2 = призначення, $3 = права
   cp -- "$1" "$tmp"
   chmod "$3" -- "$tmp"
   mv -f -- "$tmp" "$2"
+}
+
+# Завантажити файл: curl (є всюди, де є pacman) або wget.
+fetch() {   # $1 = URL, $2 = куди
+  if have curl; then
+    curl -fsSL --retry 3 --connect-timeout 20 -o "$2" "$1"
+  elif have wget; then
+    wget -q -O "$2" "$1"
+  else
+    die "$(t "Потрібен curl або wget." "curl or wget is needed.")"
+  fi
+}
+
+# Файл із релізу. OBS_LEGACY_DOWNLOAD_URL — тека з тими самими файлами замість релізу
+# (для перевірок, напр. file:///шлях): obs-legacy-x86_64, .sha256 і obs-legacy.svg.
+release_url() {   # $1 = назва файлу
+  if [[ -n "${OBS_LEGACY_DOWNLOAD_URL:-}" ]]; then
+    printf '%s/%s\n' "${OBS_LEGACY_DOWNLOAD_URL%/}" "$1"
+  elif [[ -n "$RELEASE_TAG" ]]; then
+    printf '%s/releases/download/%s/%s\n' "$REPO_URL" "$RELEASE_TAG" "$1"
+  else
+    printf '%s/releases/latest/download/%s\n' "$REPO_URL" "$1"
+  fi
+}
+
+# Іконка — з репозиторію на тому самому тезі (без тегу — з main), щоб у релізі не було зайвих файлів.
+icon_url() {
+  if [[ -n "${OBS_LEGACY_DOWNLOAD_URL:-}" ]]; then
+    release_url obs-legacy.svg
+  else
+    printf 'https://raw.githubusercontent.com/YellowHearth1/OBS-Legacy/%s/assets/obs-legacy.svg\n' "${RELEASE_TAG:-main}"
+  fi
 }
 
 desktop_dir() {
@@ -195,8 +248,8 @@ ensure_rust() {
                                                                               "Neither sudo nor doas is available — install the rust package manually.")"; fi
   confirm "$(t "Встановити пакет rust з репозиторію ($priv pacman -S --needed rust)?" \
                "Install the rust package from the repository ($priv pacman -S --needed rust)?")" \
-    || die "$(t "Скасовано. Без Rust зібрати OBS-Legacy не вийде." \
-                "Cancelled. OBS-Legacy cannot be built without Rust.")"
+    || die "$(t "Скасовано. Без Rust зібрати OBS-Legacy не вийде. Готову програму без Rust ставить ./install.sh --prebuilt." \
+                "Cancelled. OBS-Legacy cannot be built without Rust. ./install.sh --prebuilt installs the ready-made program without Rust.")"
   "$priv" pacman -S --needed rust
   have cargo || die "$(t "Після встановлення cargo так і не знайшовся." \
                          "cargo still was not found after the installation.")"
@@ -215,6 +268,63 @@ clean_build_cache() {
     warn "$(t "Не вдалося прибрати $TARGET_DIR — прибери вручну: cd '$SRC_DIR' && cargo clean" \
               "Could not remove $TARGET_DIR — remove it manually: cd '$SRC_DIR' && cargo clean")"
   fi
+}
+
+# З теки з вихідними кодами: програма збирається під цей процесор.
+build_from_source() {
+  # Явно, а не з CARGO_TARGET_DIR: звідси беремо бінарник і цю теку потім прибираємо.
+  TARGET_DIR="$SRC_DIR/target"
+  ensure_rust
+  say "$(t "Збираю obs-legacy (cargo build --release --locked) — це займе хвилину-дві" \
+           "Building obs-legacy (cargo build --release --locked) — this takes a minute or two")"
+  # Як і OBS, програму збираємо під цей процесор (вона ставиться лише на нього).
+  (cd -- "$SRC_DIR" && RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C target-cpu=native" \
+     cargo build --release --locked --target-dir "$TARGET_DIR")
+
+  say "$(t "Встановлюю" "Installing")"
+  put "$TARGET_DIR/release/obs-legacy" "$BIN_DIR/obs-legacy" 755
+  ok "$(t "Програма: $BIN_DIR/obs-legacy" "Program: $BIN_DIR/obs-legacy")"
+  clean_build_cache
+  put "$SRC_DIR/assets/obs-legacy.svg" "$ICON_DIR/obs-legacy.svg" 644
+}
+
+# Готова програма з релізу — той самий бінарник, що в пакеті obs-legacy (зібраний у
+# чистому контейнері Arch), лише без пакета. Сума SHA-256 — з того самого релізу.
+install_prebuilt() {
+  local arch url want got version
+  arch=$(uname -m)
+  [[ "$arch" == x86_64 ]] || die "$(t "Готова програма є лише для x86_64, а тут $arch. Збери її з вихідних кодів: git clone $REPO_URL.git && cd OBS-Legacy && ./install.sh" \
+                                      "The ready-made program is for x86_64 only, and this is $arch. Build it from source: git clone $REPO_URL.git && cd OBS-Legacy && ./install.sh")"
+  have pacman || warn "$(t "pacman не знайдено: OBS-Legacy збирає й ставить OBS лише на Artix і Arch." \
+                           "pacman was not found: OBS-Legacy builds and installs OBS on Artix and Arch only.")"
+  TMP_DIR=$(mktemp -d)
+  url=$(release_url "$ASSET")
+  say "$(t "Завантажую готову програму: $url" "Downloading the ready-made program: $url")"
+  if ! fetch "$url" "$TMP_DIR/$ASSET" || ! fetch "$url.sha256" "$TMP_DIR/$ASSET.sha256"; then
+    die "$(t "Не вдалося завантажити $url. Перевір інтернет і чи відкривається $REPO_URL/releases, і спробуй ще раз." \
+             "Could not download $url. Check the internet connection and that $REPO_URL/releases opens, then try again.")"
+  fi
+  want=$(awk 'NR == 1 { print $1 }' "$TMP_DIR/$ASSET.sha256")
+  got=$(sha256sum -- "$TMP_DIR/$ASSET" | awk '{ print $1 }')
+  [[ "$want" =~ ^[0-9a-f]{64}$ && "$want" == "$got" ]] \
+    || die "$(t "Контрольна сума не збігається: файл пошкодився під час завантаження. Спробуй ще раз." \
+                "The checksum does not match: the file got damaged while downloading. Try again.")"
+  ok "$(t "Сума SHA-256 збігається" "The SHA-256 checksum matches")"
+  chmod 755 -- "$TMP_DIR/$ASSET"
+  version=$("$TMP_DIR/$ASSET" --version 2>/dev/null) \
+    || die "$(t "Завантажена програма не запускається тут (застаріла glibc?). Онови систему (sudo pacman -Syu) або збери програму з вихідних кодів: git clone $REPO_URL.git && cd OBS-Legacy && ./install.sh" \
+                "The downloaded program does not run here (an old glibc?). Update the system (sudo pacman -Syu) or build the program from source: git clone $REPO_URL.git && cd OBS-Legacy && ./install.sh")"
+
+  say "$(t "Встановлюю" "Installing")"
+  put "$TMP_DIR/$ASSET" "$BIN_DIR/obs-legacy" 755
+  ok "$(t "Програма: $BIN_DIR/obs-legacy ($version)" "Program: $BIN_DIR/obs-legacy ($version)")"
+  if fetch "$(icon_url)" "$TMP_DIR/obs-legacy.svg" && grep -qs '<svg' "$TMP_DIR/obs-legacy.svg"; then
+    put "$TMP_DIR/obs-legacy.svg" "$ICON_DIR/obs-legacy.svg" 644
+  else
+    warn "$(t "Не вдалося завантажити іконку — ярлик буде без неї." "Could not download the icon — the shortcut will have none.")"
+  fi
+  rm -rf -- "$TMP_DIR"
+  TMP_DIR=''
 }
 
 install_desktop_shortcut() {
@@ -242,31 +352,18 @@ install_desktop_shortcut() {
   ok "$(t "Ярлик на робочому столі: $file" "Desktop shortcut: $file")"
 }
 
-do_install() {   # $1 = yes|no|ask — ярлик на робочому столі
+do_install() {   # $1 = yes|no|ask|update — ярлик на робочому столі
   local want_desktop=$1 tmp desktop_file
   (( EUID != 0 )) || die "$(t "Не запускай від root: TUI ставиться для звичайного користувача." \
                               "Do not run as root: the TUI is installed for a normal user.")"
-  [[ -f "$SRC_DIR/Cargo.toml" ]] || die "$(t "Не знайдено Cargo.toml поруч з install.sh ($SRC_DIR)." \
-                                             "Cargo.toml was not found next to install.sh ($SRC_DIR).")"
   banner
   # Програма вже стоїть готовим пакетом: копія в ~/.local/bin перекриє її (PATH, ярлик).
   if have pacman && pacman -Qq obs-legacy >/dev/null 2>&1; then
-    warn "$(t "Пакет obs-legacy уже встановлено (/usr/bin/obs-legacy), і копія в $BIN_DIR його перекриє. Залиш щось одне: sudo pacman -R obs-legacy або потім ./install.sh --uninstall." \
-              "The obs-legacy package is already installed (/usr/bin/obs-legacy), and the copy in $BIN_DIR will override it. Keep only one: sudo pacman -R obs-legacy or later ./install.sh --uninstall.")"
+    warn "$(t "Пакет obs-legacy уже встановлено (/usr/bin/obs-legacy), і копія в $BIN_DIR його перекриє. Залиш щось одне: sudo pacman -R obs-legacy або потім install.sh --uninstall." \
+              "The obs-legacy package is already installed (/usr/bin/obs-legacy), and the copy in $BIN_DIR will override it. Keep only one: sudo pacman -R obs-legacy or later install.sh --uninstall.")"
   fi
-  ensure_rust
+  if [[ -n "$SRC_DIR" ]]; then build_from_source; else install_prebuilt; fi
 
-  say "$(t "Збираю obs-legacy (cargo build --release --locked) — це займе хвилину-дві" \
-           "Building obs-legacy (cargo build --release --locked) — this takes a minute or two")"
-  # Як і OBS, програму збираємо під цей процесор (вона ставиться лише на нього).
-  (cd -- "$SRC_DIR" && RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C target-cpu=native" \
-     cargo build --release --locked --target-dir "$TARGET_DIR")
-
-  say "$(t "Встановлюю" "Installing")"
-  put "$TARGET_DIR/release/obs-legacy" "$BIN_DIR/obs-legacy" 755
-  ok "$(t "Програма: $BIN_DIR/obs-legacy" "Program: $BIN_DIR/obs-legacy")"
-  clean_build_cache
-  put "$SRC_DIR/assets/obs-legacy.svg" "$ICON_DIR/obs-legacy.svg" 644
   tmp=$(mktemp)
   write_desktop_entry "$tmp"
   put "$tmp" "$APPS_DIR/$DESKTOP_ID" 644
@@ -277,8 +374,15 @@ do_install() {   # $1 = yes|no|ask — ярлик на робочому стол
   fi
   ok "$(t "Ярлик у меню програм: OBS-Legacy ($APPS_DIR/$DESKTOP_ID)" \
           "Applications menu shortcut: OBS-Legacy ($APPS_DIR/$DESKTOP_ID)")"
+  # Звідки програма оновлюватиме себе з меню (script::self_source): тека з вихідними кодами чи реліз.
   mkdir -p -- "$STATE_DIR"
-  printf '%s\n' "$SRC_DIR" > "$STATE_DIR/source-dir"
+  if [[ -n "$SRC_DIR" ]]; then
+    printf '%s\n' "$SRC_DIR" > "$STATE_DIR/source-dir"
+    rm -f -- "$STATE_DIR/release-install"
+  else
+    printf '%s\n' "${RELEASE_TAG:-latest}" > "$STATE_DIR/release-install"
+    rm -f -- "$STATE_DIR/source-dir"
+  fi
 
   desktop_file="$(desktop_dir)/$DESKTOP_ID"
   case "$want_desktop" in
@@ -306,9 +410,14 @@ do_install() {   # $1 = yes|no|ask — ярлик на робочому стол
   printf "$(t '\n%sГОТОВО ✓%s\n' '\n%sDONE ✓%s\n')" "$C_GRN$C_BLD" "$C_RST" >&2
   printf "$(t '  Запуск: меню програм → «OBS-Legacy» (або команда obs-legacy). Клацання відкриє термінал з меню.\n' \
               '  Launch: applications menu → “OBS-Legacy” (or the obs-legacy command). Clicking it opens a terminal with the menu.\n')" >&2
-  printf "$(t '  Оновити OBS-Legacy: у меню obs-legacy → «Оновити OBS-Legacy» (або git pull && ./install.sh).\n' \
-              '  Update OBS-Legacy: in the obs-legacy menu → “Update OBS-Legacy” (or git pull && ./install.sh).\n')" >&2
-  if [[ "$want_desktop" != update ]] && confirm "$(t "Відкрити OBS-Legacy зараз?" "Open OBS-Legacy now?")"; then
+  if [[ -n "$SRC_DIR" ]]; then
+    printf "$(t '  Оновити OBS-Legacy: у меню obs-legacy → «Оновити OBS-Legacy» (або git pull && ./install.sh).\n' \
+                '  Update OBS-Legacy: in the obs-legacy menu → “Update OBS-Legacy” (or git pull && ./install.sh).\n')" >&2
+  else
+    printf "$(t '  Оновити OBS-Legacy: ще раз та сама команда (curl … | bash).\n' \
+                '  Update OBS-Legacy: run the same command again (curl … | bash).\n')" >&2
+  fi
+  if [[ "$want_desktop" != update ]] && confirm_yes "$(t "Відкрити OBS-Legacy зараз?" "Open OBS-Legacy now?")"; then
     exec "$BIN_DIR/obs-legacy"
   fi
 }
@@ -329,7 +438,7 @@ do_uninstall() {
                                                           "Could not turn off notifications: obs-legacy --notifier status shows what is left.")"
   fi
   rm -rf -- "${XDG_STATE_HOME:-$HOME/.local/state}/obs-legacy"
-  rm -f -- "$BIN_DIR/obs-legacy" "$ICON_DIR/obs-legacy.svg" "$STATE_DIR/source-dir"
+  rm -f -- "$BIN_DIR/obs-legacy" "$ICON_DIR/obs-legacy.svg" "$STATE_DIR/source-dir" "$STATE_DIR/release-install"
   for f in "$APPS_DIR/$DESKTOP_ID" "$(desktop_dir)/$DESKTOP_ID"; do
     if grep -qs -- "$MARKER" "$f"; then rm -f -- "$f"; fi
   done
@@ -354,10 +463,13 @@ Made with Claude Code (Anthropic's AI assistant), commissioned and directed by t
 repository owner. Inspired by: https://github.com/sl5net/build-obs-nvenc-legacy
 
 What it does:
-  * builds obs-legacy (cargo build --release --locked) and, after installing, removes
-    the intermediate build files (target/, hundreds of megabytes);
-  * puts it into ~/.local/bin, adds an "OBS-Legacy" shortcut to the applications menu
-    and an icon, and optionally a desktop shortcut. Clicking the shortcut opens
+  * in a source folder (git clone) it builds obs-legacy for this processor
+    (cargo build --release --locked) and, after installing, removes the intermediate
+    build files (target/, hundreds of megabytes);
+  * without one (curl … | bash) it downloads the ready-made program from a GitHub
+    release and checks its SHA-256 — no Rust, no build;
+  * puts obs-legacy into ~/.local/bin, adds an "OBS-Legacy" shortcut to the applications
+    menu and an icon, and optionally a desktop shortcut. Clicking the shortcut opens
     a terminal window with the OBS-Legacy menu right away;
   * optionally turns on notifications about new versions of OBS, plugins and OBS-Legacy
     itself: a systemd, dinit, OpenRC, runit or s6 user service, or session autostart
@@ -365,30 +477,71 @@ What it does:
 It installs nothing into the system except (only with your consent) the rust package.
 
 Usage:
+  curl -fsSL https://github.com/YellowHearth1/OBS-Legacy/releases/latest/download/install.sh | bash
   ./install.sh              install or update (asks about a desktop shortcut)
   ./install.sh --desktop    the same + a desktop shortcut without asking
   ./install.sh --no-desktop no desktop shortcut
+  ./install.sh --prebuilt   the ready-made program from a release, even in a source folder
   ./install.sh --update     no questions (this is how obs-legacy itself runs it)
   ./install.sh --uninstall  remove the TUI and notifications (the built OBS stays)
+Options together with curl: … | bash -s -- --uninstall
 EOF
   else
-    sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    cat <<'EOF'
+install.sh — встановлює TUI OBS-Legacy для поточного користувача
+https://github.com/YellowHearth1/OBS-Legacy
+
+Створено за допомогою Claude Code (ШІ-асистент Anthropic) на замовлення і під
+керівництвом автора репозиторію. Натхнення: https://github.com/sl5net/build-obs-nvenc-legacy
+
+Що робить:
+  * у теці з вихідними кодами (git clone) збирає obs-legacy під цей процесор
+    (cargo build --release --locked), а після встановлення прибирає проміжні файли
+    збирання (target/, сотні мегабайтів);
+  * без неї (curl … | bash) завантажує з релізу на GitHub готову програму й перевіряє
+    її суму SHA-256 — без Rust і без збирання;
+  * кладе obs-legacy в ~/.local/bin, додає ярлик «OBS-Legacy» у меню програм та іконку,
+    за бажанням — ярлик на робочий стіл. Клацання по ярлику одразу відкриває вікно
+    термінала з меню OBS-Legacy;
+  * за бажанням вмикає сповіщення про нові версії OBS, плагінів і самого OBS-Legacy:
+    службу користувача systemd, dinit, OpenRC, runit чи s6 або автозапуск сесії
+    (obs-legacy --notifier, без sudo).
+У систему нічого не ставить, крім (лише з твоєї згоди) пакета rust.
+
+Використання:
+  curl -fsSL https://github.com/YellowHearth1/OBS-Legacy/releases/latest/download/install.sh | bash
+  ./install.sh              встановити або оновити (запитає про ярлик на столі)
+  ./install.sh --desktop    те саме + ярлик на робочому столі без запитання
+  ./install.sh --no-desktop без ярлика на робочому столі
+  ./install.sh --prebuilt   готова програма з релізу, навіть у теці з вихідними кодами
+  ./install.sh --update     без запитань (так його викликає сам obs-legacy)
+  ./install.sh --uninstall  прибрати TUI і сповіщення (зібраний OBS не чіпає)
+Параметри разом із curl: … | bash -s -- --uninstall
+EOF
   fi
 }
 
 main() {
-  local desktop=ask
-  case "${1:-}" in
-    '')           ;;
-    --desktop)    desktop=yes ;;
-    --no-desktop) desktop=no ;;
-    --update)     desktop=update; INTERACTIVE=0 ;;
-    --uninstall)  do_uninstall; return ;;
-    -h|--help)    usage; return ;;
-    *)            die "$(t "Невідомий параметр: $1 (див. ./install.sh --help)" \
-                           "Unknown option: $1 (see ./install.sh --help)")" ;;
-  esac
+  local desktop=ask arg
+  if [[ -t 0 ]]; then INTERACTIVE=1; fi
+  for arg in "$@"; do
+    case "$arg" in
+      --desktop)    desktop=yes ;;
+      --no-desktop) desktop=no ;;
+      --prebuilt)   SRC_DIR='' ;;
+      --update)     desktop=update; INTERACTIVE=0 ;;
+      --uninstall)  do_uninstall; return ;;
+      -h|--help)    usage; return ;;
+      *)            die "$(t "Невідомий параметр: $arg (див. install.sh --help)" \
+                             "Unknown option: $arg (see install.sh --help)")" ;;
+    esac
+  done
   do_install "$desktop"
 }
 
-main "$@"
+# «curl … | bash»: stdin — це сам скрипт, тож відповіді й меню наприкінці — з термінала.
+if [[ ! -t 0 ]] && { true </dev/tty; } 2>/dev/null; then
+  main "$@" </dev/tty
+else
+  main "$@"
+fi

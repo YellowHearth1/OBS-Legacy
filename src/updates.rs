@@ -32,8 +32,10 @@ use crate::system::{self, BuildInfo, Updates, newer};
 
 /// Репозиторій OBS-Legacy, якщо тека з вихідними кодами невідома.
 pub const SELF_REPO: &str = "https://github.com/YellowHearth1/OBS-Legacy.git";
-/// Релізи з готовим пакетом obs-legacy.
-const RELEASES: &str = "https://github.com/YellowHearth1/OBS-Legacy/releases";
+/// Релізи з готовою програмою: пакет obs-legacy, obs-legacy-x86_64 і install.sh до них.
+pub const RELEASES: &str = "https://github.com/YellowHearth1/OBS-Legacy/releases";
+/// install.sh з найновішого релізу: ставить готову програму з того самого релізу.
+pub const INSTALLER_URL: &str = "https://github.com/YellowHearth1/OBS-Legacy/releases/latest/download/install.sh";
 /// Куди ставить програму пакет pacman (packaging/PKGBUILD).
 const PACKAGE_EXE: &str = "/usr/bin/obs-legacy";
 const PACMAN_DB: &str = "/var/lib/pacman/local";
@@ -508,7 +510,7 @@ pub fn gather() -> Facts {
     let repos: Vec<(String, String)> =
         tracked_plugins(active, &settings, &catalog).into_iter().map(|(id, _, _, repo)| (id, repo)).collect();
     let u = system::check_updates(&repos, Some(&self_repo()));
-    facts_from(active, &u, &settings, &catalog, script::source_dir().is_some())
+    facts_from(active, &u, &settings, &catalog, script::self_source().is_some())
 }
 
 /// Чого бракує власній збірці OBS — тією ж перевіркою, що й pacman-хук.
