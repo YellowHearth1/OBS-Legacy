@@ -131,8 +131,8 @@ to the same places as the repo OBS (`/usr`), so pacman itself offers to replace 
 
 You need Artix or Arch and the NVIDIA 580xx driver. Pick one of two ways.
 
-**Ready package.** Every [release](https://github.com/YellowHearth1/OBS-Legacy/releases) comes with
-`obs-legacy-<version>-1-x86_64.pkg.tar.zst`, built from the release sources in a clean Arch container
+**Ready package.** Every [release](https://github.com/YellowHearth1/OBS-Legacy/releases) since 0.0.3 comes
+with `obs-legacy-<version>-1-x86_64.pkg.tar.zst`, built from the release sources in a clean Arch container
 ([`packaging/PKGBUILD`](packaging/PKGBUILD)). No Rust needed: download it and install it with pacman.
 
 ```bash

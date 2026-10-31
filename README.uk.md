@@ -129,8 +129,8 @@ OBS-Legacy збирає **офіційний OBS Studio** з приватною 
 
 Потрібні Artix або Arch і драйвер NVIDIA 580xx. Вибери один із двох способів.
 
-**Готовий пакет.** До кожного [релізу](https://github.com/YellowHearth1/OBS-Legacy/releases) додано
-`obs-legacy-<версія>-1-x86_64.pkg.tar.zst`, зібраний з вихідних кодів релізу в чистому контейнері Arch
+**Готовий пакет.** До кожного [релізу](https://github.com/YellowHearth1/OBS-Legacy/releases), починаючи з 0.0.3,
+додано `obs-legacy-<версія>-1-x86_64.pkg.tar.zst`, зібраний з вихідних кодів релізу в чистому контейнері Arch
 ([`packaging/PKGBUILD`](packaging/PKGBUILD)). Rust не потрібен: завантаж пакет і постав його pacman-ом.
 
 ```bash
