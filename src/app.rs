@@ -669,13 +669,54 @@ pub fn key_to_bytes(k: &KeyEvent) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// Команда «Оновити OBS-Legacy» для `bash`: `-c`, скрипт, `$0` і його аргументи. Тексти — окремими
+/// аргументами ($2, $3…), а не всередині скрипта: так їх не зламає апостроф чи лапки в перекладі.
+/// git і curl не питають логін і не висять на мертвому з'єднанні.
+fn self_update_args(src: &SelfSource) -> Vec<String> {
+    match src {
+        SelfSource::Git(dir) => vec![
+            "-c".into(),
+            "set -e; cd \"$1\"; echo \"==> git pull ($1)\"; GIT_TERMINAL_PROMPT=0 git pull --ff-only; \
+             echo \"==> $2\"; exec ./install.sh --update"
+                .into(),
+            "obs-legacy-update".into(),
+            dir.display().to_string(),
+            tr!("Перевстановлення OBS-Legacy", "Reinstalling OBS-Legacy").into(),
+        ],
+        // --prebuilt: тимчасова тека не має вважатися теками з вихідними кодами.
+        SelfSource::Release => vec![
+            "-c".into(),
+            "set -e; tmp=$(mktemp); trap 'rm -f \"$tmp\"' EXIT; echo \"==> $2: $1\"; \
+             curl -fsSL --retry 3 --connect-timeout 20 --speed-limit 1 --speed-time 120 -o \"$tmp\" \"$1\" \
+             || { echo \"$3\"; echo \"$4\"; exit 1; }; bash \"$tmp\" --prebuilt --update"
+                .into(),
+            "obs-legacy-update".into(),
+            updates::INSTALLER_URL.into(),
+            tr!("Завантажую install.sh з релізу", "Downloading install.sh from the release").into(),
+            tr!(
+                "[ПОМИЛКА] Не вдалося завантажити install.sh з релізу.",
+                "[ERROR] Could not download install.sh from the release."
+            )
+            .into(),
+            trf!(
+                "[ПОРАДА] Перевір інтернет і чи відкривається {}, і спробуй ще раз.",
+                "[HINT] Check the internet connection and that {} opens, then try again.",
+                updates::RELEASES
+            ),
+        ],
+    }
+}
+
 fn notify_desktop(title: &str, body: &str) {
-    let _ = Command::new("notify-send")
+    if let Ok(child) = Command::new("notify-send")
         .args(["-a", "OBS-Legacy", title, body])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn();
+        .spawn()
+    {
+        desktop::reap(child);
+    }
 }
 
 fn bell() {
@@ -1221,41 +1262,9 @@ impl App {
                 self.start_script(Action::Deps, &["deps"]);
             }
             DialogAction::Run(Action::SelfUpdate) => {
-                let args = match self.self_source.clone() {
-                    Some(SelfSource::Git(dir)) => vec![
-                        "-c".to_string(),
-                        format!(
-                            "set -e; cd \"$1\"; echo \"==> git pull ($1)\"; git pull --ff-only; \
-                             echo '==> {}'; exec ./install.sh --update",
-                            tr!("Перевстановлення OBS-Legacy", "Reinstalling OBS-Legacy")
-                        ),
-                        "obs-legacy-update".to_string(),
-                        dir.display().to_string(),
-                    ],
-                    // --prebuilt: тимчасова тека не має вважатися теками з вихідними кодами.
-                    Some(SelfSource::Release) => vec![
-                        "-c".to_string(),
-                        format!(
-                            "set -e; tmp=$(mktemp); trap 'rm -f \"$tmp\"' EXIT; echo \"==> {}: $1\"; \
-                             curl -fsSL --retry 3 -o \"$tmp\" \"$1\" || {{ echo '{}'; echo '{}'; exit 1; }}; \
-                             bash \"$tmp\" --prebuilt --update",
-                            tr!("Завантажую install.sh з релізу", "Downloading install.sh from the release"),
-                            tr!(
-                                "[ПОМИЛКА] Не вдалося завантажити install.sh з релізу.",
-                                "[ERROR] Could not download install.sh from the release."
-                            ),
-                            trf!(
-                                "[ПОРАДА] Перевір інтернет і чи відкривається {}, і спробуй ще раз.",
-                                "[HINT] Check the internet connection and that {} opens, then try again.",
-                                updates::RELEASES
-                            ),
-                        ),
-                        "obs-legacy-update".to_string(),
-                        updates::INSTALLER_URL.to_string(),
-                    ],
-                    None => return,
-                };
-                self.start_job(Action::SelfUpdate, "bash", args);
+                if let Some(src) = self.self_source.clone() {
+                    self.start_job(Action::SelfUpdate, "bash", self_update_args(&src));
+                }
             }
             DialogAction::Run(other) => self.activate(other),
             DialogAction::LaunchSystemObs => self.launch_obs(true),
@@ -1660,7 +1669,10 @@ impl App {
             });
         }
         match cmd.spawn() {
-            Ok(_) => self.toast(ToastKind::Ok, trf!("OBS запускається ({})…", "OBS is starting ({})…", obs.display())),
+            Ok(child) => {
+                desktop::reap(child);
+                self.toast(ToastKind::Ok, trf!("OBS запускається ({})…", "OBS is starting ({})…", obs.display()));
+            }
             Err(e) => self.toast(ToastKind::Err, trf!("Не вдалося запустити OBS: {e}", "Couldn't start OBS: {e}")),
         }
     }
@@ -2377,6 +2389,20 @@ mod tests {
         assert!(app.advanced_open);
         assert_eq!(app.rows()[app.menu_sel], Row::Item(Action::Uninstall));
         assert!(!app.rows().contains(&Row::Item(Action::SelfUpdate)));
+    }
+
+    #[test]
+    fn self_update_command_takes_texts_as_arguments() {
+        for src in [SelfSource::Git(PathBuf::from("/home/u/OBS-Legacy")), SelfSource::Release] {
+            let args = self_update_args(&src);
+            assert_eq!(args[0], "-c");
+            let script = &args[1];
+            // Перекладу (кирилиці) в самому скрипті немає — лише в аргументах.
+            assert!(script.is_ascii(), "{script}");
+            // Кожен $N, на який посилається скрипт, переданий окремим аргументом (args[2] — це $0).
+            let used = (1..=9).filter(|n| script.contains(&format!("${n}"))).max().unwrap_or(0);
+            assert_eq!(args.len(), 3 + used, "{args:?}");
+        }
     }
 
     #[test]

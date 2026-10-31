@@ -503,7 +503,7 @@ fn spawn_detached(exe: &Path) -> Result<(), String> {
         });
     }
     cmd.spawn()
-        .map(|_| ())
+        .map(crate::desktop::reap)
         .map_err(|e| trf!("не вдалося запустити {} --watch: {e}", "couldn't start {} --watch: {e}", exe.display()))
 }
 

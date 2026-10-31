@@ -529,7 +529,7 @@ interface in English as well as Ukrainian and a ready pacman package of the prog
 **0.0.2** was the first public release: pacman packages
 (`obs-studio-legacy-580xx` and the rest), builds tuned to your hardware, ffmpeg with NVENC, update
 notifications, **Update** and **Rebuild**. The changelog is in [Releases](https://github.com/YellowHearth1/OBS-Legacy/releases). Program
-version: `obs-legacy --version`; the build script is versioned by date (`2026.10.31.1`).
+version: `obs-legacy --version`; the build script is versioned by date (`2026.10.31.2`).
 
 ## Credits
 

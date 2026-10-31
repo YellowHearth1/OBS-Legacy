@@ -64,7 +64,7 @@ set -Eeuo pipefail
 shopt -s inherit_errexit 2>/dev/null || true
 umask 022
 
-readonly SCRIPT_VERSION="2026.10.31.1"
+readonly SCRIPT_VERSION="2026.10.31.2"
 # Номер рецепта збирання й пакування. Підвищувати, лише коли зміна в рушії вимагає
 # перезібрати вже встановлені пакети (прапорці, розкладка, залежності): тоді «Оновити»
 # збере їх знову. Зміни інтерфейсу й підказок його не чіпають.
@@ -128,6 +128,12 @@ resolve_lang
 
 # Текст мовою інтерфейсу: t "українською" "in English".
 t() { if ((LANG_EN)); then printf '%s' "$2"; else printf '%s' "$1"; fi; }
+
+# git ніколи не питає логін у терміналі: зниклий чи закритий репозиторій плагіна — це помилка
+# з порадою, а не збирання, що висить на «Username for 'https://github.com'». А з'єднання, що
+# дві хвилини не передає жодного байта (зник інтернет, а комп'ютер працює від ДБЖ), обривається —
+# і net_retry пробує ще раз, замість чекати вічно. Так само curl у download_file.
+export GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1 GIT_HTTP_LOW_SPEED_TIME=120
 
 # ---------------------------------------------------------------------------
 # Налаштування (кожне можна перевизначити змінною середовища)
@@ -784,8 +790,8 @@ show_inventory() {
 
   say "NVIDIA"
   if have nvidia-smi; then
-    nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null | sed "$(t 's/^/  GPU, драйвер: /' \
-                                                                                            's/^/  GPU, driver: /')" >&2 \
+    timeout 15 nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null | sed "$(t 's/^/  GPU, драйвер: /' \
+                                                                                                       's/^/  GPU, driver: /')" >&2 \
       || warn "$(t "nvidia-smi не відповідає." "nvidia-smi is not responding.")"
   else
     warn "$(t "nvidia-smi не знайдено." "nvidia-smi was not found.")"
@@ -1494,7 +1500,8 @@ download_file() {   # $1 = URL, $2 = файл
   local url=$1 dest=$2 part="$2.part"
   rm -f -- "$part"
   say "$(t "Завантажую $url" "Downloading $url")"
-  if ! curl --fail --location --retry 3 --retry-delay 3 --connect-timeout 20 --progress-bar -o "$part" -- "$url"; then
+  if ! curl --fail --location --retry 3 --retry-delay 3 --connect-timeout 20 --speed-limit 1 --speed-time 120 \
+       --progress-bar -o "$part" -- "$url"; then
     rm -f -- "$part"
     return 1
   fi
