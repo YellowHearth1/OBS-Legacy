@@ -58,7 +58,13 @@ fn details_panel<'a>(t: &Theme, title: &str, lines: Vec<Line<'a>>) -> Paragraph<
 pub fn plugins(f: &mut Frame, app: &mut App, area: Rect) {
     let t = app.theme;
     let (bar, body, foot) = frame(area);
-    top_bar(f, app, bar, &["Плагіни"], "збираються разом з OBS і оновлюються разом з ним");
+    top_bar(
+        f,
+        app,
+        bar,
+        &[tr!("Плагіни", "Plugins")],
+        tr!("збираються разом з OBS і оновлюються разом з ним", "built together with OBS and updated with it"),
+    );
     let (list_r, details_r) = split(body, 52);
     let selected_ids = app.settings.plugins();
     let installed: Vec<(String, String)> =
@@ -67,8 +73,8 @@ pub fn plugins(f: &mut Frame, app: &mut App, area: Rect) {
     let block = panel(
         &t,
         Line::from(vec![
-            Span::styled(" Каталог ", t.title()),
-            Span::styled(format!("· обрано {} ", selected_ids.len()), t.muted()),
+            Span::styled(tr!(" Каталог ", " Catalog "), t.title()),
+            Span::styled(trf!("· обрано {} ", "· {} selected ", selected_ids.len()), t.muted()),
         ]),
         true,
     );
@@ -77,11 +83,18 @@ pub fn plugins(f: &mut Frame, app: &mut App, area: Rect) {
 
     let Some(catalog) = app.catalog.clone() else {
         let msg = match &app.catalog_error {
-            Some(e) => Line::from(Span::styled(format!(" ✗ Не вдалося прочитати каталог: {e}"), t.err())),
-            None => Line::from(format!(" {} Завантажую каталог плагінів…", spinner(app.tick))),
+            Some(e) => Line::from(Span::styled(
+                trf!(" ✗ Не вдалося прочитати каталог: {e}", " ✗ Couldn't read the catalog: {e}"),
+                t.err(),
+            )),
+            None => Line::from(trf!(
+                " {} Завантажую каталог плагінів…",
+                " {} Loading the plugin catalog…",
+                spinner(app.tick)
+            )),
         };
         f.render_widget(Paragraph::new(msg).wrap(Wrap { trim: true }), inner);
-        footer(f, app, foot, &[("Esc", "назад")], true);
+        footer(f, app, foot, &[("Esc", tr!("назад", "back"))], true);
         return;
     };
     app.plugin_sel = app.plugin_sel.min(catalog.len().saturating_sub(1));
@@ -98,10 +111,10 @@ pub fn plugins(f: &mut Frame, app: &mut App, area: Rect) {
             Span::styled(format!("{:<name_w$}", p.name), if checked { t.strong() } else { Style::new() }),
         ];
         if p.default {
-            spans.push(Span::styled("  ◆ радимо", t.warn()));
+            spans.push(Span::styled(tr!("  ◆ радимо", "  ◆ recommended"), t.warn()));
         }
         if let Some((_, v)) = installed.iter().find(|(id, _)| *id == p.id) {
-            spans.push(Span::styled(format!("  ● встановлено {v}"), t.ok()));
+            spans.push(Span::styled(trf!("  ● встановлено {v}", "  ● installed {v}"), t.ok()));
         }
         let r = Rect { y: inner.y + row as u16, height: 1, ..inner };
         f.render_widget(Paragraph::new(row_line(&t, sel, spans, r.width)), r);
@@ -116,12 +129,15 @@ pub fn plugins(f: &mut Frame, app: &mut App, area: Rect) {
             Line::from(""),
         ];
         if p.default {
-            lines.push(Line::from(Span::styled("◆ Радимо: увімкнено за замовчуванням.", t.warn())));
+            lines.push(Line::from(Span::styled(
+                tr!("◆ Радимо: увімкнено за замовчуванням.", "◆ Recommended: on by default."),
+                t.warn(),
+            )));
         }
         lines.push(kv(&t, "id", vec![Span::styled(p.id.clone(), t.muted())]));
-        lines.push(kv(&t, "Пакет", vec![Span::raw(p.package.clone())]));
+        lines.push(kv(&t, tr!("Пакет", "Package"), vec![Span::raw(p.package.clone())]));
         if !p.packages.is_empty() {
-            lines.push(kv(&t, "Потребує", vec![Span::raw(p.packages.clone())]));
+            lines.push(kv(&t, tr!("Потребує", "Needs"), vec![Span::raw(p.packages.clone())]));
         }
         let latest = app
             .updates
@@ -129,17 +145,22 @@ pub fn plugins(f: &mut Frame, app: &mut App, area: Rect) {
             .and_then(|u| u.plugins.iter().find(|(id, _)| *id == p.id))
             .and_then(|(_, v)| v.clone());
         match installed.iter().find(|(id, _)| *id == p.id) {
-            Some((_, v)) => lines.push(kv(&t, "Встановлено", vec![Span::styled(v.clone(), t.ok())])),
-            None => lines.push(kv(&t, "Встановлено", vec![Span::styled("ні", t.muted())])),
+            Some((_, v)) => lines.push(kv(&t, tr!("Встановлено", "Installed"), vec![Span::styled(v.clone(), t.ok())])),
+            None => lines.push(kv(&t, tr!("Встановлено", "Installed"), vec![Span::styled(tr!("ні", "no"), t.muted())])),
         }
         if let Some(l) = latest {
-            lines.push(kv(&t, "Найновіший", vec![Span::raw(l)]));
+            lines.push(kv(&t, tr!("Найновіший", "Latest"), vec![Span::raw(l)]));
         }
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "Галочка зберігається одразу, а плагін з'явиться після «Встановити / оновити OBS»: він збирається \
-             з вихідних кодів під твій процесор і ставиться окремим пакетом. Якщо він колись не збереться, OBS \
-             встановиться без нього, з попередженням.",
+            tr!(
+                "Галочка зберігається одразу, а плагін з'явиться після «Встановити / оновити OBS»: він збирається \
+                 з вихідних кодів під твій процесор і ставиться окремим пакетом. Якщо він колись не збереться, OBS \
+                 встановиться без нього, з попередженням.",
+                "The tick is saved right away, and the plugin appears after “Install / update OBS”: it is built from \
+                 source for your processor and installed as a separate package. If it ever fails to build, OBS is \
+                 installed without it, with a warning."
+            ),
             t.muted(),
         )));
         f.render_widget(details_panel(&t, &p.name, lines), details_r);
@@ -148,7 +169,13 @@ pub fn plugins(f: &mut Frame, app: &mut App, area: Rect) {
         f,
         app,
         foot,
-        &[("Esc", "назад"), ("Пробіл", "галочка"), ("a", "усі"), ("n", "жодного"), ("d", "типові")],
+        &[
+            ("Esc", tr!("назад", "back")),
+            (tr!("Пробіл", "Space"), tr!("галочка", "tick")),
+            ("a", tr!("усі", "all")),
+            ("n", tr!("жодного", "none")),
+            ("d", tr!("типові", "defaults")),
+        ],
         true,
     );
 }
@@ -156,17 +183,26 @@ pub fn plugins(f: &mut Frame, app: &mut App, area: Rect) {
 pub fn rollback(f: &mut Frame, app: &mut App, area: Rect) {
     let t = app.theme;
     let (bar, body, foot) = frame(area);
-    top_bar(f, app, bar, &["Відкат на іншу збірку"], "попередній набір пакетів — без перезбирання");
+    top_bar(
+        f,
+        app,
+        bar,
+        &[tr!("Відкат на іншу збірку", "Roll back to another build")],
+        tr!("попередній набір пакетів — без перезбирання", "a previous package set — no rebuild"),
+    );
     let (list_r, details_r) = split(body, 52);
-    let block = panel(&t, panel_title(&t, "Збережені збірки"), true);
+    let block = panel(&t, panel_title(&t, tr!("Збережені збірки", "Saved builds")), true);
     let inner = block.inner(list_r);
     f.render_widget(block, list_r);
     if app.builds.is_empty() {
         let msg = Paragraph::new(vec![
             Line::from(""),
-            Line::from(Span::styled(" Збережених збірок ще немає.", t.strong())),
+            Line::from(Span::styled(tr!(" Збережених збірок ще немає.", " No saved builds yet."), t.strong())),
             Line::from(Span::styled(
-                " Після першого «Встановити / оновити OBS» тут з'являться набори пакетів для відкату.",
+                tr!(
+                    " Після першого «Встановити / оновити OBS» тут з'являться набори пакетів для відкату.",
+                    " After the first “Install / update OBS”, package sets for rollback appear here."
+                ),
                 t.muted(),
             )),
         ])
@@ -174,15 +210,20 @@ pub fn rollback(f: &mut Frame, app: &mut App, area: Rect) {
         f.render_widget(msg, inner);
         let about = details_panel(
             &t,
-            "Як працює відкат",
+            tr!("Як працює відкат", "How rollback works"),
             vec![
-                Line::from(
+                Line::from(tr!(
                     "Кожне збирання дає набір пакетів pacman (OBS, плагіни, за потреби ffmpeg), і набори \
                      зберігаються. Відкат ставить попередній набір через pacman -U — без перезбирання.",
-                ),
+                    "Every build makes a set of pacman packages (OBS, plugins, ffmpeg if needed), and the sets are \
+                     kept. A rollback installs a previous set with pacman -U — no rebuild."
+                )),
                 Line::from(""),
                 Line::from(Span::styled(
-                    "Скільки наборів зберігати, задає «Налаштування → Скільки наборів тримати».",
+                    tr!(
+                        "Скільки наборів зберігати, задає «Налаштування → Скільки наборів тримати».",
+                        "How many sets to keep is set in “Settings → Package sets to keep”."
+                    ),
                     t.muted(),
                 )),
             ],
@@ -199,13 +240,13 @@ pub fn rollback(f: &mut Frame, app: &mut App, area: Rect) {
                 Span::styled(format!(" {}  ", b.built()), t.muted()),
             ];
             if b.active {
-                spans.push(Span::styled("активна ", t.ok()));
+                spans.push(Span::styled(tr!("активна ", "active "), t.ok()));
             }
             if b.legacy {
                 spans.push(Span::styled("/opt", t.muted()));
             }
             if !b.complete {
-                spans.push(Span::styled("неповна", t.err()));
+                spans.push(Span::styled(tr!("неповна", "incomplete"), t.err()));
             }
             let r = Rect { y: inner.y + row as u16, height: 1, ..inner };
             f.render_widget(Paragraph::new(row_line(&t, sel, spans, r.width)), r);
@@ -217,68 +258,90 @@ pub fn rollback(f: &mut Frame, app: &mut App, area: Rect) {
                 Line::from(Span::styled(b.label.clone(), t.muted())),
                 Line::from(""),
                 kv(&t, "OBS", vec![Span::raw(get("obs_version"))]),
-                kv(&t, "Коміт", vec![Span::raw(get("obs_commit").chars().take(12).collect::<String>())]),
-                kv(&t, "Зібрано", vec![Span::raw(b.built())]),
+                kv(&t, tr!("Коміт", "Commit"), vec![Span::raw(get("obs_commit").chars().take(12).collect::<String>())]),
+                kv(&t, tr!("Зібрано", "Built"), vec![Span::raw(b.built())]),
                 kv(&t, "CEF", vec![Span::raw(get("cef_build"))]),
                 kv(&t, "NVENC SDK", vec![Span::raw(get("nvenc_api_headers"))]),
             ];
             if let Some(p) = b.profile() {
-                lines.push(kv(&t, "Оптимізовано", vec![Span::raw(p)]));
+                lines.push(kv(&t, tr!("Оптимізовано", "Tuned for"), vec![Span::raw(p)]));
             }
             let plugins = b.plugins();
             let text = if plugins.is_empty() {
-                "немає".to_string()
+                tr!("немає", "none").to_string()
             } else {
                 plugins.iter().map(|(id, v)| format!("{id} {v}")).collect::<Vec<_>>().join(", ")
             };
-            lines.push(kv(&t, "Плагіни", vec![Span::raw(text)]));
+            lines.push(kv(&t, tr!("Плагіни", "Plugins"), vec![Span::raw(text)]));
             if let Some(v) = b.get("ffmpeg") {
-                lines.push(kv(&t, "ffmpeg", vec![Span::raw(format!("{v} (у наборі)"))]));
+                lines.push(kv(&t, "ffmpeg", vec![Span::raw(trf!("{v} (у наборі)", "{v} (in the set)"))]));
             }
             if b.legacy {
-                lines.push(kv(&t, "Схема", vec![Span::styled("стара (/opt, до пакетів)", t.muted())]));
+                lines.push(kv(
+                    &t,
+                    tr!("Схема", "Layout"),
+                    vec![Span::styled(tr!("стара (/opt, до пакетів)", "old (/opt, before packages)"), t.muted())],
+                ));
             }
             lines.push(Line::from(""));
             let hint = if b.active {
-                Span::styled("Ця збірка зараз активна.", t.ok())
+                Span::styled(tr!("Ця збірка зараз активна.", "This build is active now."), t.ok())
             } else if b.complete && b.legacy {
                 Span::styled(
-                    "Enter — перемкнути OBS на цю збірку в /opt (скрипт попросить підтвердження і пароль).",
+                    tr!(
+                        "Enter — перемкнути OBS на цю збірку в /opt (скрипт попросить підтвердження і пароль).",
+                        "Enter — switch OBS to this build in /opt (the script asks for confirmation and a password)."
+                    ),
                     t.muted(),
                 )
             } else if b.complete {
                 Span::styled(
-                    "Enter — поставити цей набір пакетів через pacman (скрипт попросить підтвердження і пароль).",
+                    tr!(
+                        "Enter — поставити цей набір пакетів через pacman (скрипт попросить підтвердження і пароль).",
+                        "Enter — install this package set with pacman (the script asks for confirmation and a password)."
+                    ),
                     t.muted(),
                 )
             } else {
-                Span::styled("Збірка неповна — перемкнутися на неї не можна.", t.err())
+                Span::styled(
+                    tr!(
+                        "Збірка неповна — перемкнутися на неї не можна.",
+                        "The build is incomplete — you can't switch to it."
+                    ),
+                    t.err(),
+                )
             };
             lines.push(Line::from(hint));
             f.render_widget(details_panel(&t, &format!("OBS {}", b.obs_version()), lines), details_r);
         }
     }
-    footer(f, app, foot, &[("Esc", "назад"), ("↑↓", "вибір"), ("Enter", "перемкнутися")], true);
+    footer(
+        f,
+        app,
+        foot,
+        &[("Esc", tr!("назад", "back")), ("↑↓", tr!("вибір", "select")), ("Enter", tr!("перемкнутися", "switch"))],
+        true,
+    );
 }
 
 fn value_spans(t: &Theme, settings: &Settings, key: &str, kind: Kind) -> Vec<Span<'static>> {
     let v = settings.get(key);
     let mut spans = match kind {
-        Kind::Toggle if v == "1" => vec![Span::styled("[✓] увімкнено", t.ok())],
-        Kind::Toggle => vec![Span::styled("[ ] вимкнено", t.muted())],
-        Kind::Number { .. } if v.is_empty() => vec![Span::styled("авто", t.muted())],
+        Kind::Toggle if v == "1" => vec![Span::styled(tr!("[✓] увімкнено", "[✓] on"), t.ok())],
+        Kind::Toggle => vec![Span::styled(tr!("[ ] вимкнено", "[ ] off"), t.muted())],
+        Kind::Number { .. } if v.is_empty() => vec![Span::styled(tr!("авто", "auto"), t.muted())],
         Kind::Choice(_) => match kind.choice_label(&v) {
             Some(label) => vec![Span::raw(v.clone()), Span::styled(format!(" ({label})"), t.muted())],
             None => vec![Span::styled(v.clone(), t.warn())],
         },
         _ if v.is_empty() => vec![Span::styled("—", t.muted())],
         _ if key == "OBS_REF" && v == "stable" => {
-            vec![Span::raw("stable"), Span::styled(" (найновіша стабільна)", t.muted())]
+            vec![Span::raw("stable"), Span::styled(tr!(" (найновіша стабільна)", " (the latest stable)"), t.muted())]
         }
         _ => vec![Span::raw(v)],
     };
     if let Some(env) = Settings::env_override(key) {
-        spans.push(Span::styled(format!("  (змінна середовища: {env})"), t.warn()));
+        spans.push(Span::styled(trf!("  (змінна середовища: {env})", "  (environment variable: {env})"), t.warn()));
     }
     spans
 }
@@ -287,9 +350,15 @@ pub fn settings(f: &mut Frame, app: &mut App, area: Rect) {
     let t = app.theme;
     let (bar, body, foot) = frame(area);
     let path = short_path(app.settings.path());
-    top_bar(f, app, bar, &["Налаштування"], &format!("{path} · діють і для скрипта без TUI"));
+    top_bar(
+        f,
+        app,
+        bar,
+        &[tr!("Налаштування", "Settings")],
+        &trf!("{path} · діють і для скрипта без TUI", "{path} · also apply to the script without the TUI"),
+    );
     let (list_r, details_r) = split(body, 50);
-    let block = panel(&t, panel_title(&t, "Параметри"), true);
+    let block = panel(&t, panel_title(&t, tr!("Параметри", "Options")), true);
     let inner = block.inner(list_r);
     f.render_widget(block, list_r);
 
@@ -310,7 +379,11 @@ pub fn settings(f: &mut Frame, app: &mut App, area: Rect) {
     for (row, ri) in range.enumerate() {
         let r = Rect { y: inner.y + row as u16, height: 1, ..inner };
         let Some(i) = rows[ri] else {
-            let text = if seen_header == 0 { " Основне" } else { " Для досвідчених" };
+            let text = if seen_header == 0 {
+                tr!(" Основне", " Main")
+            } else {
+                tr!(" Для досвідчених", " Advanced")
+            };
             seen_header += 1;
             f.render_widget(
                 Paragraph::new(Line::from(Span::styled(text, Style::new().fg(t.accent2).add_modifier(Modifier::BOLD)))),
@@ -347,11 +420,11 @@ pub fn settings(f: &mut Frame, app: &mut App, area: Rect) {
         Line::from(""),
         kv(
             &t,
-            "Типово",
+            tr!("Типово", "Default"),
             vec![Span::raw(match (field.kind, field.default) {
-                (Kind::Toggle, "1") => "увімкнено".to_string(),
-                (Kind::Toggle, _) => "вимкнено".to_string(),
-                (Kind::Number { .. }, "") => "авто".to_string(),
+                (Kind::Toggle, "1") => tr!("увімкнено", "on").to_string(),
+                (Kind::Toggle, _) => tr!("вимкнено", "off").to_string(),
+                (Kind::Number { .. }, "") => tr!("авто", "auto").to_string(),
                 (k @ Kind::Choice(_), d) => format!("{d} ({})", k.choice_label(d).unwrap_or("")),
                 (_, "") => "—".to_string(),
                 (_, d) => d.to_string(),
@@ -365,9 +438,13 @@ pub fn settings(f: &mut Frame, app: &mut App, area: Rect) {
     f.render_widget(details_panel(&t, field.label(), lines), details_r);
 
     let hints: &[(&str, &str)] = if app.editor.is_some() {
-        &[("Enter", "зберегти"), ("Esc", "скасувати"), ("Ctrl+U", "очистити")]
+        &[("Enter", tr!("зберегти", "save")), ("Esc", tr!("скасувати", "cancel")), ("Ctrl+U", tr!("очистити", "clear"))]
     } else {
-        &[("Esc", "назад"), ("Enter", "змінити"), ("r", "типове значення")]
+        &[
+            ("Esc", tr!("назад", "back")),
+            ("Enter", tr!("змінити", "change")),
+            ("r", tr!("типове значення", "default value")),
+        ]
     };
     footer(f, app, foot, hints, app.editor.is_none());
 }
