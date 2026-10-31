@@ -41,16 +41,15 @@
 > - The code was written by an AI and has not been independently audited for security.
 > - The program builds OBS Studio, its plugins and ffmpeg from source, packs them into pacman packages and
 >   installs them with `pacman` (only after you confirm), using `sudo`/`doas`.
-> - Start with **Check system** (*«Перевірити систему»*): it changes nothing.
+> - Start with **Check system**: it changes nothing.
 > - Use at your own risk, with no warranty of any kind (see [LICENSE](LICENSE)).
 >
-> The program shows the same warning on its first screen at every launch (in Ukrainian:
-> «Скрипт зроблений за допомогою Claude Code»).
+> The program shows the same warning on its first screen at every launch.
 
 <details>
 <summary>What the first screen looks like</summary>
 <p align="center">
-  <img src="docs/screenshots/intro.png" alt="First screen: the “made with Claude Code” warning and the thanks to sl5net" width="720">
+  <img src="docs/screenshots/en/intro.png" alt="First screen: the “made with Claude Code” warning and the thanks to sl5net" width="720">
 </p>
 </details>
 
@@ -60,11 +59,12 @@
 > this project would not exist. Many thanks to its author! ♥
 
 > [!NOTE]
-> **The interface is in Ukrainian** for now; English is planned. The menu is short, and this README names
-> every item in both languages, e.g. **Install / update OBS** (*«Встановити / оновити OBS»*).
+> **The interface speaks English and Ukrainian.** It follows the system language (a `uk_*` locale means
+> Ukrainian, anything else means English); you can switch it in **More → Settings → Interface language**.
+> The build script, its reports and `install.sh` use the same language.
 
 <p align="center">
-  <img src="docs/screenshots/home.png" alt="Home screen: a four-step menu, the “What next” advice and the system status" width="820">
+  <img src="docs/screenshots/en/home.png" alt="Home screen: a four-step menu, the “What next” advice and the system status" width="820">
 </p>
 
 ## Why
@@ -86,10 +86,10 @@ to the same places as the repo OBS (`/usr`), so pacman itself offers to replace 
 
 - **Guides you.** The home screen shows what is ready and what to do next; the cursor already sits on the
   right item, so you usually just press Enter. The menu has four steps; everything else lives under
-  **More** (*«Додатково»*).
+  **More**.
 - **Explains and fixes.** After every run, a card says “what happened / what to do”, with advice from the
   script itself. Whatever can be fixed automatically (installing missing build packages, cleaning the
-  cache) is fixed with the **Fix** button (*«Виправити»*). The full report opens right inside the program
+  cache) is fixed with the **Fix** button. The full report opens right inside the program
   (`o`), its path is copied with `c`, and the file opens in your text editor with `e`.
 - **Readable in any terminal.** A solid dark background keeps the text legible in transparent Kitty,
   Alacritty or Konsole. You can turn it off in the settings.
@@ -101,7 +101,7 @@ to the same places as the repo OBS (`/usr`), so pacman itself offers to replace 
   distribution's `makepkg.conf`; the newest NVENC headers your driver knows; the CUDA architecture of your
   GPU for ffmpeg's CUDA filters (with several NVIDIA GPUs, the oldest one, so the filters run on all of
   them). The `obs-legacy` program itself is compiled for your CPU too. You see the whole profile in the
-  **Hardware optimization** step (*«Оптимізація під залізо»*) of the report.
+  **Hardware optimization** step of the report.
 - **Real pacman packages.** `obs-studio-legacy-580xx` provides `obs-studio`, so AUR plugins that depend on
   it install as usual, and `pacman -Qs legacy-580xx` shows everything OBS-Legacy installed.
 - **Browser Source built in.** The official OBS Linux CEF archive is used, and its SHA-256 is checked
@@ -164,29 +164,28 @@ Use one way, not both: a copy in `~/.local/bin` hides the packaged one. Switchin
 
 ## Usage
 
-1. **Check system** (*«Перевірити систему»*). Driver, NVENC, packages, downloading the OBS and CEF
+1. **Check system**. Driver, NVENC, packages, downloading the OBS and CEF
    sources. Changes nothing; takes 5–15 minutes.
-2. **Plugins** (*«Плагіни»*) — optional. Tick what to build together with OBS.
-3. **Install / update OBS** (*«Встановити / оновити OBS»*). Build for your hardware (30–90 minutes; the
+2. **Plugins** — optional. Tick what to build together with OBS.
+3. **Install / update OBS**. Build for your hardware (30–90 minutes; the
    first time with ffmpeg takes longer, rebuilds are faster), NVENC test, library check, packaging and
    `pacman -U`. pacman asks whether to replace `obs-studio-git` (or `obs-studio`, `ffmpeg`, AUR plugins) —
    answer `y`. Your sudo/doas password and `y`/`n` answers are typed right in the program window; a
    yellow hint at the bottom tells you when.
-4. **Start OBS as usual**: from the application menu, with the `obs` command or with **Launch OBS**
-   (*«Запустити OBS»*).
+4. **Start OBS as usual**: from the application menu, with the `obs` command or with **Launch OBS**.
 
 <p align="center">
-  <img src="docs/screenshots/run.png" alt="Building: steps on the left, live output on the right, compile progress at the bottom" width="820">
+  <img src="docs/screenshots/en/run.png" alt="Building: steps on the left, live output on the right, compile progress at the bottom" width="820">
 </p>
 
 Updating is the same **Install / update OBS** item. Once OBS-Legacy is installed, it opens **Update OBS?**
-(*«Оновити OBS?»*) with **Update** as the default button: the program first checks what is new (OBS,
+with **Update** as the default button: the program first checks what is new (OBS,
 plugin releases, ffmpeg, your hardware profile, libraries after system upgrades) and builds only when there
 is something to update — otherwise it says “No updates” and changes nothing. The result card shows exactly
-what changed, for example `OBS 33.0.0 → 33.0.1`. The **What next** panel (*«Що далі»*) tells you when a new
+what changed, for example `OBS 33.0.0 → 33.0.1`. The **What next** panel tells you when a new
 version is out.
 
-The second button, **Rebuild** (*«Перезібрати»*, key `R`; also **More → Rebuild OBS**), builds everything
+The second button, **Rebuild** (key `R`; also **More → Rebuild OBS**), builds everything
 from scratch and installs it again even if nothing is new — for when a build was cut off (a power cut, a
 closed window) or OBS misbehaves. If the program finds a build that was cut off, the **What next** panel
 offers to rebuild by itself.
@@ -212,23 +211,23 @@ can be fixed right away, the main button of the card is **Fix**: for example, it
 packages, after which the program offers to check the system again — and every step shows a check mark.
 
 <p align="center">
-  <img src="docs/screenshots/result.png" alt="Result card with the Fix button: what to note and what to do next, plus report buttons" width="820">
+  <img src="docs/screenshots/en/result.png" alt="Result card with the Fix button: what to note and what to do next, plus report buttons" width="820">
 </p>
 
-Every run keeps a full report. All reports are listed under **More → Reports** (*«Додатково → Звіти»*),
+Every run keeps a full report. All reports are listed under **More → Reports**,
 with the outcome of each run; in the built-in viewer, `n` and `p` jump between warnings and errors.
 
 <p align="center">
-  <img src="docs/screenshots/reports.png" alt="List of reports with the outcome of every run" width="820">
+  <img src="docs/screenshots/en/reports.png" alt="List of reports with the outcome of every run" width="820">
 </p>
 
 Your current OBS will not break: new packages are installed only after all checks pass. Don't like the
-new version? Use **Roll back to another build** (*«Відкат на іншу збірку»*): it installs the previous
+new version? Use **Roll back to another build**: it installs the previous
 package set. The power went out while building? Choose **Rebuild OBS**: it starts from a clean build cache
 and clears stale git locks. If pacman itself was cut off, the program tells you how to remove its leftover
 lock (`/var/lib/pacman/db.lck`). Still stuck? Open an issue and attach the report.
 
-Answer `[y/N]` questions with Latin `y` or `n`, or with the words «так» / «ні». With the Ukrainian layout
+Answer `[y/N]` questions with Latin `y` or `n` (`yes` / `no` and «так» / «ні» work too). With the Ukrainian layout
 on, the `Y` key types «н»: the script notices that and asks again instead of cancelling. Cancelled the
 installation at the last question anyway? The packages you waited for are kept: **Install / update OBS**
 installs that ready set without rebuilding, and the home screen reminds you about it.
@@ -237,7 +236,7 @@ installs that ready set without rebuilding, and the home screen reminds you abou
 
 **My Kitty is transparent and the text gets lost on the wallpaper.** The interface has its own dark
 background, so transparency does not affect it. If you want to see the terminal background, turn off
-**Settings → Solid background** (*«Налаштування → Суцільний фон»*).
+**Settings → Solid background**.
 
 **The check says packages are missing and skips the trial CMake configuration.** Press **Fix** (or the
 **Install packages** item): the program installs only those packages with pacman — pacman adds their
@@ -255,9 +254,9 @@ package and provides `obs-studio`, so AUR plugins install on top of it as usual.
 **How much faster is it?** The biggest win is NVENC itself: encoding moves from the CPU to the GPU. The
 CPU-specific flags help OBS, its plugins and ffmpeg further (for example, AVX is used where the repo
 packages only assume SSE2); the exact gain depends on the CPU and the scene. The profile is shown in the
-report and under **Your system** (*«Твоя система»*, key `d`). Note that packages built for `native` run
-only on this CPU; after replacing the CPU the program asks you to rebuild, and **Settings → Build for which
-CPU** (*«Налаштування → Під який процесор»*) offers portable options.
+report and under **Your system** (key `d`). Note that packages built for `native` run
+only on this CPU; after replacing the CPU the program asks you to rebuild, and **Settings → Tune for
+CPU** offers portable options.
 
 **Is every library rebuilt for my CPU?** OBS itself, its plugins, ffmpeg (`ffmpeg-legacy-580xx`) and the
 `obs-legacy` program are. Qt, x264, mbedTLS and the other system libraries stay from the repositories: the
@@ -273,7 +272,7 @@ time to rebuild (**Install / update OBS**), and also when the repositories got a
 OBS-Legacy. The program tells you so on the home screen.
 
 **A new OBS version doesn't work with my driver.** `obs-nvenc-test` will not let such a build through.
-Pin the last working version in **Settings → OBS version** (*«Налаштування → Версія OBS»*), e.g. `33.0.0`.
+Pin the last working version in **Settings → OBS version**, e.g. `33.0.0`.
 
 ## Plugins
 
@@ -282,7 +281,7 @@ Untick a plugin and its `-legacy-580xx` package is removed on the next **Install
 first): it was built for the previous OBS build.
 
 <p align="center">
-  <img src="docs/screenshots/plugins.png" alt="Choosing plugins with checkboxes" width="820">
+  <img src="docs/screenshots/en/plugins.png" alt="Choosing plugins with checkboxes" width="820">
 </p>
 
 | id | Plugin | What it does |
@@ -339,6 +338,7 @@ applies to the script without it. An environment variable always takes priority 
 | `BUILD_FFMPEG` | `1` | build `ffmpeg-legacy-580xx` (`0` — keep the system ffmpeg) |
 | `KEEP_VERSIONS` | `2` | how many package sets to keep for rollback, including the installed one |
 | `INSTALL_PACMAN_HOOK` | `1` | put the library check after system upgrades (pacman hook) into the OBS package |
+| `UI_LANG` | `auto` | language of the program, the script and its reports: `auto` (the system locale), `en` or `uk` |
 | `UI_BACKGROUND` | `1` | solid interface background; `0` — the terminal's background (program only) |
 | `BUILD_JOBS` | auto | compile jobs (auto ≈ 2 GB of RAM per job) |
 | `PLUGINS_STRICT` | `0` | cancel the installation if a plugin fails to build |
@@ -353,12 +353,12 @@ applies to the script without it. An environment variable always takes priority 
 - **Update OBS and plugins** — **Install / update OBS** → **Update**: builds only when something is new
   and reuses the previous build, so it is faster. **Rebuild** (or **More → Rebuild OBS**) builds from
   scratch.
-- **Update the program itself** — **More → Update OBS-Legacy** (*«Додатково → Оновити OBS-Legacy»*), or
+- **Update the program itself** — **More → Update OBS-Legacy**, or
   `git pull && ./install.sh --update` in the repository folder. Installed from the ready package? Install the
   package from the new release: `sudo pacman -U obs-legacy-<version>-1-x86_64.pkg.tar.zst`.
 - **Roll back** — **More → Roll back to another build**: installs a saved package set with `pacman -U`,
   no rebuild.
-- **Uninstall** — **More → Remove OBS-Legacy** (*«Додатково → Видалити OBS-Legacy»*): `pacman -R` of the
+- **Uninstall** — **More → Remove OBS-Legacy**: `pacman -R` of the
   `*-legacy-580xx` packages, while `ffmpeg-legacy-580xx` is replaced by the system ffmpeg
   (`pacman -S ffmpeg`). The repo OBS is then one command away: `sudo pacman -S obs-studio`. Then remove the
   program itself:
@@ -371,7 +371,7 @@ From the ready package: `sudo pacman -R obs-legacy`.
 
 ### Update notifications
 
-**More → Update notifications** (*«Додатково → Сповіщення про оновлення»*) turns on a background check;
+**More → Update notifications** turns on a background check;
 the installer offers it too. It looks for:
 
 - a newer OBS, new releases of the plugins in your build, a newer ffmpeg in the repositories (then
@@ -437,8 +437,9 @@ it and unpacks it into `~/.local/share/obs-legacy/`. You can run the script dire
 ```
 
 Commands: `check`, `install` (`update`), `package` (only build the packages, install nothing), `deps`
-(build dependencies only), `status`, `rollback [SET]`, `uninstall`, `clean`, `plugins`. The script's
-messages are in Ukrainian. Portable packages for another computer: `CPU_TUNING=generic … package`.
+(build dependencies only), `status`, `rollback [SET]`, `uninstall`, `clean`, `plugins`. The script
+speaks the same language as the program (`UI_LANG`, otherwise the system locale). Portable packages for
+another computer: `CPU_TUNING=generic … package`.
 
 ## Where things live
 
@@ -483,7 +484,7 @@ plan — [`docs/TESTING.md`](docs/TESTING.md).
 The current version is **0.0.2**, the first public release: pacman packages (`obs-studio-legacy-580xx` and
 the rest), builds tuned to your hardware, ffmpeg with NVENC, update notifications, **Update** and
 **Rebuild**. The changelog is in [Releases](https://github.com/YellowHearth1/OBS-Legacy/releases). Program
-version: `obs-legacy --version`; the build script is versioned by date (`2026.10.30.4`).
+version: `obs-legacy --version`; the build script is versioned by date (`2026.10.31.1`).
 
 ## Credits
 
