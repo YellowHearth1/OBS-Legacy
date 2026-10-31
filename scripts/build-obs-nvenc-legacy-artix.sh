@@ -63,7 +63,7 @@ set -Eeuo pipefail
 shopt -s inherit_errexit 2>/dev/null || true
 umask 022
 
-readonly SCRIPT_VERSION="2026.10.30.4"
+readonly SCRIPT_VERSION="2026.10.31.1"
 # Номер рецепта збирання й пакування. Підвищувати, лише коли зміна в рушії вимагає
 # перезібрати вже встановлені пакети (прапорці, розкладка, залежності): тоді «Оновити»
 # збере їх знову. Зміни інтерфейсу й підказок його не чіпають.
@@ -81,7 +81,7 @@ SETTINGS_FILE="${OBS_LEGACY_SETTINGS:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/obs-
 readonly -a SETTINGS_KEYS=(
   OBS_REF OBS_REPO NV_HEADERS_REPO NV_HEADERS_TAG CEF_BUILD CEF_ARCHIVE_URL CEF_SHA256 CEF_CDN
   BUILD_JOBS KEEP_VERSIONS EXTRA_CMAKE_ARGS FORCE_CLEAN_BUILD SKIP_NVENC_TEST ALLOW_MISSING_LIBS
-  OBS_PLUGINS PLUGINS_STRICT INSTALL_PACMAN_HOOK CPU_TUNING OPT_LEVEL BUILD_FFMPEG
+  OBS_PLUGINS PLUGINS_STRICT INSTALL_PACMAN_HOOK CPU_TUNING OPT_LEVEL BUILD_FFMPEG UI_LANG
 )
 load_settings_file() {
   local line key val k known
@@ -104,6 +104,29 @@ load_settings_file() {
   done < "$SETTINGS_FILE"
 }
 load_settings_file
+
+# Мова повідомлень: OBS_LEGACY_LANG (її передає TUI) → UI_LANG (auto | uk | en) →
+# локаль системи (без неї — /etc/locale.conf): uk… — українська, інакше англійська.
+resolve_lang() {
+  local v=${OBS_LEGACY_LANG:-} loc
+  if [[ "$v" != uk && "$v" != en ]]; then
+    case "${UI_LANG:-auto}" in
+      uk | en) v=$UI_LANG ;;
+      *)
+        loc=${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}
+        if [[ -z "$loc" && -r /etc/locale.conf ]]; then
+          loc=$(sed -n 's/^LANG=//p' /etc/locale.conf 2>/dev/null | tr -d "\"'" | head -n1 || true)
+        fi
+        if [[ "$loc" == uk* ]]; then v=uk; else v=en; fi
+        ;;
+    esac
+  fi
+  if [[ "$v" == en ]]; then LANG_EN=1; else LANG_EN=0; fi
+}
+resolve_lang
+
+# Текст мовою інтерфейсу: t "українською" "in English".
+t() { if ((LANG_EN)); then printf '%s' "$2"; else printf '%s' "$1"; fi; }
 
 # ---------------------------------------------------------------------------
 # Налаштування (кожне можна перевизначити змінною середовища)
@@ -216,26 +239,27 @@ readonly -a RECOMMENDED_PKGS=(
 # усі — conflicts, тож pacman сам запропонує замінити пакет з AUR.
 # Береться найновіший тег-реліз (vX.Y або X.Y.Z); зафіксувати версію:
 # PLUGIN_REF_<id, де "-" замінено на "_">=тег, напр. PLUGIN_REF_obs_multi_rtmp=0.7.4.5
-readonly -a PLUGIN_CATALOG=(
-  "obs-multi-rtmp|Multiple RTMP Outputs|https://github.com/sorayuki/obs-multi-rtmp.git||-DENABLE_FRONTEND_API=ON -DENABLE_QT=ON -DCMAKE_CXX_STANDARD=20|Стрім одночасно на кілька платформ (Twitch, YouTube, Kick…) з окремими налаштуваннями кожного виходу|obs-multi-rtmp obs-multi-rtmp-git obs-multi-rtmp-bin"
-  "move-transition|Move Transition|https://github.com/exeldro/obs-move-transition.git|||Плавна анімація положення, розміру й властивостей джерел між сценами та фільтри руху|obs-move-transition obs-move-transition-git"
-  "source-record|Source Record|https://github.com/exeldro/obs-source-record.git|||Запис окремих джерел або сцен в окремі файли паралельно з основним записом|obs-source-record obs-source-record-git"
-  "shaderfilter|Shaderfilter|https://github.com/exeldro/obs-shaderfilter.git|||Фільтри на власних шейдерах: свічення, розмиття, хромакей, спотворення та десятки готових ефектів|obs-shaderfilter obs-shaderfilter-git"
-  "vertical-canvas|Aitum Vertical Canvas|https://github.com/Aitum/obs-vertical-canvas.git|||Окреме вертикальне полотно 9:16 для TikTok / Shorts / Reels: стрім і запис паралельно з основним|obs-vertical-canvas obs-vertical-canvas-git"
-  "pipewire-audio-capture|PipeWire Audio Capture|https://github.com/dimtpap/obs-pipewire-audio-capture.git||<33?-DLEGACY=ON|Захоплення звуку окремих програм і пристроїв через PipeWire|obs-pipewire-audio-capture obs-pipewire-audio-capture-git"
-  "composite-blur|Composite Blur|https://github.com/FiniteSingularity/obs-composite-blur.git|||Якісні фільтри розмиття: гаусове, кругове, рухом, пікселізація, з масками|obs-composite-blur obs-composite-blur-git"
-  "advanced-masks|Advanced Masks|https://github.com/FiniteSingularity/obs-advanced-masks.git||-DENABLE_FRONTEND_API=ON -DENABLE_QT=ON|Маски-форми й градієнтні маски для джерел|obs-advanced-masks obs-advanced-masks-git"
-  "stroke-glow-shadow|Stroke Glow Shadow|https://github.com/FiniteSingularity/obs-stroke-glow-shadow.git|||Обведення, свічення й тіні для будь-якого джерела|obs-stroke-glow-shadow obs-stroke-glow-shadow-git"
-  "retro-effects|Retro Effects|https://github.com/FiniteSingularity/obs-retro-effects.git|||Ретро-ефекти: CRT, VHS, глітч, дизеринг, хроматична аберація|obs-retro-effects obs-retro-effects-git"
-  "scale-to-sound|Scale to Sound|https://github.com/dimtpap/obs-scale-to-sound.git|||Джерело масштабується в такт звуку (наприклад, аватар, що «говорить»)|obs-scale-to-sound obs-scale-to-sound-git"
-  "downstream-keyer|Downstream Keyer|https://github.com/exeldro/obs-downstream-keyer.git|||Шар поверх усіх сцен (логотип, титри), який не зникає при перемиканні сцен|obs-downstream-keyer obs-downstream-keyer-git"
-  "transition-table|Transition Table|https://github.com/exeldro/obs-transition-table.git|||Свій перехід для кожної пари сцен|obs-transition-table obs-transition-table-git"
-  "freeze-filter|Freeze Filter|https://github.com/exeldro/obs-freeze-filter.git|||Заморожування кадру джерела фільтром або гарячою клавішею|obs-freeze-filter obs-freeze-filter-git"
-  "replay-source|Replay Source|https://github.com/exeldro/obs-replay-source.git|||Миттєвий повтор (instant replay) прямо в сцені|obs-replay-source obs-replay-source-git"
-  "gradient-source|Gradient Source|https://github.com/exeldro/obs-gradient-source.git|||Джерело-градієнт з кількома кольорами|obs-gradient-source obs-gradient-source-git"
-  "waveform|Waveform|https://github.com/phandasm/waveform.git|fftw|-DPACKAGED_INSTALL=ON|Аудіовізуалізатор (спектр або хвиля) як джерело|obs-waveform obs-waveform-git"
-  "rewards-theater|RewardsTheater|https://github.com/gottagofaster236/RewardsTheater.git|boost openssl fmt|-DENABLE_FRONTEND_API=ON -DENABLE_QT=ON CXXFLAGS+=-Wno-error=deprecated-declarations|Глядачі замовляють відео чи звуки на стрімі за бали каналу Twitch (черга, модерація, випадкове відео з VLC-джерела)|rewards-theater-obs rewards-theater-obs-git"
+PLUGIN_CATALOG=(
+  "obs-multi-rtmp|Multiple RTMP Outputs|https://github.com/sorayuki/obs-multi-rtmp.git||-DENABLE_FRONTEND_API=ON -DENABLE_QT=ON -DCMAKE_CXX_STANDARD=20|$(t "Стрім одночасно на кілька платформ (Twitch, YouTube, Kick…) з окремими налаштуваннями кожного виходу" "Stream to several platforms at once (Twitch, YouTube, Kick…), each output with its own settings")|obs-multi-rtmp obs-multi-rtmp-git obs-multi-rtmp-bin"
+  "move-transition|Move Transition|https://github.com/exeldro/obs-move-transition.git|||$(t "Плавна анімація положення, розміру й властивостей джерел між сценами та фільтри руху" "Smooth animation of source position, size and properties between scenes, plus move filters")|obs-move-transition obs-move-transition-git"
+  "source-record|Source Record|https://github.com/exeldro/obs-source-record.git|||$(t "Запис окремих джерел або сцен в окремі файли паралельно з основним записом" "Record individual sources or scenes to separate files alongside the main recording")|obs-source-record obs-source-record-git"
+  "shaderfilter|Shaderfilter|https://github.com/exeldro/obs-shaderfilter.git|||$(t "Фільтри на власних шейдерах: свічення, розмиття, хромакей, спотворення та десятки готових ефектів" "Filters built on custom shaders: glow, blur, chroma key, distortion and dozens of ready-made effects")|obs-shaderfilter obs-shaderfilter-git"
+  "vertical-canvas|Aitum Vertical Canvas|https://github.com/Aitum/obs-vertical-canvas.git|||$(t "Окреме вертикальне полотно 9:16 для TikTok / Shorts / Reels: стрім і запис паралельно з основним" "A separate vertical 9:16 canvas for TikTok / Shorts / Reels: stream and record alongside the main one")|obs-vertical-canvas obs-vertical-canvas-git"
+  "pipewire-audio-capture|PipeWire Audio Capture|https://github.com/dimtpap/obs-pipewire-audio-capture.git||<33?-DLEGACY=ON|$(t "Захоплення звуку окремих програм і пристроїв через PipeWire" "Capture audio from individual apps and devices via PipeWire")|obs-pipewire-audio-capture obs-pipewire-audio-capture-git"
+  "composite-blur|Composite Blur|https://github.com/FiniteSingularity/obs-composite-blur.git|||$(t "Якісні фільтри розмиття: гаусове, кругове, рухом, пікселізація, з масками" "High-quality blur filters: Gaussian, radial, motion, pixelate, with masks")|obs-composite-blur obs-composite-blur-git"
+  "advanced-masks|Advanced Masks|https://github.com/FiniteSingularity/obs-advanced-masks.git||-DENABLE_FRONTEND_API=ON -DENABLE_QT=ON|$(t "Маски-форми й градієнтні маски для джерел" "Shape masks and gradient masks for sources")|obs-advanced-masks obs-advanced-masks-git"
+  "stroke-glow-shadow|Stroke Glow Shadow|https://github.com/FiniteSingularity/obs-stroke-glow-shadow.git|||$(t "Обведення, свічення й тіні для будь-якого джерела" "Stroke, glow and shadow for any source")|obs-stroke-glow-shadow obs-stroke-glow-shadow-git"
+  "retro-effects|Retro Effects|https://github.com/FiniteSingularity/obs-retro-effects.git|||$(t "Ретро-ефекти: CRT, VHS, глітч, дизеринг, хроматична аберація" "Retro effects: CRT, VHS, glitch, dithering, chromatic aberration")|obs-retro-effects obs-retro-effects-git"
+  "scale-to-sound|Scale to Sound|https://github.com/dimtpap/obs-scale-to-sound.git|||$(t "Джерело масштабується в такт звуку (наприклад, аватар, що «говорить»)" "Scales a source to the beat of the sound (e.g. a “talking” avatar)")|obs-scale-to-sound obs-scale-to-sound-git"
+  "downstream-keyer|Downstream Keyer|https://github.com/exeldro/obs-downstream-keyer.git|||$(t "Шар поверх усіх сцен (логотип, титри), який не зникає при перемиканні сцен" "A layer on top of all scenes (logo, captions) that stays when you switch scenes")|obs-downstream-keyer obs-downstream-keyer-git"
+  "transition-table|Transition Table|https://github.com/exeldro/obs-transition-table.git|||$(t "Свій перехід для кожної пари сцен" "A separate transition for every pair of scenes")|obs-transition-table obs-transition-table-git"
+  "freeze-filter|Freeze Filter|https://github.com/exeldro/obs-freeze-filter.git|||$(t "Заморожування кадру джерела фільтром або гарячою клавішею" "Freeze a source's frame with a filter or a hotkey")|obs-freeze-filter obs-freeze-filter-git"
+  "replay-source|Replay Source|https://github.com/exeldro/obs-replay-source.git|||$(t "Миттєвий повтор (instant replay) прямо в сцені" "Instant replay right in the scene")|obs-replay-source obs-replay-source-git"
+  "gradient-source|Gradient Source|https://github.com/exeldro/obs-gradient-source.git|||$(t "Джерело-градієнт з кількома кольорами" "A gradient source with several colors")|obs-gradient-source obs-gradient-source-git"
+  "waveform|Waveform|https://github.com/phandasm/waveform.git|fftw|-DPACKAGED_INSTALL=ON|$(t "Аудіовізуалізатор (спектр або хвиля) як джерело" "Audio visualizer (spectrum or wave) as a source")|obs-waveform obs-waveform-git"
+  "rewards-theater|RewardsTheater|https://github.com/gottagofaster236/RewardsTheater.git|boost openssl fmt|-DENABLE_FRONTEND_API=ON -DENABLE_QT=ON CXXFLAGS+=-Wno-error=deprecated-declarations|$(t "Глядачі замовляють відео чи звуки на стрімі за бали каналу Twitch (черга, модерація, випадкове відео з VLC-джерела)" "Viewers order videos or sounds on stream for Twitch channel points (queue, moderation, a random video from a VLC source)")|rewards-theater-obs rewards-theater-obs-git"
 )
+readonly -a PLUGIN_CATALOG
 
 # Глобальні змінні, які заповнюються під час роботи.
 SUDO_CMD=''
@@ -271,37 +295,44 @@ else
 fi
 # Код завершення, коли користувач сам відмовився (відповів «n»).
 readonly EXIT_CANCELLED=10
+# Префікси, які розбирає TUI (src/analyzer.rs) — мовою інтерфейсу.
+TAG_WARN=$(t УВАГА WARNING) TAG_ERR=$(t ПОМИЛКА ERROR) TAG_HINT=$(t ПОРАДА HINT) TAG_FIX=$(t ВИПРАВИТИ FIX)
+TAG_CANCEL=$(t СКАСОВАНО CANCELLED) TAG_SUMMARY=$(t Підсумок Summary)
+readonly TAG_WARN TAG_ERR TAG_HINT TAG_FIX TAG_CANCEL TAG_SUMMARY
 say()  { printf '%s==>%s %s\n' "$C_BLU$C_BLD" "$C_RST" "$*" >&2; }
 ok()   { printf '%s[OK]%s %s\n' "$C_GRN" "$C_RST" "$*" >&2; }
-warn() { printf '%s[УВАГА]%s %s\n' "$C_YEL" "$C_RST" "$*" >&2; }
-fail() { printf '%s[ПОМИЛКА]%s %s\n' "$C_RED" "$C_RST" "$*" >&2; }
+warn() { printf '%s[%s]%s %s\n' "$C_YEL" "$TAG_WARN" "$C_RST" "$*" >&2; }
+fail() { printf '%s[%s]%s %s\n' "$C_RED" "$TAG_ERR" "$C_RST" "$*" >&2; }
 # Що робити далі. TUI показує пораду під останньою помилкою чи попередженням.
-hint() { printf '%s[ПОРАДА]%s %s\n' "$C_CYN" "$C_RST" "$*" >&2; }
+hint() { printf '%s[%s]%s %s\n' "$C_CYN" "$TAG_HINT" "$C_RST" "$*" >&2; }
 # Що програма може виправити сама: «[ВИПРАВИТИ] команда: опис». TUI показує це
 # кнопкою «Виправити» і запускає ту саму команду скрипта (лише з дозволених:
 # deps, clean, check). Пишеться одразу після проблеми, до якої належить.
-fix()  { printf '%s[ВИПРАВИТИ]%s %s: %s\n' "$C_GRN" "$C_RST" "$1" "$2" >&2; }
+fix()  { printf '%s[%s]%s %s: %s\n' "$C_GRN" "$TAG_FIX" "$C_RST" "$1" "$2" >&2; }
 # Підсумок запуску одним рядком («OBS 33.0.0 → 33.0.1»): TUI показує його першим у
 # картці результату, тож видно, що саме змінилося.
-summary() { printf 'Підсумок: %s\n' "$*" >&2; }
+summary() { printf '%s: %s\n' "$TAG_SUMMARY" "$*" >&2; }
 # die "що сталося" ["що робити"]
 die()  { fail "$1"; if (($# > 1)); then hint "$2"; fi; exit 1; }
 # Користувач відмовився — це не помилка, нічого не змінено.
-cancelled() { printf '%s[СКАСОВАНО]%s %s\n' "$C_YEL" "$C_RST" "${1:-Нічого не змінено.}" >&2; exit "$EXIT_CANCELLED"; }
+cancelled() {
+  printf '%s[%s]%s %s\n' "$C_YEL" "$TAG_CANCEL" "$C_RST" "${1:-$(t 'Нічого не змінено.' 'Nothing was changed.')}" >&2
+  exit "$EXIT_CANCELLED"
+}
 
 # Як поставити пакети для збірки: у TUI — кнопкою «Виправити», без нього — командою.
 deps_action() {
   if [[ "${OBS_LEGACY_TUI:-}" == 1 ]]; then
-    printf 'кнопкою «Виправити»'
+    printf "$(t 'кнопкою «Виправити»' 'with the “Fix” button')"
   else
-    printf 'командою %s deps' "$SELF_PATH"
+    printf "$(t 'командою %s deps' 'with the command %s deps')" "$SELF_PATH"
   fi
 }
 
 # Як запустити перевірку: у TUI — пунктом меню, без нього — командою.
 check_action() {
   if [[ "${OBS_LEGACY_TUI:-}" == 1 ]]; then
-    printf '«Перевірити систему»'
+    printf "$(t '«Перевірити систему»' '“Check system”')"
   else
     printf '%s check' "$SELF_PATH"
   fi
@@ -311,9 +342,9 @@ check_action() {
 # (якщо він є) або командою.
 install_action() {
   if [[ "${OBS_LEGACY_TUI:-}" == 1 ]]; then
-    printf '«Встановити / оновити OBS»'
+    printf "$(t '«Встановити / оновити OBS»' '“Install / update OBS”')"
   elif have obs-legacy; then
-    printf 'obs-legacy → «Встановити / оновити OBS»'
+    printf "$(t 'obs-legacy → «Встановити / оновити OBS»' 'obs-legacy → “Install / update OBS”')"
   else
     printf '%s install' "$SELF_PATH"
   fi
@@ -322,9 +353,10 @@ install_action() {
 # Як перезібрати начисто: у TUI — пункт «Додатково», без нього — через TUI або командою.
 rebuild_action() {
   if [[ "${OBS_LEGACY_TUI:-}" == 1 ]]; then
-    printf '«Перезібрати OBS» (кнопка в діалозі оновлення або «Додатково»)'
+    printf "$(t '«Перезібрати OBS» (кнопка в діалозі оновлення або «Додатково»)' \
+                '“Rebuild OBS” (a button in the update dialog or in “More”)')"
   elif have obs-legacy; then
-    printf 'obs-legacy → Додатково → «Перезібрати OBS»'
+    printf "$(t 'obs-legacy → Додатково → «Перезібрати OBS»' 'obs-legacy → More → “Rebuild OBS”')"
   else
     printf '%s rebuild' "$SELF_PATH"
   fi
@@ -332,7 +364,7 @@ rebuild_action() {
 
 on_error() {
   local rc=$? line=$1 cmd=$2
-  fail "Команда завершилась з кодом $rc (рядок $line): $cmd"
+  fail "$(t "Команда завершилась з кодом $rc (рядок $line): $cmd" "Command failed with code $rc (line $line): $cmd")"
 }
 trap 'on_error "$LINENO" "$BASH_COMMAND"' ERR
 
@@ -363,8 +395,10 @@ confirm() {
       [yY]|[yY][eE][sS]|так|Так|ТАК) return 0 ;;
       ''|[nN]|[nN][oO]|ні|Ні|НІ) return 1 ;;
       т|Т|н|Н)
-        printf '  «%s» — схоже, увімкнена українська розкладка (клавіша Y дає «н», N — «т»). Введи y чи n латиницею або напиши «так» / «ні».\n' "$a" >&2 ;;
-      *) printf '  Не зрозумів відповідь «%s». Введи y (так) або n (ні).\n' "$a" >&2 ;;
+        printf "$(t '  «%s» — схоже, увімкнена українська розкладка (клавіша Y дає «н», N — «т»). Введи y чи n латиницею або напиши «так» / «ні».\n' \
+                    '  “%s” — looks like the Ukrainian keyboard layout is on (the Y key gives “н”, N gives “т”). Type y or n in the Latin layout, or write “yes” / “no”.\n')" "$a" >&2 ;;
+      *) printf "$(t '  Не зрозумів відповідь «%s». Введи y (так) або n (ні).\n' \
+                     '  Did not understand the answer “%s”. Type y (yes) or n (no).\n')" "$a" >&2 ;;
     esac
   done
 }
@@ -372,6 +406,80 @@ confirm() {
 usage() {
   local me
   me="$(basename -- "$0")"
+  if ((LANG_EN)); then
+    cat <<EOF
+$SELF_NAME $SCRIPT_VERSION — OBS Studio with NVENC for NVIDIA 580.xx (Artix/Arch)
+Part of OBS-Legacy (https://github.com/YellowHearth1/OBS-Legacy).
+Made with Claude Code (Anthropic). Inspired by:
+https://github.com/sl5net/build-obs-nvenc-legacy. No warranty — see LICENSE.
+
+Usage: $me [command]
+
+Commands:
+  check              Check: system, hardware profile, driver, sources, CEF, plugins,
+                     ffmpeg, CMake configuration. Installs nothing, no sudo needed.
+  install            Build OBS, the selected plugins and ffmpeg for this computer, test NVENC,
+                     pack them into pacman packages (-$PKG_SUFFIX) and install them.
+  update             The same, but first check what is new (OBS, plugins, ffmpeg, hardware
+                     profile, libraries) and build only when there is something to update.
+  rebuild            Rebuild from scratch (the OBS build cache is cleared) and install again —
+                     if the last build was interrupted (a power cut) or OBS behaves strangely.
+  package            The same as install, but only build the packages (no installation).
+  status             Installed packages, hardware profile, saved package sets, updates.
+  rollback [SET]     Install the previous (or the given) saved package set.
+  uninstall          Remove the OBS-Legacy packages (and the old build in /opt, if one is left).
+  deps               Install only the build dependencies (pacman -S --needed after you confirm,
+                     without a system upgrade). "deps --missing" shows what is missing.
+  clean              Delete intermediate build files (sources, the CEF archive and package sets
+                     are kept).
+  plugins            The catalog of plugins that can be built together with OBS.
+  help               This help.
+Without a command — an interactive menu (the TUI is nicer: obs-legacy).
+
+Settings: environment variables or the file $SETTINGS_FILE
+(KEY=VALUE lines; an environment variable takes priority over the file).
+  OBS_REF=stable          stable = the newest stable tag; or a tag (32.2.2),
+                          a branch (master) or a commit
+  CPU_TUNING=native       which CPU to build for: native (this one, fastest),
+                          generic (like the repository), x86-64-v2 / v3 / v4
+  OPT_LEVEL=2             optimization level: 2 (like the distribution) or 3
+  BUILD_FFMPEG=1          build $FFMPEG_PKG (0 — keep the system ffmpeg)
+  NV_HEADERS_TAG=auto     nv-codec-headers tag; auto — matches the driver's NVENC API
+                          (580xx → $NV_HEADERS_DEFAULT)
+  CEF_BUILD=7871          CEF version; by default it is taken from the OBS sources
+                          (CMakePresets.json or buildspec.json) with the official SHA-256
+  CEF_ARCHIVE_URL=URL     exact link to the CEF archive
+  CEF_SHA256=HASH         expected SHA-256 of the CEF archive
+  OBS_PLUGINS="a,b"       plugins to build (see the plugins command); none — no plugins.
+                          Default: obs-multi-rtmp
+  PLUGIN_REF_<id>=TAG     pin a plugin version (replace "-" in the id with "_")
+  PLUGINS_STRICT=1        cancel the installation if any plugin fails to build
+  INSTALL_PACMAN_HOOK=0   do not put the library-check pacman hook into the OBS package
+  BUILD_JOBS=4            compile jobs (by default chosen with RAM in mind)
+  KEEP_VERSIONS=2         how many package sets to keep for rollback (with the active one)
+  EXTRA_CMAKE_ARGS="..."  extra CMake options, e.g. "-DENABLE_WEBSOCKET=OFF"
+  FORCE_CLEAN_BUILD=1     do not reuse the previous build to speed things up
+  SKIP_NVENC_TEST=1       NOT recommended: install without a passed obs-nvenc-test
+  ALLOW_MISSING_LIBS=1    NOT recommended: install even though ldd found missing libraries
+  UI_LANG=auto            message language: auto (from the system locale), uk or en
+
+Examples:
+  $me check
+  $me install
+  OBS_REF=32.2.2 $me install      # pin a specific OBS version
+  OBS_PLUGINS="obs-multi-rtmp,move-transition" $me install
+  CPU_TUNING=generic $me package  # portable packages (for another computer)
+  $me rollback
+
+Files:
+  Packages: $OBS_PKG, <plugin>-$PKG_SUFFIX, $FFMPEG_PKG (pacman -Qs $PKG_SUFFIX)
+  Sets:     $PKG_STORE/<label>/
+  Cache:    $BUILD_ROOT   (reports: $REPORT_DIR, plugins: $PLUGINS_DIR)
+  State:    $STATE_DIR   (OBS settings backups: config-backups/)
+  Hook:     $PKG_HOOK → $PKG_LIBCHECK
+EOF
+    return
+  fi
   cat <<EOF
 $SELF_NAME $SCRIPT_VERSION — OBS Studio з NVENC для NVIDIA 580.xx (Artix/Arch)
 Частина OBS-Legacy (https://github.com/YellowHearth1/OBS-Legacy).
@@ -426,6 +534,7 @@ https://github.com/sl5net/build-obs-nvenc-legacy. Без гарантій — д
   FORCE_CLEAN_BUILD=1     не використовувати попередню збірку для пришвидшення
   SKIP_NVENC_TEST=1       НЕ рекомендовано: встановити без пройденого obs-nvenc-test
   ALLOW_MISSING_LIBS=1    НЕ рекомендовано: встановити, хоча ldd знайшов відсутні бібліотеки
+  UI_LANG=auto            мова повідомлень: auto (за локаллю системи), uk або en
 
 Приклади:
   $me check
@@ -467,7 +576,8 @@ rm_cache_path() {
   local p
   for p in "$@"; do
     [[ "$p" == "$BUILD_ROOT"/?* && "$p" != *'/..'* ]] \
-      || die "Внутрішня помилка: спроба видалити шлях поза кешем: $p"
+      || die "$(t "Внутрішня помилка: спроба видалити шлях поза кешем: $p" \
+                  "Internal error: an attempt to delete a path outside the cache: $p")"
     rm -rf -- "$p"
   done
 }
@@ -477,7 +587,8 @@ rm_store_path() {
   local p
   for p in "$@"; do
     [[ "$p" == "$PKG_STORE"/?* && "$p" != *'/..'* ]] \
-      || die "Внутрішня помилка: спроба видалити шлях поза сховищем пакетів: $p"
+      || die "$(t "Внутрішня помилка: спроба видалити шлях поза сховищем пакетів: $p" \
+                  "Internal error: an attempt to delete a path outside the package store: $p")"
     rm -rf -- "$p"
   done
 }
@@ -492,42 +603,57 @@ check_pacman_lock() {
   lck="${lck%/}/db.lck"
   [[ -e "$lck" ]] || return 0
   if pgrep -x pacman >/dev/null 2>&1; then
-    die "Зараз працює інший pacman (оновлення системи чи встановлення пакетів)." \
-      "Дочекайся, поки він завершиться, і повтори."
+    die "$(t "Зараз працює інший pacman (оновлення системи чи встановлення пакетів)." \
+             "Another pacman is running right now (a system upgrade or a package installation).")" \
+      "$(t "Дочекайся, поки він завершиться, і повтори." "Wait until it finishes and try again.")"
   fi
-  die "pacman заблоковано: лишився файл $lck, хоча сам pacman не працює (мабуть, минулого разу його обірвало вимкнення світла чи перезавантаження)." \
-    "Переконайся, що ніде не йде оновлення системи, прибери блокування: sudo rm $lck — і повтори. Якщо pacman обірвався посеред встановлення OBS-Legacy, потім обери $(rebuild_action)."
+  die "$(t "pacman заблоковано: лишився файл $lck, хоча сам pacman не працює (мабуть, минулого разу його обірвало вимкнення світла чи перезавантаження)." \
+           "pacman is locked: the file $lck is left over, although pacman itself is not running (probably a power cut or a reboot interrupted it last time).")" \
+    "$(t "Переконайся, що ніде не йде оновлення системи, прибери блокування: sudo rm $lck — і повтори. Якщо pacman обірвався посеред встановлення OBS-Legacy, потім обери $(rebuild_action)." \
+         "Make sure no system upgrade is running anywhere, remove the lock: sudo rm $lck — and try again. If pacman was interrupted in the middle of an OBS-Legacy installation, then choose $(rebuild_action).")"
 }
 priv_validate() {
   if [[ "$SUDO_CMD" == sudo ]]; then sudo -v; else doas true; fi
 }
 # Підказка, якщо sudo/doas не пустив.
-readonly PRIV_HINT="Перевір пароль. Твій користувач має бути в групі wheel (для sudo) або мати дозвіл у /etc/doas.conf (для doas)."
+PRIV_HINT="$(t "Перевір пароль. Твій користувач має бути в групі wheel (для sudo) або мати дозвіл у /etc/doas.conf (для doas)." \
+               "Check the password. Your user must be in the wheel group (for sudo) or be allowed in /etc/doas.conf (for doas).")"
+readonly PRIV_HINT
 select_priv_tool() {
   if have sudo; then SUDO_CMD=sudo
   elif have doas; then SUDO_CMD=doas
-  else die "Не знайдено ні sudo, ні doas." "Встанови один із них: pacman -S sudo (від root) і додай свого користувача до групи wheel."
+  else die "$(t "Не знайдено ні sudo, ні doas." "Neither sudo nor doas was found.")" \
+           "$(t "Встанови один із них: pacman -S sudo (від root) і додай свого користувача до групи wheel." \
+                "Install one of them: pacman -S sudo (as root) and add your user to the wheel group.")"
   fi
 }
 
 preflight_common() {
-  (( EUID != 0 )) || die "Скрипт запущено від root або через sudo." \
-    "Запусти його від свого звичайного користувача: пароль sudo/doas скрипт попросить сам, коли треба."
-  [[ "$(uname -m)" == x86_64 ]] || die "Підтримується лише x86_64."
-  have pacman || die "Не знайдено pacman: потрібен Artix/Arch або сумісний дистрибутив."
-  [[ -n "${HOME:-}" && -d "$HOME" ]] || die "Змінна HOME не задана або каталог не існує."
-  [[ "$INSTALL_ROOT" =~ ^/opt/[A-Za-z0-9._-]+$ ]] || die "INSTALL_ROOT має бути виду /opt/назва (зараз: $INSTALL_ROOT)."
-  [[ "$BUILD_ROOT" == /?*/?* ]] || die "Некоректний шлях кешу: $BUILD_ROOT"
-  [[ "$KEEP_VERSIONS" =~ ^[1-9][0-9]*$ ]] || die "KEEP_VERSIONS має бути додатним цілим."
+  (( EUID != 0 )) || die "$(t "Скрипт запущено від root або через sudo." \
+                              "The script was started as root or via sudo.")" \
+    "$(t "Запусти його від свого звичайного користувача: пароль sudo/doas скрипт попросить сам, коли треба." \
+         "Run it as your normal user: the script asks for the sudo/doas password itself when needed.")"
+  [[ "$(uname -m)" == x86_64 ]] || die "$(t "Підтримується лише x86_64." "Only x86_64 is supported.")"
+  have pacman || die "$(t "Не знайдено pacman: потрібен Artix/Arch або сумісний дистрибутив." \
+                          "pacman was not found: Artix/Arch or a compatible distribution is required.")"
+  [[ -n "${HOME:-}" && -d "$HOME" ]] || die "$(t "Змінна HOME не задана або каталог не існує." \
+                                                 "The HOME variable is not set or the directory does not exist.")"
+  [[ "$INSTALL_ROOT" =~ ^/opt/[A-Za-z0-9._-]+$ ]] || die "$(t "INSTALL_ROOT має бути виду /opt/назва (зараз: $INSTALL_ROOT)." \
+                                                              "INSTALL_ROOT must look like /opt/name (now: $INSTALL_ROOT).")"
+  [[ "$BUILD_ROOT" == /?*/?* ]] || die "$(t "Некоректний шлях кешу: $BUILD_ROOT" "Invalid cache path: $BUILD_ROOT")"
+  [[ "$KEEP_VERSIONS" =~ ^[1-9][0-9]*$ ]] || die "$(t "KEEP_VERSIONS має бути додатним цілим." \
+                                                      "KEEP_VERSIONS must be a positive integer.")"
   if [[ -n "$BUILD_JOBS" && ! "$BUILD_JOBS" =~ ^[1-9][0-9]*$ ]]; then
-    die "BUILD_JOBS має бути додатним цілим."
+    die "$(t "BUILD_JOBS має бути додатним цілим." "BUILD_JOBS must be a positive integer.")"
   fi
   case "$CPU_TUNING" in
     native|generic|x86-64-v2|x86-64-v3|x86-64-v4) ;;
-    *) die "Невідоме значення CPU_TUNING=$CPU_TUNING." \
-         "У Налаштуваннях → «Під який процесор» вкажи native (рекомендовано), generic або x86-64-v2/v3/v4." ;;
+    *) die "$(t "Невідоме значення CPU_TUNING=$CPU_TUNING." "Unknown value CPU_TUNING=$CPU_TUNING.")" \
+         "$(t "У Налаштуваннях → «Під який процесор» вкажи native (рекомендовано), generic або x86-64-v2/v3/v4." \
+              "In Settings → “Tune for CPU” choose native (recommended), generic or x86-64-v2/v3/v4.")" ;;
   esac
-  [[ "$OPT_LEVEL" =~ ^[23]$ ]] || die "OPT_LEVEL має бути 2 або 3 (зараз: $OPT_LEVEL)."
+  [[ "$OPT_LEVEL" =~ ^[23]$ ]] || die "$(t "OPT_LEVEL має бути 2 або 3 (зараз: $OPT_LEVEL)." \
+                                           "OPT_LEVEL must be 2 or 3 (now: $OPT_LEVEL).")"
 }
 
 # Пакет pacman, з якого береться програма.
@@ -554,9 +680,10 @@ require_tools() {
   done
   if ((${#missing[@]})); then
     mapfile -t pkgs < <(printf '%s\n' "${pkgs[@]}" | sort -u)
-    fail "Бракує програм: ${missing[*]}."
-    hint "Постав пакети для збірки $(deps_action) (або sudo pacman -S --needed ${pkgs[*]}) і повтори."
-    fix deps "Встановити пакети для збірки"
+    fail "$(t "Бракує програм: ${missing[*]}." "Missing programs: ${missing[*]}.")"
+    hint "$(t "Постав пакети для збірки $(deps_action) (або sudo pacman -S --needed ${pkgs[*]}) і повтори." \
+              "Install the build dependencies $(deps_action) (or sudo pacman -S --needed ${pkgs[*]}) and try again.")"
+    fix deps "$(t "Встановити пакети для збірки" "Install the build dependencies")"
     exit 1
   fi
 }
@@ -564,8 +691,10 @@ require_tools() {
 acquire_lock() {
   mkdir -p -- "$BUILD_ROOT"
   exec 9>"$BUILD_ROOT/.lock"
-  flock -n 9 || die "Скрипт уже працює в іншому вікні (lock: $BUILD_ROOT/.lock)." \
-    "Дочекайся, поки той запуск завершиться, або закрий його вікно і повтори."
+  flock -n 9 || die "$(t "Скрипт уже працює в іншому вікні (lock: $BUILD_ROOT/.lock)." \
+                         "The script is already running in another window (lock: $BUILD_ROOT/.lock).")" \
+    "$(t "Дочекайся, поки той запуск завершиться, або закрий його вікно і повтори." \
+         "Wait until that run finishes, or close its window, and try again.")"
 }
 
 # Стара схема: збірки в /opt/obs-studio-nvenc (створені цим скриптом до пакетів).
@@ -584,14 +713,17 @@ legacy_leftovers_present() {
 # каталог лише не прибирається.
 detect_foreign_install() {
   if [[ ! -e "$INSTALL_ROOT" && ! -L "$INSTALL_ROOT" ]] || legacy_install_present; then return 0; fi
-  warn "$INSTALL_ROOT існує, але створений не цим скриптом — не чіпаю його."
+  warn "$(t "$INSTALL_ROOT існує, але створений не цим скриптом — не чіпаю його." \
+            "$INSTALL_ROOT exists but was not created by this script — leaving it alone.")"
 }
 
 print_header() {
   printf '\n%s%s %s — %s%s\n' "$C_BLD" "$SELF_NAME" "$SCRIPT_VERSION" "$1" "$C_RST" >&2
-  printf '  Дата: %s\n  OBS_REF=%s  NV_HEADERS_TAG=%s  CEF_BUILD=%s  CPU_TUNING=%s  OPT_LEVEL=%s  BUILD_FFMPEG=%s\n' \
+  printf "$(t '  Дата: %s\n  OBS_REF=%s  NV_HEADERS_TAG=%s  CEF_BUILD=%s  CPU_TUNING=%s  OPT_LEVEL=%s  BUILD_FFMPEG=%s\n' \
+              '  Date: %s\n  OBS_REF=%s  NV_HEADERS_TAG=%s  CEF_BUILD=%s  CPU_TUNING=%s  OPT_LEVEL=%s  BUILD_FFMPEG=%s\n')" \
     "$(date '+%F %T')" "$OBS_REF" "$NV_HEADERS_TAG" "${CEF_BUILD:-auto}" "$CPU_TUNING" "$OPT_LEVEL" "$BUILD_FFMPEG" >&2
-  printf '  Пакети: %s, <плагін>-%s%s → %s\n  Кеш: %s\n\n' "$OBS_PKG" "$PKG_SUFFIX" \
+  printf "$(t '  Пакети: %s, <плагін>-%s%s → %s\n  Кеш: %s\n\n' \
+              '  Packages: %s, <plugin>-%s%s → %s\n  Cache: %s\n\n')" "$OBS_PKG" "$PKG_SUFFIX" \
     "$( [[ "$BUILD_FFMPEG" == 1 ]] && printf ', %s' "$FFMPEG_PKG" )" "$PREFIX" "$BUILD_ROOT" >&2
 }
 
@@ -640,24 +772,29 @@ current_label() {
 
 show_inventory() {
   local os drv cur p
-  say "Система"
-  os=$( (. /etc/os-release 2>/dev/null || true; printf '%s' "${PRETTY_NAME:-невідомо}") )
-  printf '  ОС: %s; ядро %s; init: %s\n' "$os" "$(uname -r)" "$(ps -p 1 -o comm= 2>/dev/null || echo '?')" >&2
-  printf '  CPU: %s потоків; доступно RAM: %s GiB\n' "$(nproc 2>/dev/null || echo '?')" "$(mem_avail_gib)" >&2
-  printf '  Вільно: кеш %s GiB, %s %s GiB\n' "$(free_gib "$BUILD_ROOT")" "$PREFIX" "$(free_gib "$PREFIX")" >&2
+  say "$(t "Система" "System")"
+  os=$( (. /etc/os-release 2>/dev/null || true; printf '%s' "${PRETTY_NAME:-$(t невідомо unknown)}") )
+  printf "$(t '  ОС: %s; ядро %s; init: %s\n' \
+              '  OS: %s; kernel %s; init: %s\n')" "$os" "$(uname -r)" "$(ps -p 1 -o comm= 2>/dev/null || echo '?')" >&2
+  printf "$(t '  CPU: %s потоків; доступно RAM: %s GiB\n' \
+              '  CPU: %s threads; RAM available: %s GiB\n')" "$(nproc 2>/dev/null || echo '?')" "$(mem_avail_gib)" >&2
+  printf "$(t '  Вільно: кеш %s GiB, %s %s GiB\n' \
+              '  Free: cache %s GiB, %s %s GiB\n')" "$(free_gib "$BUILD_ROOT")" "$PREFIX" "$(free_gib "$PREFIX")" >&2
 
   say "NVIDIA"
   if have nvidia-smi; then
-    nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null | sed 's/^/  GPU, драйвер: /' >&2 \
-      || warn "nvidia-smi не відповідає."
+    nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null | sed "$(t 's/^/  GPU, драйвер: /' \
+                                                                                            's/^/  GPU, driver: /')" >&2 \
+      || warn "$(t "nvidia-smi не відповідає." "nvidia-smi is not responding.")"
   else
-    warn "nvidia-smi не знайдено."
+    warn "$(t "nvidia-smi не знайдено." "nvidia-smi was not found.")"
   fi
   drv=$(nvenc_driver_api || true)
   if [[ -n "$drv" ]]; then
-    printf '  Драйвер підтримує NVENC API до: %s\n' "$drv" >&2
+    printf "$(t '  Драйвер підтримує NVENC API до: %s\n' '  The driver supports NVENC API up to: %s\n')" "$drv" >&2
   else
-    warn "Не вдалося запитати версію NVENC API в драйвера (немає libnvidia-encode.so.1 або компілятора)."
+    warn "$(t "Не вдалося запитати версію NVENC API в драйвера (немає libnvidia-encode.so.1 або компілятора)." \
+              "Could not ask the driver for its NVENC API version (no libnvidia-encode.so.1 or no compiler).")"
   fi
 
   say "OBS"
@@ -665,14 +802,16 @@ show_inventory() {
   # тож без sort -u той самий пакет друкувався б двічі.
   for p in obs-studio "$OBS_PKG" obs-studio-git obs-studio-browser obs-studio-tytan652 ffmpeg "$FFMPEG_PKG"; do
     pacman -Q "$p" 2>/dev/null || true
-  done | sort -u | sed 's/^/  Пакет pacman: /' >&2
+  done | sort -u | sed "$(t 's/^/  Пакет pacman: /' 's/^/  pacman package: /')" >&2
   cur=$(installed_label || true)
-  printf '  OBS-Legacy: %s\n' "${cur:-ще не встановлено}" >&2
+  printf '  OBS-Legacy: %s\n' "${cur:-$(t 'ще не встановлено' 'not installed yet')}" >&2
   cur=$(current_label || true)
   if [[ -n "$cur" ]]; then
-    printf '  Стара збірка в %s: %s (прибереться після встановлення пакетів)\n' "$INSTALL_ROOT" "$cur" >&2
+    printf "$(t '  Стара збірка в %s: %s (прибереться після встановлення пакетів)\n' \
+                '  Old build in %s: %s (it will be removed after the packages are installed)\n')" "$INSTALL_ROOT" "$cur" >&2
   fi
-  printf '  Команда obs → %s\n' "$(command -v obs || echo 'не знайдена')" >&2
+  printf "$(t '  Команда obs → %s\n' \
+              '  Command obs → %s\n')" "$(command -v obs || echo "$(t 'не знайдена' 'not found')")" >&2
 }
 
 # Мітка встановленої збірки OBS-Legacy (з BUILDINFO у пакеті).
@@ -738,13 +877,14 @@ gpu_arch_name() {   # $1 = compute capability (6.1) → покоління
 
 detect_build_profile() {
   local base_c base_cxx base_ld line cc lvl f prev_cpu prev_tuning
-  say "Оптимізація під залізо"
+  say "$(t "Оптимізація під залізо" "Hardware optimization")"
   DISTRO_ID=$( (. /etc/os-release 2>/dev/null || true; printf '%s' "${ID:-linux}") )
   DISTRO_NAME=$( (. /etc/os-release 2>/dev/null || true; printf '%s' "${PRETTY_NAME:-${NAME:-Linux}}") )
   base_c=$(makepkg_var CFLAGS) base_cxx=$(makepkg_var CXXFLAGS) base_ld=$(makepkg_var LDFLAGS)
   if [[ -z "$base_c" ]]; then
     base_c="-O2 -pipe -fno-plt" base_cxx="-O2 -pipe -fno-plt" base_ld="-Wl,-O1 -Wl,--as-needed"
-    warn "Не вдалося прочитати /etc/makepkg.conf — беру прості прапорці ($base_c)."
+    warn "$(t "Не вдалося прочитати /etc/makepkg.conf — беру прості прапорці ($base_c)." \
+              "Could not read /etc/makepkg.conf — using simple flags ($base_c).")"
   fi
 
   CPU_MODEL=$(sed -n 's/^model name[[:space:]]*:[[:space:]]*//p' /proc/cpuinfo 2>/dev/null | head -n1)
@@ -762,8 +902,10 @@ detect_build_profile() {
     generic) MARCH_FLAGS=$(grep -oE -- '-m(arch|tune)=[^ ]+' <<<"$base_c" | tr '\n' ' ' || true) ;;
     *)
       if [[ " $(isa_levels | tr '\n' ' ') " != *" $CPU_TUNING "* ]]; then
-        die "Процесор не підтримує $CPU_TUNING (підтримує: $(isa_levels | tr '\n' ' '))." \
-          "Налаштування → «Під який процесор»: native (рекомендовано) або рівень, не вищий за ${ISA_LEVEL:-x86-64-v1}."
+        die "$(t "Процесор не підтримує $CPU_TUNING (підтримує: $(isa_levels | tr '\n' ' '))." \
+                 "The CPU does not support $CPU_TUNING (it supports: $(isa_levels | tr '\n' ' ')).")" \
+          "$(t "Налаштування → «Під який процесор»: native (рекомендовано) або рівень, не вищий за ${ISA_LEVEL:-x86-64-v1}." \
+               "Settings → “Tune for CPU”: native (recommended) or a level no higher than ${ISA_LEVEL:-x86-64-v1}.")"
       fi
       MARCH_FLAGS="-march=$CPU_TUNING" ;;
   esac
@@ -790,7 +932,8 @@ detect_build_profile() {
         GPU_CC=$cc
       fi
     done
-    if (( ${#gpus[@]} > 1 )); then GPU_NAME+=" і ще $(( ${#gpus[@]} - 1 ))"; fi
+    if (( ${#gpus[@]} > 1 )); then GPU_NAME+="$(t " і ще $(( ${#gpus[@]} - 1 ))" \
+                                                  " and $(( ${#gpus[@]} - 1 )) more")"; fi
   fi
   GPU_ARCH=$(gpu_arch_name "$GPU_CC")
   DRIVER_PKG=$(pacman -Qqo /usr/lib/libnvidia-encode.so.1 2>/dev/null | head -n1 || true)
@@ -798,55 +941,68 @@ detect_build_profile() {
   PROFILE_SIG=$(printf '%s\n' "$CPU_TUNING" "$CPU_MARCH" "$OPT_LEVEL" "$OPT_CFLAGS" "$OPT_CXXFLAGS" "$OPT_LDFLAGS" "$GPU_CC" \
     | sha256sum | cut -c1-12)
 
-  printf '  Дистрибутив: %s (%s) — базові прапорці з makepkg.conf, як у пакетів з репозиторію\n' "$DISTRO_NAME" "$DISTRO_ID" >&2
+  printf "$(t '  Дистрибутив: %s (%s) — базові прапорці з makepkg.conf, як у пакетів з репозиторію\n' \
+              '  Distribution: %s (%s) — base flags from makepkg.conf, like the repository packages\n')" "$DISTRO_NAME" "$DISTRO_ID" >&2
   case "$CPU_TUNING" in
-    native)  lvl="під цей процесор: ${CPU_MARCH:-native}" ;;
-    generic) lvl="переносно, як у репозиторії (${MARCH_FLAGS:-без -march})" ;;
-    *)       lvl="рівень $CPU_TUNING" ;;
+    native)  lvl="$(t "під цей процесор: ${CPU_MARCH:-native}" "for this CPU: ${CPU_MARCH:-native}")" ;;
+    generic) lvl="$(t "переносно, як у репозиторії (${MARCH_FLAGS:-без -march})" \
+                      "portable, like the repository (${MARCH_FLAGS:-no -march})")" ;;
+    *)       lvl="$(t "рівень $CPU_TUNING" "level $CPU_TUNING")" ;;
   esac
-  printf '  Процесор: %s → %s\n' "${CPU_MODEL:-невідомо}" "$lvl" >&2
-  printf '  Розширення: %s · найвищий рівень ISA: %s\n' "${CPU_FEATURES:-—}" "${ISA_LEVEL:-x86-64}" >&2
+  printf "$(t '  Процесор: %s → %s\n' '  CPU: %s → %s\n')" "${CPU_MODEL:-$(t невідомо unknown)}" "$lvl" >&2
+  printf "$(t '  Розширення: %s · найвищий рівень ISA: %s\n' \
+              '  Extensions: %s · highest ISA level: %s\n')" "${CPU_FEATURES:-—}" "${ISA_LEVEL:-x86-64}" >&2
   if [[ -n "$GPU_NAME" ]]; then
-    printf '  Відеокарта: %s%s · драйвер %s%s\n' "$GPU_NAME" \
+    printf "$(t '  Відеокарта: %s%s · драйвер %s%s\n' '  GPU: %s%s · driver %s%s\n')" "$GPU_NAME" \
       "${GPU_CC:+ (${GPU_ARCH:+$GPU_ARCH, }CUDA $GPU_CC)}" "${DRIVER_VERSION:-?}" "${DRIVER_PKG:+ ($DRIVER_PKG)}" >&2
   else
-    warn "nvidia-smi не показав відеокарту — CUDA-архітектуру для ffmpeg не визначено."
+    warn "$(t "nvidia-smi не показав відеокарту — CUDA-архітектуру для ffmpeg не визначено." \
+              "nvidia-smi did not show a GPU — the CUDA architecture for ffmpeg is unknown.")"
   fi
   printf '  C/C++: %s\n' "$OPT_CFLAGS" >&2
-  printf '  Компонування: %s\n' "${OPT_LDFLAGS:-—}" >&2
-  printf '  Потоки збирання: %s (CPU: %s, вільна RAM: %s GiB)\n' "$JOBS" "$(nproc 2>/dev/null || echo '?')" "$(mem_avail_gib)" >&2
+  printf "$(t '  Компонування: %s\n' '  Linking: %s\n')" "${OPT_LDFLAGS:-—}" >&2
+  printf "$(t '  Потоки збирання: %s (CPU: %s, вільна RAM: %s GiB)\n' \
+              '  Build jobs: %s (CPU: %s, free RAM: %s GiB)\n')" "$JOBS" "$(nproc 2>/dev/null || echo '?')" "$(mem_avail_gib)" >&2
 
   # Збірку під конкретний процесор не варто запускати на іншому.
   prev_cpu=$(installed_info cpu_model) prev_tuning=$(installed_info cpu_tuning)
   if [[ "$prev_tuning" == native && -n "$prev_cpu" && -n "$CPU_MODEL" && "$prev_cpu" != "$CPU_MODEL" ]]; then
-    warn "Встановлений OBS-Legacy зібрано під інший процесор ($prev_cpu)."
-    hint "Перезбери його $(install_action): на цьому процесорі стара збірка може аварійно завершуватися."
+    warn "$(t "Встановлений OBS-Legacy зібрано під інший процесор ($prev_cpu)." \
+              "The installed OBS-Legacy was built for a different CPU ($prev_cpu).")"
+    hint "$(t "Перезбери його $(install_action): на цьому процесорі стара збірка може аварійно завершуватися." \
+              "Rebuild it via $(install_action): the old build may crash on this CPU.")"
   fi
   case "$CPU_TUNING" in
-    native)  lvl="усе збирається саме під цей комп'ютер" ;;
-    generic) lvl="переносні пакети, як у репозиторії" ;;
-    *)       lvl="пакети для процесорів рівня $CPU_TUNING і новіших" ;;
+    native)  lvl="$(t "усе збирається саме під цей комп'ютер" "everything is built for exactly this computer")" ;;
+    generic) lvl="$(t "переносні пакети, як у репозиторії" "portable packages, like the repository")" ;;
+    *)       lvl="$(t "пакети для процесорів рівня $CPU_TUNING і новіших" \
+                      "packages for CPUs of level $CPU_TUNING and newer")" ;;
   esac
-  ok "Профіль: ${CPU_TUNING/native/${CPU_MARCH:-native}} · -O$OPT_LEVEL${GPU_CC:+ · CUDA sm_${GPU_CC/./}} — $lvl."
+  ok "$(t "Профіль: ${CPU_TUNING/native/${CPU_MARCH:-native}} · -O$OPT_LEVEL${GPU_CC:+ · CUDA sm_${GPU_CC/./}} — $lvl." \
+          "Profile: ${CPU_TUNING/native/${CPU_MARCH:-native}} · -O$OPT_LEVEL${GPU_CC:+ · CUDA sm_${GPU_CC/./}} — $lvl.")"
 }
 
 ffmpeg_nvenc_info() {
   local who
   have ffmpeg || return 0
   who=$(pacman -Qqo "$(command -v ffmpeg)" 2>/dev/null || echo ffmpeg)
-  say "Довідково: NVENC у ffmpeg ($who)"
+  say "$(t "Довідково: NVENC у ffmpeg ($who)" "For reference: NVENC in ffmpeg ($who)")"
   if timeout 20 ffmpeg -hide_banner -loglevel error -nostdin -f lavfi -i testsrc2=size=640x360:rate=30 \
        -frames:v 5 -an -c:v h264_nvenc -f null - >/dev/null 2>&1; then
-    ok "ffmpeg кодує через NVENC."
+    ok "$(t "ffmpeg кодує через NVENC." "ffmpeg encodes via NVENC.")"
   elif [[ "$who" == "$FFMPEG_PKG" ]]; then
-    warn "$FFMPEG_PKG не кодує через NVENC (драйвер не завантажено чи NVENC зайнятий?)."
+    warn "$(t "$FFMPEG_PKG не кодує через NVENC (драйвер не завантажено чи NVENC зайнятий?)." \
+              "$FFMPEG_PKG does not encode via NVENC (is the driver not loaded or is NVENC busy?).")"
   else
     # Це очікувано і ні на що не впливає, тож не попередження, а примітка.
-    printf '  Системний ffmpeg не кодує через NVENC — так і має бути: його зібрано з SDK 13.1.\n' >&2
+    printf "$(t '  Системний ffmpeg не кодує через NVENC — так і має бути: його зібрано з SDK 13.1.\n' \
+                '  The system ffmpeg does not encode via NVENC — as expected: it is built with SDK 13.1.\n')" >&2
     if [[ "$BUILD_FFMPEG" == 1 ]]; then
-      printf '  Це виправить %s (збирається разом з OBS). Сам OBS кодує NVENC власним модулем.\n' "$FFMPEG_PKG" >&2
+      printf "$(t '  Це виправить %s (збирається разом з OBS). Сам OBS кодує NVENC власним модулем.\n' \
+                  '  %s fixes this (it is built together with OBS). OBS itself encodes with NVENC through its own module.\n')" "$FFMPEG_PKG" >&2
     else
-      printf '  На OBS-Legacy це не впливає: OBS має власний модуль NVENC.\n' >&2
+      printf "$(t '  На OBS-Legacy це не впливає: OBS має власний модуль NVENC.\n' \
+                  '  This does not affect OBS-Legacy: OBS has its own NVENC module.\n')" >&2
     fi
   fi
 }
@@ -858,16 +1014,20 @@ check_disk_space() {
   if [[ "$FFMPEG_PLAN" == build ]]; then need=$(( need + 5 )); fi
   c=$(free_gib "$BUILD_ROOT"); o=$(free_gib "$PREFIX")
   if (( ${c:-0} < need )); then
-    fail "Для збірки потрібно ≥$need GiB вільного місця в $(existing_ancestor "$BUILD_ROOT") (зараз ${c:-?} GiB)."
-    hint "Звільни місце на диску. Проміжні файли старих збірок прибирає «Очистити кеш збірки» (або $SELF_PATH clean)."
-    fix clean "Очистити кеш збірки"
+    fail "$(t "Для збірки потрібно ≥$need GiB вільного місця в $(existing_ancestor "$BUILD_ROOT") (зараз ${c:-?} GiB)." \
+              "The build needs ≥$need GiB of free space in $(existing_ancestor "$BUILD_ROOT") (now ${c:-?} GiB).")"
+    hint "$(t "Звільни місце на диску. Проміжні файли старих збірок прибирає «Очистити кеш збірки» (або $SELF_PATH clean)." \
+              "Free up disk space. “Clean the build cache” removes intermediate files of old builds (or $SELF_PATH clean).")"
+    fix clean "$(t "Очистити кеш збірки" "Clean the build cache")"
     exit 1
   fi
   if (( ${o:-0} < 2 )); then
-    die "Для встановлення пакетів потрібно ≥2 GiB вільного місця в $PREFIX (зараз ${o:-?} GiB)." \
-      "Звільни місце на системному розділі (наприклад, очисти кеш pacman: sudo paccache -rk1)."
+    die "$(t "Для встановлення пакетів потрібно ≥2 GiB вільного місця в $PREFIX (зараз ${o:-?} GiB)." \
+             "Installing the packages needs ≥2 GiB of free space in $PREFIX (now ${o:-?} GiB).")" \
+      "$(t "Звільни місце на системному розділі (наприклад, очисти кеш pacman: sudo paccache -rk1)." \
+           "Free up space on the system partition (for example, clean the pacman cache: sudo paccache -rk1).")"
   fi
-  ok "Місця достатньо: кеш ${c} GiB, $PREFIX ${o} GiB."
+  ok "$(t "Місця достатньо: кеш ${c} GiB, $PREFIX ${o} GiB." "Enough space: cache ${c} GiB, $PREFIX ${o} GiB.")"
 }
 
 # ---------------------------------------------------------------------------
@@ -904,54 +1064,65 @@ plan_dependencies() {
   done
 }
 
-readonly NOREPO_HINT="Можливо, база пакетів застаріла: повністю онови систему (sudo pacman -Syu, окремо -Sy не роби) і повтори. В Artix деякі пакети можуть називатися інакше."
+NOREPO_HINT="$(t "Можливо, база пакетів застаріла: повністю онови систему (sudo pacman -Syu, окремо -Sy не роби) і повтори. В Artix деякі пакети можуть називатися інакше." \
+                 "The package database may be out of date: fully upgrade the system (sudo pacman -Syu, never -Sy alone) and try again. Some packages may have other names in Artix.")"
+readonly NOREPO_HINT
 
 report_dependencies() {
-  say "Пакети для збірки"
+  say "$(t "Пакети для збірки" "Build dependencies")"
   plan_dependencies
   if ((${#DEP_INSTALL[@]})); then
-    warn "Ще не встановлено: ${DEP_INSTALL[*]}"
-    hint "Постав їх зараз $(deps_action) — лише ці пакети, без оновлення системи (pacman сам додасть їхні залежності). Або нічого не роби: їх поставить $(install_action)."
-    fix deps "Встановити пакети: ${DEP_INSTALL[*]}"
+    warn "$(t "Ще не встановлено: ${DEP_INSTALL[*]}" "Not installed yet: ${DEP_INSTALL[*]}")"
+    hint "$(t "Постав їх зараз $(deps_action) — лише ці пакети, без оновлення системи (pacman сам додасть їхні залежності). Або нічого не роби: їх поставить $(install_action)." \
+              "Install them now $(deps_action) — only these packages, without a system upgrade (pacman adds their dependencies itself). Or do nothing: $(install_action) will install them.")"
+    fix deps "$(t "Встановити пакети: ${DEP_INSTALL[*]}" "Install packages: ${DEP_INSTALL[*]}")"
   else
-    ok "Усі потрібні пакети вже встановлені."
+    ok "$(t "Усі потрібні пакети вже встановлені." "All required packages are already installed.")"
   fi
   if ((${#DEP_NOREPO_REQ[@]})); then
-    warn "Обов'язкових пакетів немає в налаштованих репозиторіях: ${DEP_NOREPO_REQ[*]}"
+    warn "$(t "Обов'язкових пакетів немає в налаштованих репозиторіях: ${DEP_NOREPO_REQ[*]}" \
+              "Required packages are missing from the configured repositories: ${DEP_NOREPO_REQ[*]}")"
     hint "$NOREPO_HINT"
   fi
   if ((${#DEP_NOREPO_REC[@]})); then
-    warn "Рекомендованих пакетів немає в репозиторіях (не критично): ${DEP_NOREPO_REC[*]}"
+    warn "$(t "Рекомендованих пакетів немає в репозиторіях (не критично): ${DEP_NOREPO_REC[*]}" \
+              "Recommended packages are missing from the repositories (not critical): ${DEP_NOREPO_REC[*]}")"
   fi
 }
 
 install_dependencies() {
-  say "Пакети для збірки"
+  say "$(t "Пакети для збірки" "Build dependencies")"
   plan_dependencies
   if ((${#DEP_NOREPO_REQ[@]})); then
-    warn "Пакетів немає в налаштованих репозиторіях: ${DEP_NOREPO_REQ[*]}. Продовжую: CMake покаже, чи вони справді потрібні, ще до компіляції."
+    warn "$(t "Пакетів немає в налаштованих репозиторіях: ${DEP_NOREPO_REQ[*]}. Продовжую: CMake покаже, чи вони справді потрібні, ще до компіляції." \
+              "Packages are missing from the configured repositories: ${DEP_NOREPO_REQ[*]}. Continuing: CMake will show whether they are really needed, before compiling.")"
     hint "$NOREPO_HINT"
   fi
   if ((${#DEP_NOREPO_REC[@]})); then
-    warn "Рекомендованих пакетів немає в репозиторіях (не критично): ${DEP_NOREPO_REC[*]}"
+    warn "$(t "Рекомендованих пакетів немає в репозиторіях (не критично): ${DEP_NOREPO_REC[*]}" \
+              "Recommended packages are missing from the repositories (not critical): ${DEP_NOREPO_REC[*]}")"
   fi
   if ((${#DEP_INSTALL[@]} == 0)); then
-    ok "Усі потрібні пакети вже встановлені."
+    ok "$(t "Усі потрібні пакети вже встановлені." "All required packages are already installed.")"
     return 0
   fi
-  printf 'Буде встановлено (pacman -S --needed, БЕЗ оновлення системи):\n' >&2
+  printf "$(t 'Буде встановлено (pacman -S --needed, БЕЗ оновлення системи):\n' \
+              'Will be installed (pacman -S --needed, WITHOUT a system upgrade):\n')" >&2
   printf '  %s\n' "${DEP_INSTALL[@]}" >&2
-  warn "Якщо pacman запропонує ВИДАЛИТИ якийсь пакет через конфлікт — відповідай N і розберись вручну."
+  warn "$(t "Якщо pacman запропонує ВИДАЛИТИ якийсь пакет через конфлікт — відповідай N і розберись вручну." \
+            "If pacman offers to REMOVE some package because of a conflict, answer N and sort it out manually.")"
   check_pacman_lock
-  confirm "Встановити ці пакети?" \
-    || cancelled "Без цих пакетів OBS не зібрати, тому нічого не змінено. Запусти встановлення ще раз, коли будеш готовий."
+  confirm "$(t "Встановити ці пакети?" "Install these packages?")" \
+    || cancelled "$(t "Без цих пакетів OBS не зібрати, тому нічого не змінено. Запусти встановлення ще раз, коли будеш готовий." \
+                      "OBS cannot be built without these packages, so nothing was changed. Start the installation again when you are ready.")"
   if ! priv pacman -S --needed "${DEP_INSTALL[@]}"; then
-    die "pacman не встановив пакети." \
-      "Якщо бачиш помилки 404 чи «failed retrieving file», спершу повністю онови систему: sudo pacman -Syu (окремо -Sy не роби), потім повтори. Якщо не прийняв пароль — $PRIV_HINT"
+    die "$(t "pacman не встановив пакети." "pacman did not install the packages.")" \
+      "$(t "Якщо бачиш помилки 404 чи «failed retrieving file», спершу повністю онови систему: sudo pacman -Syu (окремо -Sy не роби), потім повтори. Якщо не прийняв пароль — $PRIV_HINT" \
+           "If you see 404 errors or “failed retrieving file”, first fully upgrade the system: sudo pacman -Syu (never -Sy alone), then try again. If it did not accept the password — $PRIV_HINT")"
   fi
   mkdir -p -- "$STATE_DIR"
   printf '%s\n' "${DEP_INSTALL[@]}" >> "$STATE_DIR/packages-installed-by-script.txt"
-  ok "Пакети встановлено."
+  ok "$(t "Пакети встановлено." "Packages installed.")"
 }
 
 # ---------------------------------------------------------------------------
@@ -970,7 +1141,8 @@ detect_mbedtls() {
     MBEDTLS3_PCDIR=$(grep -m1 -E '/pkgconfig/mbedtls\.pc$' <<<"$files" || true)
     MBEDTLS3_PCDIR=${MBEDTLS3_PCDIR%/*}
     if [[ -z "$cfg" || -z "$MBEDTLS3_INCLUDE" ]]; then
-      die "Пакет mbedtls3 має неочікувану структуру (немає MbedTLSConfig.cmake або include/mbedtls3). Перевір: pacman -Ql mbedtls3"
+      die "$(t "Пакет mbedtls3 має неочікувану структуру (немає MbedTLSConfig.cmake або include/mbedtls3). Перевір: pacman -Ql mbedtls3" \
+               "The mbedtls3 package has an unexpected layout (no MbedTLSConfig.cmake or include/mbedtls3). Check: pacman -Ql mbedtls3")"
     fi
     MBEDTLS3_CMAKE_DIR=${cfg%/*}
     TLS_MODE=mbedtls3
@@ -979,9 +1151,12 @@ detect_mbedtls() {
   fi
   v=$(pacman -Q mbedtls 2>/dev/null | awk '{print $2}' || true)
   case "$v" in
-    2.*|3.*) ok "Системний mbedtls $v — додаткові шляхи не потрібні." ;;
-    '')      warn "mbedtls не встановлено — CMake, ймовірно, його не знайде (install поставить mbedtls3)." ;;
-    *)       warn "Встановлено mbedtls $v без mbedtls3; з mbedtls 4 OBS, імовірно, не збереться. Встанови mbedtls3." ;;
+    2.*|3.*) ok "$(t "Системний mbedtls $v — додаткові шляхи не потрібні." \
+                     "System mbedtls $v — no extra paths needed.")" ;;
+    '')      warn "$(t "mbedtls не встановлено — CMake, ймовірно, його не знайде (install поставить mbedtls3)." \
+                       "mbedtls is not installed — CMake will probably not find it (install will add mbedtls3).")" ;;
+    *)       warn "$(t "Встановлено mbedtls $v без mbedtls3; з mbedtls 4 OBS, імовірно, не збереться. Встанови mbedtls3." \
+                       "mbedtls $v is installed without mbedtls3; OBS will probably not build with mbedtls 4. Install mbedtls3.")" ;;
   esac
 }
 
@@ -997,13 +1172,16 @@ clear_stale_git_locks() {
     [[ -d "$d/.git" ]] || continue
     while IFS= read -r -d '' f; do
       rm -f -- "$f"
-      printf '  Прибрано застаріле блокування git: %s\n' "${f#"$BUILD_ROOT"/}" >&2
+      printf "$(t '  Прибрано застаріле блокування git: %s\n' \
+                  '  Removed a stale git lock: %s\n')" "${f#"$BUILD_ROOT"/}" >&2
     done < <(find "$d/.git" -maxdepth 8 -type f -name '*.lock' -print0 2>/dev/null)
   done
 }
 
 # Підказка, якщо не вдалося завантажити вихідні коди.
-readonly NET_HINT="Перевір мережу (чи відкривається github.com) і запусти те саме ще раз — уже завантажене лишається в кеші."
+NET_HINT="$(t "Перевір мережу (чи відкривається github.com) і запусти те саме ще раз — уже завантажене лишається в кеші." \
+              "Check the network (does github.com open?) and run the same thing again — what is already downloaded stays in the cache.")"
+readonly NET_HINT
 
 # Мережа чи GitHub інколи не відповідають хвилину-дві. Через один такий збій
 # плагін випав би з набору (а pacman прибрав би встановлений пакет), тож
@@ -1011,7 +1189,8 @@ readonly NET_HINT="Перевір мережу (чи відкривається 
 # з'єднання до ~2 хв.
 net_retry() {   # команда з аргументами
   "$@" && return 0
-  printf '  Не вдалося завантажити (мережа чи GitHub?) — пробую ще раз за 15 с.\n' >&2
+  printf "$(t '  Не вдалося завантажити (мережа чи GitHub?) — пробую ще раз за 15 с.\n' \
+              '  Download failed (network or GitHub?) — retrying in 15 s.\n')" >&2
   sleep 15
   "$@"
 }
@@ -1028,15 +1207,19 @@ git_prepare_repo() {   # $1 = каталог, $2 = URL
   local dir=$1 url=$2 origin
   if [[ -d "$dir/.git" ]]; then
     origin=$(git -C "$dir" remote get-url origin 2>/dev/null || true)
-    [[ "$origin" == "$url" ]] || die "У $dir несподіваний origin '$origin' (очікувався $url). Це кеш скрипта — видали каталог: rm -rf '$dir'"
+    [[ "$origin" == "$url" ]] || die "$(t "У $dir несподіваний origin '$origin' (очікувався $url). Це кеш скрипта — видали каталог: rm -rf '$dir'" \
+                                          "Unexpected origin '$origin' in $dir (expected $url). This is the script's cache — delete the directory: rm -rf '$dir'")"
     if [[ -n "$(git -C "$dir" status --porcelain --untracked-files=normal --ignore-submodules=all 2>/dev/null)" ]]; then
-      die "У $dir є локальні зміни. Це кеш скрипта — видали каталог: rm -rf '$dir'"
+      die "$(t "У $dir є локальні зміни. Це кеш скрипта — видали каталог: rm -rf '$dir'" \
+               "$dir has local changes. This is the script's cache — delete the directory: rm -rf '$dir'")"
     fi
   elif [[ -e "$dir" ]]; then
-    die "$dir існує, але це не git-репозиторій. Видали його: rm -rf '$dir'"
+    die "$(t "$dir існує, але це не git-репозиторій. Видали його: rm -rf '$dir'" \
+             "$dir exists but is not a git repository. Delete it: rm -rf '$dir'")"
   else
     mkdir -p -- "${dir%/*}"
-    net_retry clone_fresh "$dir" "$url" || die "Не вдалося завантажити $url." "$NET_HINT"
+    net_retry clone_fresh "$dir" "$url" || die "$(t "Не вдалося завантажити $url." \
+                                                    "Could not download $url.")" "$NET_HINT"
   fi
 }
 
@@ -1045,7 +1228,8 @@ git_fetch_or_die() {   # $1 = каталог, далі — аргументи gi
   local dir=$1
   shift
   net_retry git -C "$dir" fetch "$@" \
-    || die "Не вдалося оновити $(git -C "$dir" remote get-url origin 2>/dev/null || echo "$dir")." "$NET_HINT"
+    || die "$(t "Не вдалося оновити $(git -C "$dir" remote get-url origin 2>/dev/null || echo "$dir")." \
+                "Could not update $(git -C "$dir" remote get-url origin 2>/dev/null || echo "$dir").")" "$NET_HINT"
 }
 
 # ---------------------------------------------------------------------------
@@ -1075,7 +1259,8 @@ obs_min_nvenc_api() {
 
 prepare_headers() {
   local h pcdir='' d ver inc major minor want drv min
-  say "nv-codec-headers (приватна копія в кеші, системні файли не змінюються)"
+  say "$(t "nv-codec-headers (приватна копія в кеші, системні файли не змінюються)" \
+           "nv-codec-headers (a private copy in the cache, system files are not changed)")"
   git_prepare_repo "$HEADERS_SRC" "$NV_HEADERS_REPO"
   git_fetch_or_die "$HEADERS_SRC" --quiet --tags --force --prune origin
   NV_HEADERS_RESOLVED=$NV_HEADERS_TAG
@@ -1083,34 +1268,44 @@ prepare_headers() {
     drv=$(nvenc_driver_api || true)
     if [[ "$drv" =~ ^[0-9]+\.[0-9]+$ ]]; then
       NV_HEADERS_RESOLVED=$(pick_headers_tag "$drv" || true)
-      [[ -n "$NV_HEADERS_RESOLVED" ]] || die "Немає заголовків nv-codec-headers для NVENC API $drv." \
-        "Драйвер надто старий для NVENC в OBS. Для GTX 900/1000 встанови гілку 580xx (nvidia-580xx-dkms і nvidia-580xx-utils) і перезавантаж комп'ютер."
-      printf '  Драйвер знає NVENC API %s → найновіші сумісні заголовки: %s\n' "$drv" "$NV_HEADERS_RESOLVED" >&2
+      [[ -n "$NV_HEADERS_RESOLVED" ]] || die "$(t "Немає заголовків nv-codec-headers для NVENC API $drv." \
+                                                  "No nv-codec-headers for NVENC API $drv.")" \
+        "$(t "Драйвер надто старий для NVENC в OBS. Для GTX 900/1000 встанови гілку 580xx (nvidia-580xx-dkms і nvidia-580xx-utils) і перезавантаж комп'ютер." \
+             "The driver is too old for NVENC in OBS. For a GTX 900/1000, install the 580xx branch (nvidia-580xx-dkms and nvidia-580xx-utils) and reboot.")"
+      printf "$(t '  Драйвер знає NVENC API %s → найновіші сумісні заголовки: %s\n' \
+                  '  The driver knows NVENC API %s → the newest compatible headers: %s\n')" "$drv" "$NV_HEADERS_RESOLVED" >&2
     else
       NV_HEADERS_RESOLVED=$NV_HEADERS_DEFAULT
-      warn "Не вдалося запитати NVENC API в драйвера — беру $NV_HEADERS_DEFAULT (максимум для 580xx). Остаточно перевірить obs-nvenc-test."
+      warn "$(t "Не вдалося запитати NVENC API в драйвера — беру $NV_HEADERS_DEFAULT (максимум для 580xx). Остаточно перевірить obs-nvenc-test." \
+                "Could not ask the driver for its NVENC API — using $NV_HEADERS_DEFAULT (the maximum for 580xx). obs-nvenc-test will check it for sure.")"
     fi
   fi
   git -C "$HEADERS_SRC" rev-parse -q --verify "refs/tags/$NV_HEADERS_RESOLVED^{commit}" >/dev/null \
-    || die "Тег $NV_HEADERS_RESOLVED не знайдено в $NV_HEADERS_REPO." \
-      "Перевір значення «nv-codec-headers» у Налаштуваннях (типове — auto) та інтернет-з'єднання."
+    || die "$(t "Тег $NV_HEADERS_RESOLVED не знайдено в $NV_HEADERS_REPO." \
+                "Tag $NV_HEADERS_RESOLVED was not found in $NV_HEADERS_REPO.")" \
+      "$(t "Перевір значення «nv-codec-headers» у Налаштуваннях (типове — auto) та інтернет-з'єднання." \
+           "Check the “nv-codec-headers” value in Settings (the default is auto) and the internet connection.")"
   git -C "$HEADERS_SRC" -c advice.detachedHead=false checkout -q --detach "refs/tags/$NV_HEADERS_RESOLVED"
   rm_cache_path "$HEADERS_PREFIX"
   make -s -C "$HEADERS_SRC" PREFIX="$HEADERS_PREFIX" install >/dev/null
 
   h="$HEADERS_PREFIX/include/ffnvcodec/nvEncodeAPI.h"
-  [[ -r "$h" ]] || die "Після встановлення заголовків немає $h."
+  [[ -r "$h" ]] || die "$(t "Після встановлення заголовків немає $h." \
+                            "$h is missing after the headers were installed.")"
   for d in lib lib64 share; do
     if [[ -f "$HEADERS_PREFIX/$d/pkgconfig/ffnvcodec.pc" ]]; then pcdir="$HEADERS_PREFIX/$d/pkgconfig"; break; fi
   done
-  [[ -n "$pcdir" ]] || die "Не знайдено ffnvcodec.pc у $HEADERS_PREFIX."
+  [[ -n "$pcdir" ]] || die "$(t "Не знайдено ffnvcodec.pc у $HEADERS_PREFIX." \
+                                "ffnvcodec.pc was not found in $HEADERS_PREFIX.")"
   HEADERS_PCDIR=$pcdir
   export PKG_CONFIG_PATH="$pcdir${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 
   ver=$(pkg-config --modversion ffnvcodec 2>/dev/null || true)
-  [[ -n "$ver" ]] || die "pkg-config не бачить локальні заголовки ffnvcodec."
+  [[ -n "$ver" ]] || die "$(t "pkg-config не бачить локальні заголовки ffnvcodec." \
+                              "pkg-config does not see the local ffnvcodec headers.")"
   inc=$(pkg-config --variable=includedir ffnvcodec 2>/dev/null || true)
-  [[ "$inc" == "$HEADERS_PREFIX"/* ]] || die "pkg-config вказує не на локальні заголовки: $inc"
+  [[ "$inc" == "$HEADERS_PREFIX"/* ]] || die "$(t "pkg-config вказує не на локальні заголовки: $inc" \
+                                                  "pkg-config points to headers that are not the local ones: $inc")"
   # Теги на гілках підтримки мають у ffnvcodec.pc ще й номер ревізії:
   # n13.0.19.1 → 13.0.19.1.2, n12.1.14.1 → 12.1.14.1.2, n13.1.15.0 → 13.1.15.0.1.
   # Тож версія має збігатися з тегом або починатися з нього. Сумісність із
@@ -1118,20 +1313,26 @@ prepare_headers() {
   if [[ "$NV_HEADERS_RESOLVED" =~ ^n([0-9]+(\.[0-9]+)*)$ ]]; then
     want=${BASH_REMATCH[1]}
     if [[ "$ver" != "$want" && "$ver" != "$want".* ]]; then
-      die "Тег $NV_HEADERS_RESOLVED, а pkg-config бачить заголовки версії $ver." \
-        "Кеш заголовків, схоже, зіпсовано. Видали $HEADERS_SRC і повтори — скрипт завантажить їх заново."
+      die "$(t "Тег $NV_HEADERS_RESOLVED, а pkg-config бачить заголовки версії $ver." \
+               "The tag is $NV_HEADERS_RESOLVED, but pkg-config sees headers of version $ver.")" \
+        "$(t "Кеш заголовків, схоже, зіпсовано. Видали $HEADERS_SRC і повтори — скрипт завантажить їх заново." \
+             "The headers cache seems to be damaged. Delete $HEADERS_SRC and try again — the script will download them again.")"
     fi
   fi
   major=$(awk '/^#define[ \t]+NVENCAPI_MAJOR_VERSION[ \t]/ {print $3; exit}' "$h")
   minor=$(awk '/^#define[ \t]+NVENCAPI_MINOR_VERSION[ \t]/ {print $3; exit}' "$h")
-  [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] || die "Не вдалося прочитати NVENCAPI_*_VERSION з $h."
+  [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] || die "$(t "Не вдалося прочитати NVENCAPI_*_VERSION з $h." \
+                                                                 "Could not read NVENCAPI_*_VERSION from $h.")"
   HEADERS_API="$major.$minor"
   min=$(obs_min_nvenc_api)
   if [[ "$min" =~ ^[0-9]+\.[0-9]+$ ]] && (( $(api_to_int "$HEADERS_API") < $(api_to_int "$min") )); then
-    die "OBS $OBS_DESCRIBE збирає NVENC лише із SDK $min і новіше, а заголовки $NV_HEADERS_RESOLVED — це NVENC API $HEADERS_API." \
-      "Онови драйвер NVIDIA (для GTX 900/1000 — гілка 580xx) або в Налаштуваннях → «Версія OBS» вкажи старішу версію OBS."
+    die "$(t "OBS $OBS_DESCRIBE збирає NVENC лише із SDK $min і новіше, а заголовки $NV_HEADERS_RESOLVED — це NVENC API $HEADERS_API." \
+             "OBS $OBS_DESCRIBE builds NVENC only with SDK $min or newer, but the $NV_HEADERS_RESOLVED headers are NVENC API $HEADERS_API.")" \
+      "$(t "Онови драйвер NVIDIA (для GTX 900/1000 — гілка 580xx) або в Налаштуваннях → «Версія OBS» вкажи старішу версію OBS." \
+           "Update the NVIDIA driver (for a GTX 900/1000 — the 580xx branch) or set an older OBS version in Settings → “OBS version”.")"
   fi
-  ok "Заголовки $NV_HEADERS_RESOLVED ($ver) готові: NVENC API $HEADERS_API."
+  ok "$(t "Заголовки $NV_HEADERS_RESOLVED ($ver) готові: NVENC API $HEADERS_API." \
+          "Headers $NV_HEADERS_RESOLVED ($ver) are ready: NVENC API $HEADERS_API.")"
 }
 
 # Порівнює NVENC API драйвера і заголовків ще до компіляції.
@@ -1139,15 +1340,19 @@ check_driver_vs_headers() {
   local drv
   drv=$(nvenc_driver_api || true)
   if [[ ! "$drv" =~ ^[0-9]+\.[0-9]+$ ]]; then
-    warn "Не вдалося визначити версію NVENC API драйвера. Остаточну перевірку зробить obs-nvenc-test після компіляції."
+    warn "$(t "Не вдалося визначити версію NVENC API драйвера. Остаточну перевірку зробить obs-nvenc-test після компіляції." \
+              "Could not determine the driver's NVENC API version. obs-nvenc-test will do the final check after compiling.")"
     return 0
   fi
   DRIVER_NVENC_API=$drv
   if (( $(api_to_int "$drv") < $(api_to_int "$HEADERS_API") )); then
-    die "Драйвер підтримує NVENC API лише до $drv, а заголовки $NV_HEADERS_RESOLVED потребують $HEADERS_API." \
-      "Онови драйвер (для GTX 900/1000 — гілка 580xx: nvidia-580xx-dkms і nvidia-580xx-utils) і перезавантаж комп'ютер. Або в Налаштуваннях задай тег nv-codec-headers, сумісний з API $drv."
+    die "$(t "Драйвер підтримує NVENC API лише до $drv, а заголовки $NV_HEADERS_RESOLVED потребують $HEADERS_API." \
+             "The driver supports NVENC API only up to $drv, but the $NV_HEADERS_RESOLVED headers need $HEADERS_API.")" \
+      "$(t "Онови драйвер (для GTX 900/1000 — гілка 580xx: nvidia-580xx-dkms і nvidia-580xx-utils) і перезавантаж комп'ютер. Або в Налаштуваннях задай тег nv-codec-headers, сумісний з API $drv." \
+           "Update the driver (for a GTX 900/1000 — the 580xx branch: nvidia-580xx-dkms and nvidia-580xx-utils) and reboot. Or set an nv-codec-headers tag compatible with API $drv in Settings.")"
   fi
-  ok "NVENC API: драйвер $drv, заголовки $HEADERS_API — сумісно."
+  ok "$(t "NVENC API: драйвер $drv, заголовки $HEADERS_API — сумісно." \
+          "NVENC API: driver $drv, headers $HEADERS_API — compatible.")"
 }
 
 # ---------------------------------------------------------------------------
@@ -1157,28 +1362,31 @@ resolve_obs_ref() {
   local ref="$OBS_REF" tag
   if [[ "$ref" == stable ]]; then
     tag=$(git -C "$OBS_SRC" tag -l | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || true)
-    [[ -n "$tag" ]] || die "Не знайдено жодного стабільного тега OBS." \
-      "Перевір інтернет-з'єднання: вихідні коди OBS завантажуються з GitHub."
+    [[ -n "$tag" ]] || die "$(t "Не знайдено жодного стабільного тега OBS." "No stable OBS tag was found.")" \
+      "$(t "Перевір інтернет-з'єднання: вихідні коди OBS завантажуються з GitHub." \
+           "Check the internet connection: the OBS sources are downloaded from GitHub.")"
     OBS_RESOLVED="refs/tags/$tag"
-    OBS_REF_LABEL="$tag (найновіший стабільний)"
+    OBS_REF_LABEL="$(t "$tag (найновіший стабільний)" "$tag (newest stable)")"
   elif git -C "$OBS_SRC" show-ref --verify -q "refs/remotes/origin/$ref"; then
     OBS_RESOLVED="refs/remotes/origin/$ref"
-    OBS_REF_LABEL="гілка $ref"
+    OBS_REF_LABEL="$(t "гілка $ref" "branch $ref")"
   elif git -C "$OBS_SRC" show-ref --verify -q "refs/tags/$ref"; then
     OBS_RESOLVED="refs/tags/$ref"
-    OBS_REF_LABEL="тег $ref"
+    OBS_REF_LABEL="$(t "тег $ref" "tag $ref")"
   elif git -C "$OBS_SRC" rev-parse -q --verify "$ref^{commit}" >/dev/null 2>&1; then
     OBS_RESOLVED="$ref"
-    OBS_REF_LABEL="коміт $ref"
+    OBS_REF_LABEL="$(t "коміт $ref" "commit $ref")"
   else
-    die "Версію OBS «$ref» не знайдено (ні гілка, ні тег, ні коміт)." \
-      "У Налаштуваннях → «Версія OBS» вкажи stable (найновіша стабільна) або наявний тег, наприклад 33.0.0."
+    die "$(t "Версію OBS «$ref» не знайдено (ні гілка, ні тег, ні коміт)." \
+             "OBS version “$ref” was not found (not a branch, a tag or a commit).")" \
+      "$(t "У Налаштуваннях → «Версія OBS» вкажи stable (найновіша стабільна) або наявний тег, наприклад 33.0.0." \
+           "In Settings → “OBS version” set stable (the newest stable one) or an existing tag, for example 33.0.0.")"
   fi
   OBS_COMMIT=$(git -C "$OBS_SRC" rev-parse "$OBS_RESOLVED^{commit}")
 }
 
 prepare_obs_source() {
-  say "Вихідні коди OBS ($OBS_REPO)"
+  say "$(t "Вихідні коди OBS ($OBS_REPO)" "OBS sources ($OBS_REPO)")"
   git_prepare_repo "$OBS_SRC" "$OBS_REPO"
   git_fetch_or_die "$OBS_SRC" --quiet --prune --tags --force origin '+refs/heads/*:refs/remotes/origin/*'
   resolve_obs_ref
@@ -1186,11 +1394,14 @@ prepare_obs_source() {
   # Сабмодулі — частина кешу скрипта, тому --force прийнятний.
   git -C "$OBS_SRC" submodule --quiet sync --recursive
   net_retry git -C "$OBS_SRC" submodule update --init --recursive --force --jobs 4 \
-    || die "Не вдалося завантажити сабмодулі OBS (obs-browser, obs-websocket…)." "$NET_HINT"
+    || die "$(t "Не вдалося завантажити сабмодулі OBS (obs-browser, obs-websocket…)." \
+                "Could not download the OBS submodules (obs-browser, obs-websocket…).")" "$NET_HINT"
   [[ -f "$OBS_SRC/plugins/obs-nvenc/CMakeLists.txt" ]] \
-    || die "У цій версії OBS немає plugins/obs-nvenc — версія надто стара для цього скрипта."
+    || die "$(t "У цій версії OBS немає plugins/obs-nvenc — версія надто стара для цього скрипта." \
+                "This OBS version has no plugins/obs-nvenc — the version is too old for this script.")"
   [[ -f "$OBS_SRC/plugins/obs-browser/CMakeLists.txt" ]] \
-    || die "Немає plugins/obs-browser (сабмодуль не завантажився)."
+    || die "$(t "Немає plugins/obs-browser (сабмодуль не завантажився)." \
+                "No plugins/obs-browser (the submodule did not download).")"
   OBS_DESCRIBE=$(git -C "$OBS_SRC" describe --tags --always 2>/dev/null || git -C "$OBS_SRC" rev-parse --short=12 HEAD)
   OBS_MAJOR=$(awk '/^#define[ \t]+LIBOBS_API_MAJOR_VER[ \t]/ {print $3; exit}' "$OBS_SRC/libobs/obs-config.h" 2>/dev/null || true)
   ok "OBS: $OBS_REF_LABEL → $OBS_DESCRIBE (${OBS_COMMIT:0:12})"
@@ -1281,7 +1492,7 @@ url_exists() { curl -fsSL --max-time 25 --range 0-0 -o /dev/null -- "$1" 2>/dev/
 download_file() {   # $1 = URL, $2 = файл
   local url=$1 dest=$2 part="$2.part"
   rm -f -- "$part"
-  say "Завантажую $url"
+  say "$(t "Завантажую $url" "Downloading $url")"
   if ! curl --fail --location --retry 3 --retry-delay 3 --connect-timeout 20 --progress-bar -o "$part" -- "$url"; then
     rm -f -- "$part"
     return 1
@@ -1308,7 +1519,8 @@ find_cef_archive() {
     if [[ -s "$cache" ]]; then
       url=$(<"$cache")
     else
-      say "Шукаю офіційний Linux-архів CEF $build на $CEF_CDN"
+      say "$(t "Шукаю офіційний Linux-архів CEF $build на $CEF_CDN" \
+               "Looking for the official Linux CEF archive $build on $CEF_CDN")"
       for rev in 12 11 10 9 8 7 6 5 4 3 2 1 ''; do
         name="cef_binary_${build}_linux_x86_64${rev:+_v$rev}.tar.xz"
         if url_exists "$CEF_CDN/$name"; then url="$CEF_CDN/$name"; break; fi
@@ -1329,44 +1541,53 @@ verify_cef_archive() {
   sum=$(sha256sum -- "$archive" | awk '{print $1}')
   printf '  SHA-256 %s: %s\n' "$(basename -- "$archive")" "$sum" >&2
   if [[ -n "$CEF_SHA256" ]]; then
-    [[ "${CEF_SHA256,,}" == "$sum" ]] || die "SHA-256 архіву CEF не збігається з CEF_SHA256. Видали $archive і перевір посилання."
-    ok "SHA-256 збігається з CEF_SHA256."
+    [[ "${CEF_SHA256,,}" == "$sum" ]] || die "$(t "SHA-256 архіву CEF не збігається з CEF_SHA256. Видали $archive і перевір посилання." \
+                                                  "The CEF archive's SHA-256 does not match CEF_SHA256. Delete $archive and check the link.")"
+    ok "$(t "SHA-256 збігається з CEF_SHA256." "SHA-256 matches CEF_SHA256.")"
     return 0
   fi
   if [[ -n "$CEF_SPEC_SHA" && -z "$CEF_ARCHIVE_URL" \
         && "$(basename -- "$archive")" == "$(basename -- "${CEF_SPEC_URL%%\?*}")" ]]; then
     [[ "$CEF_SPEC_SHA" == "$sum" ]] \
-      || die "SHA-256 архіву CEF не збігається з офіційним хешем із вихідних кодів OBS ($CEF_SPEC_SHA). Архів пошкоджений або підмінений — видали $archive і повтори."
-    ok "SHA-256 збігається з офіційним хешем OBS."
+      || die "$(t "SHA-256 архіву CEF не збігається з офіційним хешем із вихідних кодів OBS ($CEF_SPEC_SHA). Архів пошкоджений або підмінений — видали $archive і повтори." \
+                  "The CEF archive's SHA-256 does not match the official hash from the OBS sources ($CEF_SPEC_SHA). The archive is damaged or tampered with — delete $archive and try again.")"
+    ok "$(t "SHA-256 збігається з офіційним хешем OBS." "SHA-256 matches the official OBS hash.")"
     return 0
   fi
   mkdir -p -- "$STATE_DIR"
   rec="$STATE_DIR/$(basename -- "$archive").sha256"
   if [[ -s "$rec" ]]; then
-    [[ "$(<"$rec")" == "$sum" ]] || die "Архів CEF відрізняється від завантаженого раніше (еталон: $rec). Якщо це очікувано — видали $rec і $archive, потім повтори."
-    ok "SHA-256 збігається з раніше збереженим."
+    [[ "$(<"$rec")" == "$sum" ]] || die "$(t "Архів CEF відрізняється від завантаженого раніше (еталон: $rec). Якщо це очікувано — видали $rec і $archive, потім повтори." \
+                                             "The CEF archive differs from the one downloaded earlier (reference: $rec). If this is expected, delete $rec and $archive, then try again.")"
+    ok "$(t "SHA-256 збігається з раніше збереженим." "SHA-256 matches the one saved earlier.")"
   else
     # Записується лише після успішної перевірки вмісту (див. prepare_cef).
     CEF_SHA_PENDING="$sum $rec"
-    warn "OBS не публікує SHA-256 для Linux-архіву CEF; хеш буде збережено, і наступні завантаження звірятимуться з ним."
+    warn "$(t "OBS не публікує SHA-256 для Linux-архіву CEF; хеш буде збережено, і наступні завантаження звірятимуться з ним." \
+              "OBS does not publish a SHA-256 for the Linux CEF archive; the hash will be saved, and later downloads will be checked against it.")"
   fi
 }
 
 validate_cef() {   # $1 = корінь CEF, $2 = очікувана збірка, $3 = архів (якщо щойно розпаковано)
   local root=$1 build=$2 archive=${3:-} hv wrapper lib
-  [[ -r "$root/include/cef_version.h" ]] || die "У $root немає include/cef_version.h."
+  [[ -r "$root/include/cef_version.h" ]] || die "$(t "У $root немає include/cef_version.h." \
+                                                     "$root has no include/cef_version.h.")"
   hv=$(awk '/^#define[ \t]+CHROME_VERSION_BUILD[ \t]/ {print $3; exit}' "$root/include/cef_version.h")
   wrapper=$(find "$root" -type f -name 'libcef_dll_wrapper.a' -print -quit 2>/dev/null || true)
   lib=$(find "$root" -type f -name 'libcef.so' -print -quit 2>/dev/null || true)
-  [[ -n "$wrapper" ]] || die "У CEF немає зібраного libcef_dll_wrapper.a — потрібен саме архів від OBS."
-  [[ -n "$lib" ]] || die "У CEF немає libcef.so."
+  [[ -n "$wrapper" ]] || die "$(t "У CEF немає зібраного libcef_dll_wrapper.a — потрібен саме архів від OBS." \
+                                  "CEF has no prebuilt libcef_dll_wrapper.a — it must be the archive from OBS.")"
+  [[ -n "$lib" ]] || die "$(t "У CEF немає libcef.so." "CEF has no libcef.so.")"
   if [[ "$hv" != "$build" ]]; then
     if [[ -n "$CEF_BUILD" || -n "${CEF_ROOT_DIR:-}" ]]; then
-      warn "CEF має збірку $hv, а не $build; продовжую, бо CEF задано вручну."
+      warn "$(t "CEF має збірку $hv, а не $build; продовжую, бо CEF задано вручну." \
+                "CEF is build $hv, not $build; continuing because CEF was set manually.")"
     elif [[ -n "$archive" ]]; then
-      die "Архів $(basename -- "$archive") містить CEF збірки '$hv', а потрібна $build. Видали архів і повтори: rm -f '$archive'"
+      die "$(t "Архів $(basename -- "$archive") містить CEF збірки '$hv', а потрібна $build. Видали архів і повтори: rm -f '$archive'" \
+               "The archive $(basename -- "$archive") contains CEF build '$hv', but $build is needed. Delete the archive and try again: rm -f '$archive'")"
     else
-      die "CEF у кеші має збірку '$hv', а потрібна $build. Видали $CEF_DIR/$build і повтори."
+      die "$(t "CEF у кеші має збірку '$hv', а потрібна $build. Видали $CEF_DIR/$build і повтори." \
+               "The cached CEF is build '$hv', but $build is needed. Delete $CEF_DIR/$build and try again.")"
     fi
   fi
   ok "CEF $hv: $root"
@@ -1374,32 +1595,38 @@ validate_cef() {   # $1 = корінь CEF, $2 = очікувана збірка
 
 prepare_cef() {
   local build root='' archive dest tmp hdr
-  say "CEF (Chromium Embedded Framework) для Browser Source"
+  say "$(t "CEF (Chromium Embedded Framework) для Browser Source" \
+           "CEF (Chromium Embedded Framework) for Browser Source")"
   detect_cef_build \
-    || die "Не вдалося визначити версію CEF з вихідних кодів OBS (CMakePresets.json / buildspec.json). Задай CEF_BUILD=<номер> (напр., 7871 для OBS 33, 6533 для OBS 32)."
+    || die "$(t "Не вдалося визначити версію CEF з вихідних кодів OBS (CMakePresets.json / buildspec.json). Задай CEF_BUILD=<номер> (напр., 7871 для OBS 33, 6533 для OBS 32)." \
+                "Could not determine the CEF version from the OBS sources (CMakePresets.json / buildspec.json). Set CEF_BUILD=<number> (e.g. 7871 for OBS 33, 6533 for OBS 32).")"
   build=$CEF_BUILD_RESOLVED
   if [[ -n "$CEF_SPEC_SHA" ]]; then
-    printf '  Офіційний архів: %s\n' "${CEF_SPEC_URL:-—}" >&2
+    printf "$(t '  Офіційний архів: %s\n' '  Official archive: %s\n')" "${CEF_SPEC_URL:-—}" >&2
   fi
   if [[ -n "${CEF_ROOT_DIR:-}" ]]; then
-    root=$(realpath -e -- "$CEF_ROOT_DIR" 2>/dev/null) || die "CEF_ROOT_DIR не існує: $CEF_ROOT_DIR"
+    root=$(realpath -e -- "$CEF_ROOT_DIR" 2>/dev/null) || die "$(t "CEF_ROOT_DIR не існує: $CEF_ROOT_DIR" \
+                                                                   "CEF_ROOT_DIR does not exist: $CEF_ROOT_DIR")"
   else
     dest="$CEF_DIR/$build"
     if [[ -f "$dest/.root" ]]; then
       root=$(<"$dest/.root")
     else
       archive=$(find_cef_archive "$build") \
-        || die "Не вдалося знайти або завантажити Linux-архів CEF $build." \
-          "Перевір інтернет: CEF (рушій Browser Source) завантажується з ${CEF_CDN%%/downloads*}. Якщо сайт тимчасово недоступний — повтори пізніше. Досвідченим: CEF_ARCHIVE_URL=… або CEF_ROOT_DIR=…"
+        || die "$(t "Не вдалося знайти або завантажити Linux-архів CEF $build." \
+                    "Could not find or download the Linux CEF archive $build.")" \
+          "$(t "Перевір інтернет: CEF (рушій Browser Source) завантажується з ${CEF_CDN%%/downloads*}. Якщо сайт тимчасово недоступний — повтори пізніше. Досвідченим: CEF_ARCHIVE_URL=… або CEF_ROOT_DIR=…" \
+               "Check the internet: CEF (the Browser Source engine) is downloaded from ${CEF_CDN%%/downloads*}. If the site is temporarily down, try again later. Advanced: CEF_ARCHIVE_URL=… or CEF_ROOT_DIR=…")"
       verify_cef_archive "$archive"
       tmp="$dest.tmp"
       rm_cache_path "$tmp"
       mkdir -p -- "$tmp"
-      say "Розпаковую $(basename -- "$archive")"
+      say "$(t "Розпаковую $(basename -- "$archive")" "Unpacking $(basename -- "$archive")")"
       tar -xf "$archive" -C "$tmp" --no-same-owner \
-        || die "Не вдалося розпакувати $archive (архів пошкоджений? Видали його і повтори)."
+        || die "$(t "Не вдалося розпакувати $archive (архів пошкоджений? Видали його і повтори)." \
+                    "Could not unpack $archive (is the archive damaged? Delete it and try again).")"
       hdr=$(find "$tmp" -maxdepth 4 -path '*/include/cef_version.h' -print -quit)
-      [[ -n "$hdr" ]] || die "В архіві немає include/cef_version.h."
+      [[ -n "$hdr" ]] || die "$(t "В архіві немає include/cef_version.h." "The archive has no include/cef_version.h.")"
       root="${hdr%/include/cef_version.h}"
       # Перевіряємо ДО того, як розпакований CEF потрапить у кеш.
       validate_cef "$root" "$build" "$archive"
@@ -1460,15 +1687,18 @@ build_cmake_args() {
   fi
   # Необов'язкові модулі вмикаються лише тоді, коли їхні бібліотеки є в системі,
   # щоб їхня відсутність не ламала конфігурацію.
-  if pc_has libvlc; then CMAKE_ARGS+=(-DENABLE_VLC=ON);  FEATURES+=("VLC-джерело: так")
-  else                   CMAKE_ARGS+=(-DENABLE_VLC=OFF); FEATURES+=("VLC-джерело: ні (немає libvlc)"); fi
-  if pc_has jack;   then CMAKE_ARGS+=(-DENABLE_JACK=ON);  FEATURES+=("JACK: так")
-  else                   CMAKE_ARGS+=(-DENABLE_JACK=OFF); FEATURES+=("JACK: ні (немає jack.pc)"); fi
-  if pc_has vpl;    then CMAKE_ARGS+=(-DENABLE_QSV11=ON);  FEATURES+=("Intel QSV: так")
-  else                   CMAKE_ARGS+=(-DENABLE_QSV11=OFF); FEATURES+=("Intel QSV: ні (немає libvpl)"); fi
+  if pc_has libvlc; then CMAKE_ARGS+=(-DENABLE_VLC=ON);  FEATURES+=("$(t "VLC-джерело: так" "VLC source: yes")")
+  else                   CMAKE_ARGS+=(-DENABLE_VLC=OFF); FEATURES+=("$(t "VLC-джерело: ні (немає libvlc)" \
+                                                                         "VLC source: no (no libvlc)")"); fi
+  if pc_has jack;   then CMAKE_ARGS+=(-DENABLE_JACK=ON);  FEATURES+=("$(t "JACK: так" "JACK: yes")")
+  else                   CMAKE_ARGS+=(-DENABLE_JACK=OFF); FEATURES+=("$(t "JACK: ні (немає jack.pc)" \
+                                                                          "JACK: no (no jack.pc)")"); fi
+  if pc_has vpl;    then CMAKE_ARGS+=(-DENABLE_QSV11=ON);  FEATURES+=("$(t "Intel QSV: так" "Intel QSV: yes")")
+  else                   CMAKE_ARGS+=(-DENABLE_QSV11=OFF); FEATURES+=("$(t "Intel QSV: ні (немає libvpl)" \
+                                                                           "Intel QSV: no (no libvpl)")"); fi
   # AAC-кодер FDK якісніший за вбудований (так збирає й Arch), якщо бібліотека є.
-  if pc_has fdk-aac; then CMAKE_ARGS+=(-DENABLE_LIBFDK=ON); FEATURES+=("AAC (FDK): так")
-  else                    FEATURES+=("AAC (FDK): ні (немає libfdk-aac)"); fi
+  if pc_has fdk-aac; then CMAKE_ARGS+=(-DENABLE_LIBFDK=ON); FEATURES+=("$(t "AAC (FDK): так" "AAC (FDK): yes")")
+  else                    FEATURES+=("$(t "AAC (FDK): ні (немає libfdk-aac)" "AAC (FDK): no (no libfdk-aac)")"); fi
   if [[ -n "$EXTRA_CMAKE_ARGS" ]]; then
     read -r -a extra <<<"$EXTRA_CMAKE_ARGS"
     CMAKE_ARGS+=("${extra[@]}")
@@ -1481,31 +1711,38 @@ cache_get() {   # $1 = каталог збірки, $2 = змінна
 
 verify_cmake_cache() {
   local dir=$1 log="$1/cmake-configure.log" bad problems=0 f
-  if [[ "$(cache_get "$dir" ENABLE_BROWSER)" != ON ]]; then fail "CMake вимкнув Browser Source (ENABLE_BROWSER)."; problems=1; fi
-  if [[ "$(cache_get "$dir" ENABLE_NVENC)" != ON ]]; then fail "CMake вимкнув NVENC (ENABLE_NVENC)."; problems=1; fi
+  if [[ "$(cache_get "$dir" ENABLE_BROWSER)" != ON ]]; then fail "$(t "CMake вимкнув Browser Source (ENABLE_BROWSER)." \
+                                                                      "CMake disabled Browser Source (ENABLE_BROWSER).")"; problems=1; fi
+  if [[ "$(cache_get "$dir" ENABLE_NVENC)" != ON ]]; then fail "$(t "CMake вимкнув NVENC (ENABLE_NVENC)." \
+                                                                    "CMake disabled NVENC (ENABLE_NVENC).")"; problems=1; fi
   if [[ "$(cache_get "$dir" FFnvcodec_INCLUDE_DIR)" != "$HEADERS_PREFIX/include" ]]; then
-    fail "CMake використовує не локальні заголовки NVENC."; problems=1
+    fail "$(t "CMake використовує не локальні заголовки NVENC." \
+              "CMake is not using the local NVENC headers.")"; problems=1
   fi
-  if [[ "$(cache_get "$dir" CEF_ROOT_DIR)" != "$CEF_ROOT" ]]; then fail "CMake використовує не перевірений CEF."; problems=1; fi
+  if [[ "$(cache_get "$dir" CEF_ROOT_DIR)" != "$CEF_ROOT" ]]; then fail "$(t "CMake використовує не перевірений CEF." \
+                                                                             "CMake is not using the verified CEF.")"; problems=1; fi
   if grep -Eiq 'Browser sources? (are|is) not enabled|obs-browser.{0,40}not available' "$log" 2>/dev/null; then
-    fail "CMake не ввімкнув плагін obs-browser."; problems=1
+    fail "$(t "CMake не ввімкнув плагін obs-browser." "CMake did not enable the obs-browser plugin.")"; problems=1
   fi
   if [[ "$TLS_MODE" == mbedtls3 ]]; then
     bad=$(grep -iE '^[A-Za-z0-9_]*mbed[A-Za-z0-9_]*(:[A-Z_]+)?=/' "$dir/CMakeCache.txt" | grep -v 'mbedtls3' || true)
     if [[ -n "$bad" ]]; then
-      fail "CMake підхопив не mbedtls3:"
+      fail "$(t "CMake підхопив не mbedtls3:" "CMake picked up something other than mbedtls3:")"
       sed 's/^/    /' <<<"$bad" >&2
       problems=1
     else
-      ok "MbedTLS: використовується mbedtls3."
+      ok "$(t "MbedTLS: використовується mbedtls3." "MbedTLS: mbedtls3 is used.")"
     fi
   fi
-  printf '  Тип збірки: %s; прапорці: %s\n' "$(cache_get "$dir" CMAKE_BUILD_TYPE)" "$(cache_get "$dir" CMAKE_C_FLAGS)" >&2
+  printf "$(t '  Тип збірки: %s; прапорці: %s\n' \
+              '  Build type: %s; flags: %s\n')" "$(cache_get "$dir" CMAKE_BUILD_TYPE)" "$(cache_get "$dir" CMAKE_C_FLAGS)" >&2
   for f in "${FEATURES[@]}"; do printf '  %s\n' "$f" >&2; done
   if (( problems )); then
-    die "Конфігурація CMake не відповідає очікуваній (див. вище). Журнал: $log"
+    die "$(t "Конфігурація CMake не відповідає очікуваній (див. вище). Журнал: $log" \
+             "The CMake configuration is not what was expected (see above). Log: $log")"
   fi
-  ok "CMake: Browser Source, власний NVENC (SDK $HEADERS_API), CEF $CEF_BUILD_RESOLVED."
+  ok "$(t "CMake: Browser Source, власний NVENC (SDK $HEADERS_API), CEF $CEF_BUILD_RESOLVED." \
+          "CMake: Browser Source, own NVENC (SDK $HEADERS_API), CEF $CEF_BUILD_RESOLVED.")"
 }
 
 # Чого не знайшов CMake (назви з журналу конфігурації), через пробіл.
@@ -1524,22 +1761,27 @@ configure_obs() {   # $1 = каталог збірки, $2 = префікс вс
   if [[ "$mode" == fresh || "$FORCE_CLEAN_BUILD" == 1 || ! -f "$dir/.signature" || "$(<"$dir/.signature")" != "$sig" ]]; then
     rm_cache_path "$dir"
     mkdir -p -- "$dir"
-    say "Чиста конфігурація CMake"
+    say "$(t "Чиста конфігурація CMake" "Clean CMake configuration")"
   else
-    say "Кеш збірки вже має OBS $OBS_DESCRIBE з тими самими параметрами — перекомпілюю лише змінене"
+    say "$(t "Кеш збірки вже має OBS $OBS_DESCRIBE з тими самими параметрами — перекомпілюю лише змінене" \
+             "The build cache already has OBS $OBS_DESCRIBE with the same parameters — recompiling only what changed")"
     rm -f -- "$dir/.signature"
   fi
   log="$dir/cmake-configure.log"
   if ! cmake -S "$OBS_SRC" -B "$dir" "-DCMAKE_INSTALL_PREFIX=$prefix" "${CMAKE_ARGS[@]}" >"$log" 2>&1; then
-    printf 'Останні рядки журналу CMake:\n' >&2
+    printf "$(t 'Останні рядки журналу CMake:\n' 'Last lines of the CMake log:\n')" >&2
     tail -n 60 "$log" >&2
     missing=$(cmake_missing_packages "$log")
     if [[ -n "$missing" ]]; then
-      die "CMake не зміг сконфігурувати OBS: не знайдено ${missing% }." \
-        "Встанови відповідні пакети (назва зазвичай та сама, малими літерами) і повтори. Повний журнал: $log"
+      die "$(t "CMake не зміг сконфігурувати OBS: не знайдено ${missing% }." \
+               "CMake could not configure OBS: ${missing% } not found.")" \
+        "$(t "Встанови відповідні пакети (назва зазвичай та сама, малими літерами) і повтори. Повний журнал: $log" \
+             "Install the matching packages (the name is usually the same, in lowercase) and try again. Full log: $log")"
     fi
-    die "CMake не зміг сконфігурувати OBS (див. журнал вище)." \
-      "Найчастіше бракує пакета: шукай у журналі «Could not find» чи «not found». Повний журнал: $log"
+    die "$(t "CMake не зміг сконфігурувати OBS (див. журнал вище)." \
+             "CMake could not configure OBS (see the log above).")" \
+      "$(t "Найчастіше бракує пакета: шукай у журналі «Could not find» чи «not found». Повний журнал: $log" \
+           "Most often a package is missing: look for “Could not find” or “not found” in the log. Full log: $log")"
   fi
   verify_cmake_cache "$dir"
   printf '%s\n' "$sig" > "$dir/.signature"
@@ -1561,63 +1803,73 @@ compute_jobs() {
 build_obs() {
   local jobs
   jobs=$(compute_jobs)
-  say "Компіляція OBS ($jobs потоків, знижений пріоритет). На старішому залізі це може тривати годину й більше."
+  say "$(t "Компіляція OBS ($jobs потоків, знижений пріоритет). На старішому залізі це може тривати годину й більше." \
+           "Compiling OBS ($jobs jobs, lowered priority). On older hardware this can take an hour or more.")"
   if ! nice -n 10 cmake --build "$BUILD_DIR" --parallel "$jobs"; then
-    fail "Компіляція не вдалася (див. вивід вище і звіт). Нічого не встановлено і не змінено."
-    hint "Перезбери начисто: $(rebuild_action) — це допомагає, якщо попереднє збирання обірвалося чи кеш зіпсовано. Якщо помилка повториться — створи issue на GitHub і додай звіт."
-    fix rebuild "Перезібрати начисто"
+    fail "$(t "Компіляція не вдалася (див. вивід вище і звіт). Нічого не встановлено і не змінено." \
+              "Compilation failed (see the output above and the report). Nothing was installed or changed.")"
+    hint "$(t "Перезбери начисто: $(rebuild_action) — це допомагає, якщо попереднє збирання обірвалося чи кеш зіпсовано. Якщо помилка повториться — створи issue на GitHub і додай звіт." \
+              "Rebuild from scratch: $(rebuild_action) — this helps if the previous build was interrupted or the cache is damaged. If the error comes back, open an issue on GitHub and attach the report.")"
+    fix rebuild "$(t "Перезібрати начисто" "Rebuild from scratch")"
     exit 1
   fi
-  ok "Компіляція завершена."
+  ok "$(t "Компіляція завершена." "Compilation finished.")"
 }
 
 nvenc_test_failed() {
   if [[ "$SKIP_NVENC_TEST" == 1 ]]; then
-    warn "$1 Продовжую, бо SKIP_NVENC_TEST=1 — NVENC у цій збірці може НЕ працювати."
+    warn "$(t "$1 Продовжую, бо SKIP_NVENC_TEST=1 — NVENC у цій збірці може НЕ працювати." \
+              "$1 Continuing because SKIP_NVENC_TEST=1 — NVENC may NOT work in this build.")"
     NVENC_TEST_RESULT=skipped
     return 0
   fi
-  die "$1 Збірку НЕ встановлено, поточний OBS не змінено." \
-    "Перевір, що драйвер NVIDIA працює (nvidia-smi показує відеокарту) і що після оновлення драйвера комп'ютер перезавантажено. Журнал тесту: $BUILD_ROOT/obs-nvenc-test.log"
+  die "$(t "$1 Збірку НЕ встановлено, поточний OBS не змінено." \
+           "$1 The build was NOT installed, the current OBS was not changed.")" \
+    "$(t "Перевір, що драйвер NVIDIA працює (nvidia-smi показує відеокарту) і що після оновлення драйвера комп'ютер перезавантажено. Журнал тесту: $BUILD_ROOT/obs-nvenc-test.log" \
+         "Check that the NVIDIA driver works (nvidia-smi shows the GPU) and that the computer was rebooted after the driver update. Test log: $BUILD_ROOT/obs-nvenc-test.log")"
 }
 
 run_nvenc_test() {
   local t log="$BUILD_ROOT/obs-nvenc-test.log" rc=0
   t=$(find "$BUILD_DIR" -type f -name obs-nvenc-test -executable -print -quit 2>/dev/null || true)
   if [[ -z "$t" ]]; then
-    nvenc_test_failed "Не зібрано obs-nvenc-test."
+    nvenc_test_failed "$(t "Не зібрано obs-nvenc-test." "obs-nvenc-test was not built.")"
     return 0
   fi
-  say "Перевіряю NVENC тестом OBS: $t"
+  say "$(t "Перевіряю NVENC тестом OBS: $t" "Testing NVENC with the OBS test: $t")"
   timeout 60 "$t" >"$log" 2>&1 || rc=$?
   sed 's/^/  /' "$log" >&2
   if (( rc != 0 )); then
-    nvenc_test_failed "obs-nvenc-test завершився з кодом $rc."
+    nvenc_test_failed "$(t "obs-nvenc-test завершився з кодом $rc." "obs-nvenc-test exited with code $rc.")"
     return 0
   fi
   if ! grep -qx 'nvenc_supported=true' "$log"; then
-    nvenc_test_failed "obs-nvenc-test не підтвердив підтримку NVENC."
+    nvenc_test_failed "$(t "obs-nvenc-test не підтвердив підтримку NVENC." \
+                           "obs-nvenc-test did not confirm NVENC support.")"
     return 0
   fi
   NVENC_TEST_RESULT=passed
-  ok "NVENC працює з цією збіркою ($(grep -m1 '^nvenc_ver=' "$log" || echo 'nvenc_ver=?'))."
+  ok "$(t "NVENC працює з цією збіркою ($(grep -m1 '^nvenc_ver=' "$log" || echo 'nvenc_ver=?'))." \
+          "NVENC works with this build ($(grep -m1 '^nvenc_ver=' "$log" || echo 'nvenc_ver=?')).")"
 }
 
 stage_install() {
   local log="$BUILD_ROOT/stage-install.log" f
-  say "Встановлення у тимчасовий каталог (без root)"
+  say "$(t "Встановлення у тимчасовий каталог (без root)" "Installing into a temporary directory (without root)")"
   rm_cache_path "$STAGE_DIR"
   mkdir -p -- "$STAGE_DIR"
   if ! DESTDIR="$STAGE_DIR" cmake --install "$BUILD_DIR" --strip >"$log" 2>&1; then
     tail -n 40 "$log" >&2
-    die "Тимчасове встановлення не вдалося. Нічого не змінено. Журнал: $log"
+    die "$(t "Тимчасове встановлення не вдалося. Нічого не змінено. Журнал: $log" \
+             "The temporary installation failed. Nothing was changed. Log: $log")"
   fi
   STAGED_TREE="$STAGE_DIR$PREFIX"
-  [[ -x "$STAGED_TREE/bin/obs" ]] || die "У зібраних файлах немає bin/obs."
+  [[ -x "$STAGED_TREE/bin/obs" ]] || die "$(t "У зібраних файлах немає bin/obs." "The built files have no bin/obs.")"
   [[ -n "$(find "$STAGED_TREE" -type f -name 'obs-browser.so' -print -quit)" ]] \
-    || die "Немає плагіна obs-browser — Browser Source не зібрано."
+    || die "$(t "Немає плагіна obs-browser — Browser Source не зібрано." \
+                "No obs-browser plugin — Browser Source was not built.")"
   [[ -n "$(find "$STAGED_TREE" -type f -name 'obs-nvenc.so' -print -quit)" ]] \
-    || die "Немає плагіна obs-nvenc."
+    || die "$(t "Немає плагіна obs-nvenc." "No obs-nvenc plugin.")"
   strip_debug_info "$STAGED_TREE"
   # Бібліотеки CEF ставляться з правами 644; у пакетах бібліотеки — 755
   # (makepkg лише за ними визначає версії залежностей-sonames).
@@ -1652,7 +1904,7 @@ built=$(date -Is)
 builder=$SELF_NAME $SCRIPT_VERSION
 recipe=$RECIPE_VERSION
 EOF
-  ok "Тимчасове встановлення: $STAGED_TREE"
+  ok "$(t "Тимчасове встановлення: $STAGED_TREE" "Temporary installation: $STAGED_TREE")"
 }
 
 # CEF з архіву OBS приходить з налагоджувальною інформацією (libcef.so — ~2 ГБ),
@@ -1668,12 +1920,14 @@ strip_debug_info() {   # $1 = дерево
     if strip --strip-debug -- "$f" 2>/dev/null; then
       n=$(( n + 1 ))
     else
-      warn "Не вдалося прибрати налагоджувальну інформацію з ${f#"$1"/} (не критично)."
+      warn "$(t "Не вдалося прибрати налагоджувальну інформацію з ${f#"$1"/} (не критично)." \
+                "Could not strip the debug info from ${f#"$1"/} (not critical).")"
     fi
   done < <(find "$1" -type f \( -name '*.so' -o -name '*.so.*' -o -perm -u=x \) -print0)
   after=$(du -sm -- "$1" 2>/dev/null | cut -f1 || true)
   if (( n )); then
-    ok "Налагоджувальну інформацію прибрано з $n файлів (CEF): ${before:-?} МБ → ${after:-?} МБ."
+    ok "$(t "Налагоджувальну інформацію прибрано з $n файлів (CEF): ${before:-?} МБ → ${after:-?} МБ." \
+            "Debug info stripped from $n files (CEF): ${before:-?} MB → ${after:-?} MB.")"
   fi
 }
 
@@ -1722,7 +1976,8 @@ resolve_selected_plugins() {
   for id in "${ids[@]}"; do
     [[ "$id" != none ]] || continue
     if ! plugin_record "$id" >/dev/null; then
-      warn "Невідомий плагін '$id' в OBS_PLUGINS — пропускаю (каталог: $SELF_PATH plugins)."
+      warn "$(t "Невідомий плагін '$id' в OBS_PLUGINS — пропускаю (каталог: $SELF_PATH plugins)." \
+                "Unknown plugin '$id' in OBS_PLUGINS — skipping (catalog: $SELF_PATH plugins).")"
       continue
     fi
     if [[ " ${PLUGINS_SELECTED[*]} " == *" $id "* ]]; then continue; fi
@@ -1801,12 +2056,14 @@ plugin_checkout() {   # $1 = id
   repo=$(plugin_field "$id" repo)
   src="$PLUGINS_DIR/$id/src"
   if ! plugin_prepare_repo "$src" "$repo"; then
-    fail "Не вдалося завантажити $repo"
-    hint "Схоже на збій мережі чи GitHub. Наступне $(install_action) спробує знову."
+    fail "$(t "Не вдалося завантажити $repo" "Could not download $repo")"
+    hint "$(t "Схоже на збій мережі чи GitHub. Наступне $(install_action) спробує знову." \
+              "Looks like a network or GitHub failure. The next $(install_action) will try again.")"
     return 1
   fi
   line=$(resolve_plugin_ref "$src" "$id") \
-    || { fail "Для $id не знайдено версію $(plugin_ref_override "$id")"; return 1; }
+    || { fail "$(t "Для $id не знайдено версію $(plugin_ref_override "$id")" \
+                   "Version $(plugin_ref_override "$id") was not found for $id")"; return 1; }
   ref=${line%%$'\t'*} label=${line#*$'\t'}
   commit=$(git -C "$src" rev-parse "$ref^{commit}") || return 1
   git -C "$src" -c advice.detachedHead=false checkout --quiet --force --detach "$commit" || return 1
@@ -1848,7 +2105,8 @@ plugin_compile() {   # $1 = id, $2 = CFLAGS, $3 = CXXFLAGS, далі — пар�
        -DLINUX_PORTABLE=OFF \
        "$@" >>"$log" 2>&1; then
     tail -n 30 "$log" >&2
-    printf '  CMake не зміг сконфігурувати %s (журнал: %s).\n' "$id" "$log" >&2
+    printf "$(t '  CMake не зміг сконфігурувати %s (журнал: %s).\n' \
+                '  CMake could not configure %s (log: %s).\n')" "$id" "$log" >&2
     return 1
   fi
   # Вивід компіляції — і на екран (прогрес), і в журнал плагіна (там шукатимуть помилку).
@@ -1884,7 +2142,7 @@ build_plugin() {   # $1 = id, $2 = файл результатів
   local -a extra=() args=() clash=() others=()
   bld="$PLUGINS_DIR/$id/build" pstage="$PLUGINS_DIR/$id/stage" log="$PLUGINS_DIR/$id/build.log"
   tried="$PLUGINS_DIR/$id/tried-commit"
-  say "Плагін $id ($(plugin_field "$id" name))"
+  say "$(t "Плагін $id ($(plugin_field "$id" name))" "Plugin $id ($(plugin_field "$id" name))")"
   # Журнал — лише цієї спроби, разом з помилками завантаження: попередження про
   # невдачу посилається саме на нього.
   mkdir -p -- "$PLUGINS_DIR/$id"
@@ -1895,7 +2153,7 @@ build_plugin() {   # $1 = id, $2 = файл результатів
   # Коміт, який пробуємо зібрати: не вийде — package_set запише його в
   # plugin_failed.<id>. Не завантажилося — файлу немає, і «Оновити» спробує знову.
   printf '%s\n' "$commit" > "$tried"
-  printf '  Версія: %s (%s)\n' "$label" "${commit:0:12}" | tee_plain "$log"
+  printf "$(t '  Версія: %s (%s)\n' '  Version: %s (%s)\n')" "$label" "${commit:0:12}" | tee_plain "$log"
 
   read -r -a extra <<<"$(plugin_field "$id" cmake)"
   for tok in "${extra[@]}"; do
@@ -1919,22 +2177,26 @@ build_plugin() {   # $1 = id, $2 = файл результатів
   if ! plugin_compile "$id" "$cflags" "$cxxflags" "${args[@]}"; then
     # Прапорці дистрибутива (зміцнення, -Werror=format-security) інколи
     # ламають збирання старих плагінів. Друга спроба — лише -march і -O.
-    warn "Плагін $id не зібрався з прапорцями дистрибутива — пробую ще раз лише з $MARCH_FLAGS -O$OPT_LEVEL."
-    printf '\n==== Друга спроба: лише %s -O%s ====\n' "$MARCH_FLAGS" "$OPT_LEVEL" >> "$log"
+    warn "$(t "Плагін $id не зібрався з прапорцями дистрибутива — пробую ще раз лише з $MARCH_FLAGS -O$OPT_LEVEL." \
+              "Plugin $id did not build with the distribution flags — trying again with only $MARCH_FLAGS -O$OPT_LEVEL.")"
+    printf "$(t '\n==== Друга спроба: лише %s -O%s ====\n' \
+                '\n==== Second attempt: only %s -O%s ====\n')" "$MARCH_FLAGS" "$OPT_LEVEL" >> "$log"
     if ! plugin_compile "$id" "$MARCH_FLAGS -O$OPT_LEVEL$extra_c" "$MARCH_FLAGS -O$OPT_LEVEL$extra_cxx" "${args[@]}"; then
-      fail "Не вдалося зібрати $id (журнал: $log)."
+      fail "$(t "Не вдалося зібрати $id (журнал: $log)." "Could not build $id (log: $log).")"
       return 1
     fi
   fi
   if ! DESTDIR="$pstage" cmake --install "$bld" --strip >>"$log" 2>&1; then
     tail -n 20 "$log" >&2
-    fail "Встановлення $id не вдалося (журнал: $log)."
+    fail "$(t "Встановлення $id не вдалося (журнал: $log)." "Installing $id failed (log: $log).")"
     return 1
   fi
-  [[ -d "$pstage$PREFIX" ]] || { fail "$id встановився не в префікс $PREFIX."; return 1; }
+  [[ -d "$pstage$PREFIX" ]] || { fail "$(t "$id встановився не в префікс $PREFIX." \
+                                           "$id was not installed into the prefix $PREFIX.")"; return 1; }
   if [[ -z "$(find "$pstage$PREFIX/lib" -type f -name '*.so' \
                 \( -path '*/obs-plugins/*' -o -path '*/obs-modules/plugins/*' \) -print -quit 2>/dev/null)" ]]; then
-    fail "$id не встановив модуль OBS (lib/obs-plugins або lib/obs-modules/plugins)."
+    fail "$(t "$id не встановив модуль OBS (lib/obs-plugins або lib/obs-modules/plugins)." \
+              "$id did not install an OBS module (lib/obs-plugins or lib/obs-modules/plugins).")"
     return 1
   fi
   # Плагін не має перезаписувати файли OBS чи інших плагінів (у pacman це
@@ -1951,7 +2213,7 @@ build_plugin() {   # $1 = id, $2 = файл результатів
     done
   done < <(find "$pstage$PREFIX" \( -type f -o -type l \) -print0)
   if ((${#clash[@]})); then
-    fail "$id перезаписав би наявні файли: ${clash[*]:0:5}"
+    fail "$(t "$id перезаписав би наявні файли: ${clash[*]:0:5}" "$id would overwrite existing files: ${clash[*]:0:5}")"
     return 1
   fi
   # Відомості для TUI і сповіщень (версія плагіна) та ліцензія — у пакеті плагіна.
@@ -1969,17 +2231,18 @@ build_plugins() {
   local id label commit results="$PLUGINS_DIR/results.tsv"
   PLUGINS_OK=() PLUGINS_FAILED=()
   if ((${#PLUGINS_SELECTED[@]} == 0)); then
-    say "Плагіни: не вибрано (OBS_PLUGINS=none)"
+    say "$(t "Плагіни: не вибрано (OBS_PLUGINS=none)" "Plugins: none selected (OBS_PLUGINS=none)")"
     return 0
   fi
   mkdir -p -- "$PLUGINS_DIR"
   : > "$results"
   for id in "${PLUGINS_SELECTED[@]}"; do
     if ( build_plugin "$id" "$results" ); then
-      ok "Плагін $id зібрано."
+      ok "$(t "Плагін $id зібрано." "Plugin $id built.")"
     else
       PLUGINS_FAILED+=("$id")
-      warn "Плагін $id не зібрався — у цій збірці його не буде. Журнал: $PLUGINS_DIR/$id/build.log"
+      warn "$(t "Плагін $id не зібрався — у цій збірці його не буде. Журнал: $PLUGINS_DIR/$id/build.log" \
+                "Plugin $id did not build — it will not be in this build. Log: $PLUGINS_DIR/$id/build.log")"
     fi
   done
   while IFS=$'\t' read -r id label commit; do
@@ -1988,8 +2251,10 @@ build_plugins() {
   done < "$results"
   if ((${#PLUGINS_FAILED[@]})); then
     if [[ "$PLUGINS_STRICT" == 1 ]]; then
-      die "Не зібралися плагіни: ${PLUGINS_FAILED[*]} (PLUGINS_STRICT=1). Нічого не встановлено." \
-        "Зніми галочку з цих плагінів (пункт «Плагіни») або вимкни «Суворо з плагінами» в Налаштуваннях. Журнали: $PLUGINS_DIR/<id>/build.log"
+      die "$(t "Не зібралися плагіни: ${PLUGINS_FAILED[*]} (PLUGINS_STRICT=1). Нічого не встановлено." \
+               "Plugins failed to build: ${PLUGINS_FAILED[*]} (PLUGINS_STRICT=1). Nothing was installed.")" \
+        "$(t "Зніми галочку з цих плагінів (пункт «Плагіни») або вимкни «Суворо з плагінами» в Налаштуваннях. Журнали: $PLUGINS_DIR/<id>/build.log" \
+             "Untick these plugins (the “Plugins” item) or turn off “Strict about plugins” in Settings. Logs: $PLUGINS_DIR/<id>/build.log")"
     fi
   fi
 }
@@ -1997,17 +2262,19 @@ build_plugins() {
 # Для check: завантажує вихідні коди плагінів і показує, що буде зібрано.
 check_plugins() {
   local id line
-  say "Плагіни"
+  say "$(t "Плагіни" "Plugins")"
   if ((${#PLUGINS_SELECTED[@]} == 0)); then
-    ok "Плагіни не вибрано (OBS_PLUGINS=none)."
+    ok "$(t "Плагіни не вибрано (OBS_PLUGINS=none)." "No plugins selected (OBS_PLUGINS=none).")"
     return 0
   fi
   mkdir -p -- "$PLUGINS_DIR"
   for id in "${PLUGINS_SELECTED[@]}"; do
     if line=$( plugin_checkout "$id" ); then
-      printf '  %s: буде зібрано %s (%s)\n' "$id" "${line%%$'\t'*}" "$(cut -c1-12 <<<"${line#*$'\t'}")" >&2
+      printf "$(t '  %s: буде зібрано %s (%s)\n' \
+                  '  %s: %s will be built (%s)\n')" "$id" "${line%%$'\t'*}" "$(cut -c1-12 <<<"${line#*$'\t'}")" >&2
     else
-      warn "Плагін $id: не вдалося підготувати вихідні коди (install збере OBS без нього)."
+      warn "$(t "Плагін $id: не вдалося підготувати вихідні коди (install збере OBS без нього)." \
+                "Plugin $id: could not prepare the sources (install will build OBS without it).")"
     fi
   done
 }
@@ -2050,7 +2317,7 @@ verify_tree() {   # $1 = дерево, далі — додаткові дере�
   local dir=$1 d f lib rel libs ldpath=''
   local -A internal=()
   local -a problems=()
-  say "Перевіряю бібліотеки (ldd): $dir"
+  say "$(t "Перевіряю бібліотеки (ldd): $dir" "Checking libraries (ldd): $dir")"
   for d in "$@"; do
     ldpath+="${ldpath:+:}$d/lib"
     while IFS= read -r -d '' f; do internal["${f##*/}"]=1; done \
@@ -2068,14 +2335,15 @@ verify_tree() {   # $1 = дерево, далі — додаткові дере�
     done < <(LD_LIBRARY_PATH=$ldpath ldd_problems "$f")
   done < <(find "$dir" -type f \( -name '*.so' -o -name '*.so.*' -o -perm -u=x \) -print0 2>/dev/null)
   if ((${#problems[@]})); then
-    fail "Бракує бібліотек:"
+    fail "$(t "Бракує бібліотек:" "Missing libraries:")"
     printf '    %s\n' "${problems[@]}" >&2
     libs=$(printf '%s\n' "${problems[@]}" | awk -F' → ' '{print $2}' | sort -u | tr '\n' ' ')
-    warn "Відсутні: $libs"
-    warn "Який пакет їх містить: pacman -F <назва>  (база файлів оновлюється командою sudo pacman -Fy)."
+    warn "$(t "Відсутні: $libs" "Missing: $libs")"
+    warn "$(t "Який пакет їх містить: pacman -F <назва>  (база файлів оновлюється командою sudo pacman -Fy)." \
+              "Which package has them: pacman -F <name>  (the file database is updated with sudo pacman -Fy).")"
     return 1
   fi
-  ok "Усі бібліотеки знаходяться."
+  ok "$(t "Усі бібліотеки знаходяться." "All libraries are found.")"
 }
 
 quick_check_binary() {
@@ -2106,11 +2374,11 @@ version_in_use() {   # чи запущено зараз щось із цієї �
 activate_version() {
   local label=$1
   [[ "$label" =~ ^[A-Za-z0-9._-]+$ && -f "$VERSIONS_DIR/$label/.complete" ]] \
-    || die "Збірка $label відсутня або неповна."
+    || die "$(t "Збірка $label відсутня або неповна." "Build $label is missing or incomplete.")"
   # Атомарна заміна симлінка: OBS ніколи не бачить "напівактивної" збірки.
   priv ln -sfn -- "versions/$label" "$INSTALL_ROOT/.current.new"
   priv mv -Tf -- "$INSTALL_ROOT/.current.new" "$CURRENT_LINK"
-  ok "Активна збірка: $label"
+  ok "$(t "Активна збірка: $label" "Active build: $label")"
 }
 
 restore_backup() {   # $1 = wrapper|desktop, $2 = шлях, $3 = права, $4 = priv|user
@@ -2120,13 +2388,14 @@ restore_backup() {   # $1 = wrapper|desktop, $2 = шлях, $3 = права, $4 
   bak="$STATE_DIR/$kind-original.backup"
   if [[ "$how" == priv ]]; then run=("$SUDO_CMD"); fi
   if [[ -e "$target" ]] && ! grep -qs -- "$MARKER" "$target"; then
-    warn "$target змінено не цим скриптом — залишаю як є."
+    warn "$(t "$target змінено не цим скриптом — залишаю як є." \
+              "$target was changed by something other than this script — leaving it as is.")"
   elif [[ "$(cat -- "$flag" 2>/dev/null || true)" == yes && -f "$bak" ]]; then
     "${run[@]}" install -D -m "$mode" -- "$bak" "$target"
-    ok "Відновлено попередній $target"
+    ok "$(t "Відновлено попередній $target" "Restored the previous $target")"
   elif [[ -e "$target" ]]; then
     "${run[@]}" rm -f -- "$target"
-    ok "Прибрано $target"
+    ok "$(t "Прибрано $target" "Removed $target")"
   fi
   rm -f -- "$flag" "$bak"
 }
@@ -2145,7 +2414,8 @@ remove_pacman_hook() {
     fi
   done
   if [[ -d "${LIBCHECK%/*}" ]]; then priv rmdir -- "${LIBCHECK%/*}" 2>/dev/null || true; fi
-  if (( removed )); then ok "Старий pacman-хук прибрано (тепер він у пакеті $OBS_PKG)."; fi
+  if (( removed )); then ok "$(t "Старий pacman-хук прибрано (тепер він у пакеті $OBS_PKG)." \
+                                 "The old pacman hook was removed (it is now in the $OBS_PKG package).")"; fi
 }
 
 # Прибирає стару схему: обгортку (повертає попередній /usr/local/bin/obs, якщо
@@ -2153,7 +2423,8 @@ remove_pacman_hook() {
 remove_legacy_install() {
   local desktop="$DATA_HOME/applications/$DESKTOP_ID" l busy=''
   if [[ -f "$STATE_DIR/desktop-path.txt" ]]; then desktop=$(<"$STATE_DIR/desktop-path.txt"); fi
-  say "Прибираю стару схему встановлення ($INSTALL_ROOT, обгортку, ярлик)"
+  say "$(t "Прибираю стару схему встановлення ($INSTALL_ROOT, обгортку, ярлик)" \
+           "Removing the old installation layout ($INSTALL_ROOT, the wrapper, the shortcut)")"
   if grep -qs -- "$MARKER" "$WRAPPER" || [[ -f "$STATE_DIR/wrapper-original-existed.txt" ]]; then
     restore_backup wrapper "$WRAPPER" 755 priv
   fi
@@ -2168,12 +2439,14 @@ remove_legacy_install() {
       if [[ -n "$l" ]] && version_in_use "$l"; then busy=$l; fi
     done < <(list_versions)
     if [[ -n "$busy" ]]; then
-      warn "OBS зі старої збірки $busy зараз запущений — $INSTALL_ROOT прибереться наступного разу."
+      warn "$(t "OBS зі старої збірки $busy зараз запущений — $INSTALL_ROOT прибереться наступного разу." \
+                "OBS from the old build $busy is running right now — $INSTALL_ROOT will be removed next time.")"
     elif [[ "$(readlink -f -- "$INSTALL_ROOT")" != "$INSTALL_ROOT" ]]; then
-      warn "Шлях $INSTALL_ROOT веде деінде — не видаляю."
+      warn "$(t "Шлях $INSTALL_ROOT веде деінде — не видаляю." \
+                "The path $INSTALL_ROOT points somewhere else — not deleting it.")"
     else
       priv rm -rf --one-file-system -- "$INSTALL_ROOT"
-      ok "Прибрано старі збірки: $INSTALL_ROOT"
+      ok "$(t "Прибрано старі збірки: $INSTALL_ROOT" "Removed the old builds: $INSTALL_ROOT")"
     fi
   fi
   hash -r
@@ -2185,7 +2458,7 @@ remove_legacy_install() {
 # ---------------------------------------------------------------------------
 rebuild_hint() {
   if have obs-legacy; then
-    printf 'obs-legacy → «Встановити / оновити OBS»'
+    printf "$(t 'obs-legacy → «Встановити / оновити OBS»' 'obs-legacy → “Install / update OBS”')"
   else
     printf '%s install' "$SELF_PATH"
   fi
@@ -2195,13 +2468,37 @@ write_pkg_libcheck() {   # $1 = файл
   {
     printf '#!/usr/bin/env bash\n'
     printf '# %s\n' "$MARKER"
-    printf '# Викликається pacman-хуком %s після оновлень і видалень пакетів.\n' "$PKG_HOOK"
-    printf '# Лише перевіряє, чи пакети OBS-Legacy (*-%s) знаходять свої бібліотеки\n' "$PKG_SUFFIX"
-    printf '# і чи не вийшов у репозиторії новий ffmpeg; нічого не змінює.\n'
+    printf "$(t '# Викликається pacman-хуком %s після оновлень і видалень пакетів.\n' \
+                '# Called by the pacman hook %s after package upgrades and removals.\n')" "$PKG_HOOK"
+    printf "$(t '# Лише перевіряє, чи пакети OBS-Legacy (*-%s) знаходять свої бібліотеки\n' \
+                '# Only checks whether the OBS-Legacy packages (*-%s) find their libraries\n')" "$PKG_SUFFIX"
+    printf "$(t '# і чи не вийшов у репозиторії новий ffmpeg; нічого не змінює.\n' \
+                '# and whether a new ffmpeg is out in the repository; changes nothing.\n')"
     printf 'suffix=%q\n' "$PKG_SUFFIX"
     printf 'info=%q\n' "$INFO_DIR"
-    printf 'hint=%q\n' "$(rebuild_hint)"
+    printf 'hint_uk=%q\n' "$(LANG_EN=0; rebuild_hint)"
+    printf 'hint_en=%q\n' "$(LANG_EN=1; rebuild_hint)"
     cat <<'EOF'
+# Мова — за локаллю pacman (хук працює від root, налаштувань користувача не бачить).
+loc=${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}
+if [[ -z "$loc" && -r /etc/locale.conf ]]; then
+  loc=$(sed -n 's/^LANG=//p' /etc/locale.conf 2>/dev/null | tr -d "\"'" | head -n1 || true)
+fi
+if [[ "$loc" == uk* ]]; then
+  hint=$hint_uk
+  m_libs='пакетам OBS-Legacy після оновлення бракує бібліотек:'
+  m_more='      … і ще %d\n'
+  m_rebuild='    Перезбери OBS: %s\n\n'
+  m_ffmpeg='у репозиторії новий ffmpeg %s (ffmpeg-%s зібрано з %s).'
+  m_ffmpeg2='    Перезбери його: %s\n\n'
+else
+  hint=$hint_en
+  m_libs='the OBS-Legacy packages are missing libraries after the upgrade:'
+  m_more='      … and %d more\n'
+  m_rebuild='    Rebuild OBS: %s\n\n'
+  m_ffmpeg='a new ffmpeg %s is in the repository (ffmpeg-%s was built from %s).'
+  m_ffmpeg2='    Rebuild it: %s\n\n'
+fi
 mapfile -t pkgs < <(pacman -Qq 2>/dev/null | grep -E -- "-${suffix}\$" || true)
 ((${#pkgs[@]})) || exit 0
 problems=()
@@ -2216,17 +2513,21 @@ while IFS= read -r f; do
     -e "s/^.*: ([^:]*\/)?([^:\/]+): version \`([^']+)' not found.*$/\2 (\3)/p")
 done < <(pacman -Qlq "${pkgs[@]}" 2>/dev/null)
 if ((${#problems[@]})); then
-  printf '\n==> OBS-Legacy: пакетам OBS-Legacy після оновлення бракує бібліотек:\n'
+  printf '\n==> OBS-Legacy: %s\n' "$m_libs"
   printf '%s\n' "${problems[@]}" | sort -u | head -n 15 | sed 's/^/      /'
-  if ((${#problems[@]} > 15)); then printf '      … і ще %d\n' "$(( ${#problems[@]} - 15 ))"; fi
-  printf '    Перезбери OBS: %s\n\n' "$hint"
+  # shellcheck disable=SC2059 # формат — з m_more / m_rebuild вище
+  if ((${#problems[@]} > 15)); then printf "$m_more" "$(( ${#problems[@]} - 15 ))"; fi
+  # shellcheck disable=SC2059
+  printf "$m_rebuild" "$hint"
 fi
 if pacman -Q "ffmpeg-$suffix" >/dev/null 2>&1; then
   repo=$(LC_ALL=C pacman -Si ffmpeg 2>/dev/null | sed -n 's/^Version *: *//p' | head -n1)
   built=$(sed -n 's/^arch_version=//p' "$info/ffmpeg.txt" 2>/dev/null | head -n1)
   if [[ -n "$repo" && -n "$built" ]] && (( $(vercmp "$repo" "$built") > 0 )); then
-    printf '\n==> OBS-Legacy: у репозиторії новий ffmpeg %s (ffmpeg-%s зібрано з %s).\n' "$repo" "$suffix" "$built"
-    printf '    Перезбери його: %s\n\n' "$hint"
+    # shellcheck disable=SC2059
+    printf "\n==> OBS-Legacy: $m_ffmpeg\n" "$repo" "$suffix" "$built"
+    # shellcheck disable=SC2059
+    printf "$m_ffmpeg2" "$hint"
   fi
 fi
 exit 0
@@ -2237,9 +2538,12 @@ EOF
 write_pkg_hook() {   # $1 = файл
   cat > "$1" <<EOF
 # $MARKER
-# OBS-Legacy: після оновлень пакетів перевіряє, чи пакетам OBS-Legacy
+$(t "# OBS-Legacy: після оновлень пакетів перевіряє, чи пакетам OBS-Legacy
 # (*-$PKG_SUFFIX) вистачає бібліотек і чи не вийшов новий ffmpeg. Нічого не змінює.
-# Без хука: INSTALL_PACMAN_HOOK=0 і повторне встановлення.
+# Без хука: INSTALL_PACMAN_HOOK=0 і повторне встановлення." \
+    "# OBS-Legacy: after package upgrades, checks whether the OBS-Legacy packages
+# (*-$PKG_SUFFIX) have all their libraries and whether a new ffmpeg is out. Changes nothing.
+# Without the hook: INSTALL_PACMAN_HOOK=0 and install again.")
 [Trigger]
 Operation = Upgrade
 Operation = Remove
@@ -2247,7 +2551,7 @@ Type = Package
 Target = *
 
 [Action]
-Description = OBS-Legacy: перевірка бібліотек OBS і плагінів...
+Description = $(t 'OBS-Legacy: перевірка бібліотек OBS і плагінів...' 'OBS-Legacy: checking OBS and plugin libraries...')
 When = PostTransaction
 Exec = $PKG_LIBCHECK
 EOF
@@ -2258,7 +2562,8 @@ add_hook_to_tree() {   # $1 = дерево …/usr
   install -d -m 755 -- "$1/lib/obs-legacy" "$1/share/libalpm/hooks"
   write_pkg_libcheck "$1/lib/obs-legacy/check-libs"
   chmod 755 -- "$1/lib/obs-legacy/check-libs"
-  bash -n "$1/lib/obs-legacy/check-libs" || die "Внутрішня помилка: згенерований check-libs некоректний."
+  bash -n "$1/lib/obs-legacy/check-libs" || die "$(t "Внутрішня помилка: згенерований check-libs некоректний." \
+                                                     "Internal error: the generated check-libs is invalid.")"
   write_pkg_hook "$1/share/libalpm/hooks/obs-legacy.hook"
 }
 
@@ -2400,8 +2705,10 @@ add_file_conflicts() {   # $1 = корінь пакета
     esac
   done < <(file_owners "$1")
   if ((${#unowned[@]})); then
-    fail "У системі вже є файли пакета $PKG_NAME, що не належать жодному пакету: ${unowned[*]:0:5}"
-    hint "Їх, мабуть, скопіювали вручну або поставили через «make install». pacman не перезаписує чужих файлів: перенеси чи видали їх (sudo rm …) і повтори."
+    fail "$(t "У системі вже є файли пакета $PKG_NAME, що не належать жодному пакету: ${unowned[*]:0:5}" \
+              "The system already has files of the $PKG_NAME package that belong to no package: ${unowned[*]:0:5}")"
+    hint "$(t "Їх, мабуть, скопіювали вручну або поставили через «make install». pacman не перезаписує чужих файлів: перенеси чи видали їх (sudo rm …) і повтори." \
+              "They were probably copied by hand or installed with “make install”. pacman does not overwrite files it does not own: move or delete them (sudo rm …) and try again.")"
     return 1
   fi
 }
@@ -2480,11 +2787,12 @@ EOF
   } > "$dir/PKGBUILD"
   if ! run_makepkg "$dir" "$log" --nodeps; then
     tail -n 25 "$log" >&2
-    fail "makepkg не зміг запакувати $PKG_NAME (журнал: $log)."
+    fail "$(t "makepkg не зміг запакувати $PKG_NAME (журнал: $log)." "makepkg could not pack $PKG_NAME (log: $log).")"
     return 1
   fi
   file=$(find "$SET_DIR" -maxdepth 1 -type f -name "$PKG_NAME-$PKG_VER-$PKG_REL-*.pkg.tar.*" ! -name '*.sig' -print -quit)
-  if [[ -z "$file" ]]; then fail "Після makepkg немає пакета $PKG_NAME у $SET_DIR."; return 1; fi
+  if [[ -z "$file" ]]; then fail "$(t "Після makepkg немає пакета $PKG_NAME у $SET_DIR." \
+                                      "There is no $PKG_NAME package in $SET_DIR after makepkg.")"; return 1; fi
   printf '%s\n' "$file"
 }
 
@@ -2501,15 +2809,18 @@ begin_set() {
 package_obs() {
   local m file
   PKG_NAME=$OBS_PKG PKG_VER=$OBS_PKGVER PKG_REL=$BUILD_NUMBER PKG_TREE=$STAGE_DIR
-  PKG_DESC="OBS Studio з NVENC для NVIDIA $PKG_SUFFIX (SDK $HEADERS_API) і Browser Source; OBS-Legacy, оптимізовано під ${CPU_MARCH:-$CPU_TUNING}"
+  PKG_DESC="$(t "OBS Studio з NVENC для NVIDIA $PKG_SUFFIX (SDK $HEADERS_API) і Browser Source; OBS-Legacy, оптимізовано під ${CPU_MARCH:-$CPU_TUNING}" \
+                "OBS Studio with NVENC for NVIDIA $PKG_SUFFIX (SDK $HEADERS_API) and Browser Source; OBS-Legacy, optimized for ${CPU_MARCH:-$CPU_TUNING}")"
   PKG_URL="https://obsproject.com" PKG_LICENSE="GPL-2.0-or-later"
   mapfile -t PKG_DEPENDS < <(elf_pkg_deps "$STAGED_TREE")
   PKG_OPTDEPENDS=(
-    "${DRIVER_PKG:-nvidia-utils}: NVENC (драйвер NVIDIA)"
-    'v4l2loopback-dkms: віртуальна камера'
-    'xdg-desktop-portal-impl: захоплення вікон і екрана у Wayland'
+    "$(t "${DRIVER_PKG:-nvidia-utils}: NVENC (драйвер NVIDIA)" "${DRIVER_PKG:-nvidia-utils}: NVENC (NVIDIA driver)")"
+    "$(t 'v4l2loopback-dkms: віртуальна камера' 'v4l2loopback-dkms: virtual camera')"
+    "$(t 'xdg-desktop-portal-impl: захоплення вікон і екрана у Wayland' \
+         'xdg-desktop-portal-impl: window and screen capture on Wayland')"
   )
-  if tree_uses_vlc "$STAGED_TREE"; then PKG_OPTDEPENDS+=('vlc: джерело «VLC Video Source»'); fi
+  if tree_uses_vlc "$STAGED_TREE"; then PKG_OPTDEPENDS+=("$(t 'vlc: джерело «VLC Video Source»' \
+                                                              'vlc: the “VLC Video Source” source')"); fi
   # provides=obs-studio і conflicts=obs-studio: pacman сам запропонує замінити
   # будь-який OBS (obs-studio, obs-studio-git, obs-studio-browser…), а пакети,
   # що потребують obs-studio (плагіни з AUR), ставляться на цей.
@@ -2521,11 +2832,13 @@ package_obs() {
     fi
   done
   if [[ " ${PKG_PROVIDES[*]} " == *" obs-browser="* ]]; then PKG_PROVIDES+=("obs-studio-plugin-browser=$OBS_PKGVER"); fi
-  add_file_conflicts "$STAGE_DIR" || die "Пакет $OBS_PKG конфліктує з файлами, що не належать жодному пакету (див. вище)."
-  file=$(make_repack_package) || die "Не вдалося запакувати $OBS_PKG." \
-    "Подивись журнал makepkg вище. Найчастіше бракує fakeroot: постав пакети $(deps_action)."
+  add_file_conflicts "$STAGE_DIR" || die "$(t "Пакет $OBS_PKG конфліктує з файлами, що не належать жодному пакету (див. вище)." \
+                                              "The $OBS_PKG package conflicts with files that belong to no package (see above).")"
+  file=$(make_repack_package) || die "$(t "Не вдалося запакувати $OBS_PKG." "Could not pack $OBS_PKG.")" \
+    "$(t "Подивись журнал makepkg вище. Найчастіше бракує fakeroot: постав пакети $(deps_action)." \
+         "Look at the makepkg log above. Most often fakeroot is missing: install the packages $(deps_action).")"
   SET_FILES+=("$file") SET_CONFLICTS+=("${PKG_CONFLICTS[@]}")
-  ok "Пакет: ${file##*/} ($(du -h -- "$file" | cut -f1))"
+  ok "$(t "Пакет: ${file##*/} ($(du -h -- "$file" | cut -f1))" "Package: ${file##*/} ($(du -h -- "$file" | cut -f1))")"
 }
 
 package_plugin() {   # $1 = id
@@ -2534,24 +2847,26 @@ package_plugin() {   # $1 = id
   read -r -a names <<<"$(plugin_field "$id" aur)"
   label=$(sed -n "s/^plugin\.$id=\([^ ]*\).*/\1/p" "$pstage$PREFIX/share/obs-legacy/plugins/$id" 2>/dev/null || true)
   PKG_NAME=$(plugin_pkgname "$id") PKG_VER=$(pkgver_from "${label:-0}") PKG_REL=$BUILD_NUMBER PKG_TREE=$pstage
-  PKG_DESC="$(plugin_field "$id" name): $(plugin_field "$id" desc) (плагін OBS; OBS-Legacy, оптимізовано під ${CPU_MARCH:-$CPU_TUNING})"
+  PKG_DESC="$(t "$(plugin_field "$id" name): $(plugin_field "$id" desc) (плагін OBS; OBS-Legacy, оптимізовано під ${CPU_MARCH:-$CPU_TUNING})" \
+                "$(plugin_field "$id" name): $(plugin_field "$id" desc) (OBS plugin; OBS-Legacy, optimized for ${CPU_MARCH:-$CPU_TUNING})")"
   PKG_URL=$(plugin_field "$id" repo) PKG_URL=${PKG_URL%.git}
   PKG_LICENSE=$(guess_license "$PLUGINS_DIR/$id/src")
   mapfile -t PKG_DEPENDS < <({ printf '%s\n' "$OBS_PKG"; elf_pkg_deps "$pstage$PREFIX" "$STAGED_TREE"; } | sort -u)
   PKG_OPTDEPENDS=()
-  if tree_uses_vlc "$pstage$PREFIX"; then PKG_OPTDEPENDS+=('vlc: відео з «VLC Video Source»'); fi
+  if tree_uses_vlc "$pstage$PREFIX"; then PKG_OPTDEPENDS+=("$(t 'vlc: відео з «VLC Video Source»' \
+                                                                'vlc: videos from “VLC Video Source”')"); fi
   PKG_PROVIDES=("${names[0]}=$PKG_VER")
   PKG_CONFLICTS=("${names[@]}")
   add_file_conflicts "$pstage" || return 1
   file=$(make_repack_package) || return 1
   SET_FILES+=("$file") SET_CONFLICTS+=("${PKG_CONFLICTS[@]}")
-  ok "Пакет: ${file##*/}"
+  ok "$(t "Пакет: ${file##*/}" "Package: ${file##*/}")"
 }
 
 package_set() {
   local id commit
   local -a done_ids=()
-  say "Пакети pacman: $OBS_PKG і плагіни (-$PKG_SUFFIX)"
+  say "$(t "Пакети pacman: $OBS_PKG і плагіни (-$PKG_SUFFIX)" "pacman packages: $OBS_PKG and plugins (-$PKG_SUFFIX)")"
   if ((${#PLUGINS_FAILED[@]})); then
     printf 'plugins_failed=%s\n' "${PLUGINS_FAILED[*]}" >> "$STAGED_TREE/share/obs-legacy/BUILDINFO.txt"
     # Коміт, що не зібрався: «Оновити» не пробуватиме його знову, доки не вийде новий.
@@ -2573,7 +2888,8 @@ package_set() {
       done_ids+=("$id")
     else
       PLUGINS_FAILED+=("$id")
-      warn "Плагін $id не запаковано — у цьому наборі його не буде (журнал: $MAKEPKG_DIR/$(plugin_pkgname "$id").log)."
+      warn "$(t "Плагін $id не запаковано — у цьому наборі його не буде (журнал: $MAKEPKG_DIR/$(plugin_pkgname "$id").log)." \
+                "Plugin $id was not packed — it will not be in this set (log: $MAKEPKG_DIR/$(plugin_pkgname "$id").log).")"
     fi
   done
   PLUGINS_OK=("${done_ids[@]}")
@@ -2591,7 +2907,7 @@ finalize_set() {
     printf 'packages=%s\n' "$(printf '%s ' "${SET_FILES[@]##*/}")"
   } > "$SET_DIR/BUILDINFO.txt"
   touch -- "$SET_DIR/.complete"
-  ok "Набір пакетів готовий: $SET_DIR"
+  ok "$(t "Набір пакетів готовий: $SET_DIR" "The package set is ready: $SET_DIR")"
 }
 
 # conflicts із самих файлів пакетів — для відкату, коли набір не збирався в
@@ -2645,46 +2961,57 @@ remove_stale_plugins() {   # файли пакетів набору
   local -a stale=()
   mapfile -t stale < <(stale_plugin_packages "$@")
   ((${#stale[@]})) || return 0
-  say "Прибираю пакети плагінів, яких немає в цьому наборі: ${stale[*]}"
+  say "$(t "Прибираю пакети плагінів, яких немає в цьому наборі: ${stale[*]}" \
+           "Removing plugin packages that are not in this set: ${stale[*]}")"
   if priv pacman -R -- "${stale[@]}"; then
-    ok "Прибрано: ${stale[*]}"
+    ok "$(t "Прибрано: ${stale[*]}" "Removed: ${stale[*]}")"
   else
-    warn "Пакети ${stale[*]} лишилися: їх зібрано під іншу версію OBS, і OBS може з ними падати."
-    hint "Прибери їх: sudo pacman -R ${stale[*]} — або знову постав галочку в «Плагіни» і запусти $(install_action)."
+    warn "$(t "Пакети ${stale[*]} лишилися: їх зібрано під іншу версію OBS, і OBS може з ними падати." \
+              "Packages ${stale[*]} are left: they were built for a different OBS version, and OBS may crash with them.")"
+    hint "$(t "Прибери їх: sudo pacman -R ${stale[*]} — або знову постав галочку в «Плагіни» і запусти $(install_action)." \
+              "Remove them: sudo pacman -R ${stale[*]} — or tick them again in “Plugins” and run $(install_action).")"
   fi
 }
 
 install_set() {
   local -a replaced=() stale=()
-  say "Встановлення пакетів (pacman -U)"
+  say "$(t "Встановлення пакетів (pacman -U)" "Installing the packages (pacman -U)")"
   mapfile -t replaced < <(replaced_packages)
   mapfile -t stale < <(stale_plugin_packages "${SET_FILES[@]}")
-  printf '  Буде встановлено:\n' >&2
+  printf "$(t '  Буде встановлено:\n' '  Will be installed:\n')" >&2
   printf '    %s\n' "${SET_FILES[@]##*/}" >&2
   if ((${#replaced[@]})); then
-    printf '  Буде замінено (pacman спитає — відповідай y): %s\n' "${replaced[*]}" >&2
+    printf "$(t '  Буде замінено (pacman спитає — відповідай y): %s\n' \
+                '  Will be replaced (pacman will ask — answer y): %s\n')" "${replaced[*]}" >&2
   fi
   if ((${#stale[@]})); then
-    printf '  Потім буде прибрано (плагінів немає в наборі): %s\n' "${stale[*]}" >&2
+    printf "$(t '  Потім буде прибрано (плагінів немає в наборі): %s\n' \
+                '  Will then be removed (the plugins are not in the set): %s\n')" "${stale[*]}" >&2
   fi
   if legacy_leftovers_present; then
-    printf '  Потім буде прибрано стару схему: %s, обгортку %s, ярлик-перекриття і хук у /etc.\n' \
+    printf "$(t '  Потім буде прибрано стару схему: %s, обгортку %s, ярлик-перекриття і хук у /etc.\n' \
+                '  The old layout will then be removed: %s, the wrapper %s, the overriding shortcut and the hook in /etc.\n')" \
       "$INSTALL_ROOT" "$WRAPPER" >&2
   fi
   check_pacman_lock
-  if ! confirm "Встановити пакети OBS-Legacy?"; then
+  if ! confirm "$(t "Встановити пакети OBS-Legacy?" "Install the OBS-Legacy packages?")"; then
     if installed_label >/dev/null; then
-      cancelled "Пакети збережено в $SET_DIR. Поставити їх без перезбирання: знову $(install_action) — «Оновити» помітить цей готовий набір (або sudo pacman -U $SET_DIR/*.pkg.tar.zst)."
+      cancelled "$(t "Пакети збережено в $SET_DIR. Поставити їх без перезбирання: знову $(install_action) — «Оновити» помітить цей готовий набір (або sudo pacman -U $SET_DIR/*.pkg.tar.zst)." \
+                     "The packages are saved in $SET_DIR. To install them without rebuilding: run $(install_action) again — “Update” will notice this ready set (or sudo pacman -U $SET_DIR/*.pkg.tar.zst).")"
     else
-      cancelled "Пакети збережено в $SET_DIR. Поставити їх: знову $(install_action) — збирання піде швидше, кеш лишився (або sudo pacman -U $SET_DIR/*.pkg.tar.zst)."
+      cancelled "$(t "Пакети збережено в $SET_DIR. Поставити їх: знову $(install_action) — збирання піде швидше, кеш лишився (або sudo pacman -U $SET_DIR/*.pkg.tar.zst)." \
+                     "The packages are saved in $SET_DIR. To install them: run $(install_action) again — the build will be faster, the cache is kept (or sudo pacman -U $SET_DIR/*.pkg.tar.zst).")"
     fi
   fi
-  priv_validate || die "Не вдалося отримати права адміністратора." "$PRIV_HINT"
+  priv_validate || die "$(t "Не вдалося отримати права адміністратора." \
+                            "Could not get administrator rights.")" "$PRIV_HINT"
   if ! priv pacman -U -- "${SET_FILES[@]}"; then
-    die "pacman не встановив пакети — система не змінилася." \
-      "Якщо ти відповів «n» на питання pacman — так і має бути: запусти встановлення ще раз і відповідай y (набір уже зібрано: $SET_DIR). Інакше дивись повідомлення pacman вище (найчастіше — конфлікт файлів)."
+    die "$(t "pacman не встановив пакети — система не змінилася." \
+             "pacman did not install the packages — the system did not change.")" \
+      "$(t "Якщо ти відповів «n» на питання pacman — так і має бути: запусти встановлення ще раз і відповідай y (набір уже зібрано: $SET_DIR). Інакше дивись повідомлення pacman вище (найчастіше — конфлікт файлів)." \
+           "If you answered “n” to pacman's question, that is expected: start the installation again and answer y (the set is already built: $SET_DIR). Otherwise see the pacman messages above (most often a file conflict).")"
   fi
-  ok "Пакети встановлено."
+  ok "$(t "Пакети встановлено." "Packages installed.")"
   remove_stale_plugins "${SET_FILES[@]}"
 }
 
@@ -2710,7 +3037,8 @@ prune_store() {
   for (( i = 0; i < ${#complete[@]} && excess > 0; i++ )); do
     l=${complete[i]}
     if [[ "$l" == "$active" ]]; then continue; fi
-    say "Видаляю старий набір пакетів $l (KEEP_VERSIONS=$KEEP_VERSIONS)"
+    say "$(t "Видаляю старий набір пакетів $l (KEEP_VERSIONS=$KEEP_VERSIONS)" \
+             "Deleting the old package set $l (KEEP_VERSIONS=$KEEP_VERSIONS)")"
     rm_store_path "$PKG_STORE/$l"
     excess=$(( excess - 1 ))
   done
@@ -2736,7 +3064,8 @@ prepare_ffmpeg_pkgbuild() {
   else
     ref=$(git -C "$dir" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main)
     git -C "$dir" -c advice.detachedHead=false checkout -q --force --detach "$ref" || return 1
-    warn "PKGBUILD для ffmpeg $FFMPEG_REPO_VER (тег $tag) не знайдено — беру найновіший з Arch."
+    warn "$(t "PKGBUILD для ffmpeg $FFMPEG_REPO_VER (тег $tag) не знайдено — беру найновіший з Arch." \
+              "PKGBUILD for ffmpeg $FFMPEG_REPO_VER (tag $tag) was not found — taking the newest one from Arch.")"
   fi
   git -C "$dir" clean -q -ffdx || return 1
   [[ -f "$dir/PKGBUILD" && -f "$dir/.SRCINFO" ]] || return 1
@@ -2781,35 +3110,42 @@ ffmpeg_plan() {
   FFMPEG_PLAN=off FFMPEG_REASON='' FFMPEG_DEPS=()
   say "ffmpeg ($FFMPEG_PKG)"
   if [[ "$BUILD_FFMPEG" != 1 ]]; then
-    printf '  Не збирається (Налаштування → «Збирати ffmpeg» вимкнено): лишається системний ffmpeg.\n' >&2
+    printf "$(t '  Не збирається (Налаштування → «Збирати ffmpeg» вимкнено): лишається системний ffmpeg.\n' \
+                '  Not built (Settings → “Build ffmpeg” is off): the system ffmpeg stays.\n')" >&2
     return 0
   fi
   FFMPEG_REPO_VER=$(LC_ALL=C pacman -Si ffmpeg 2>/dev/null | sed -n 's/^Version *: *//p' | head -n1 || true)
   if [[ -z "$FFMPEG_REPO_VER" ]]; then
-    warn "ffmpeg немає в репозиторіях pacman — $FFMPEG_PKG не збираю."
+    warn "$(t "ffmpeg немає в репозиторіях pacman — $FFMPEG_PKG не збираю." \
+              "ffmpeg is not in the pacman repositories — not building $FFMPEG_PKG.")"
     return 0
   fi
   inst=$(pacman -Q "$FFMPEG_PKG" 2>/dev/null | awk '{print $2}' || true)
   built=$(ffmpeg_info arch_version)
   if [[ -z "$inst" ]]; then
-    FFMPEG_PLAN=build FFMPEG_REASON="ще не встановлено"
+    FFMPEG_PLAN=build FFMPEG_REASON="$(t "ще не встановлено" "not installed yet")"
   elif [[ "$built" != "$FFMPEG_REPO_VER" ]]; then
-    FFMPEG_PLAN=build FFMPEG_REASON="у репозиторії ffmpeg $FFMPEG_REPO_VER, а встановлений зібрано з ${built:-?}"
+    FFMPEG_PLAN=build FFMPEG_REASON="$(t "у репозиторії ffmpeg $FFMPEG_REPO_VER, а встановлений зібрано з ${built:-?}" \
+                                         "the repository has ffmpeg $FFMPEG_REPO_VER, but the installed one is built from ${built:-?}")"
   elif [[ "$(ffmpeg_info profile)" != "$PROFILE_SIG" ]]; then
-    FFMPEG_PLAN=build FFMPEG_REASON="змінився профіль заліза"
+    FFMPEG_PLAN=build FFMPEG_REASON="$(t "змінився профіль заліза" "the hardware profile changed")"
   elif [[ "$FORCE_CLEAN_BUILD" == 1 ]]; then
-    FFMPEG_PLAN=build FFMPEG_REASON="«Щоразу чиста збірка»"
+    FFMPEG_PLAN=build FFMPEG_REASON="$(t "«Щоразу чиста збірка»" "“Clean build every time”")"
   else
     FFMPEG_PLAN=skip
-    ok "$FFMPEG_PKG $inst уже зібрано з ffmpeg $FFMPEG_REPO_VER під цей профіль — не перезбираю."
+    ok "$(t "$FFMPEG_PKG $inst уже зібрано з ffmpeg $FFMPEG_REPO_VER під цей профіль — не перезбираю." \
+            "$FFMPEG_PKG $inst is already built from ffmpeg $FFMPEG_REPO_VER for this profile — not rebuilding.")"
     return 0
   fi
-  printf '  Буде зібрано %s (%s): PKGBUILD Arch, але з NVENC під цей драйвер і під цей процесор.\n' \
+  printf "$(t '  Буде зібрано %s (%s): PKGBUILD Arch, але з NVENC під цей драйвер і під цей процесор.\n' \
+              "  %s (%s) will be built: Arch's PKGBUILD, but with NVENC for this driver and this CPU.\\n")" \
     "$FFMPEG_PKG" "$FFMPEG_REASON" >&2
   if ! prepare_ffmpeg_pkgbuild; then
     FFMPEG_PLAN=off FFMPEG_DEPS=()
-    warn "Не вдалося підготувати PKGBUILD ffmpeg — цього разу ffmpeg не збиратиметься (OBS це не заважає)."
-    hint "Перевір інтернет: PKGBUILD береться з $FFMPEG_PKGBUILD_REPO. Вимкнути: Налаштування → «Збирати ffmpeg»."
+    warn "$(t "Не вдалося підготувати PKGBUILD ffmpeg — цього разу ffmpeg не збиратиметься (OBS це не заважає)." \
+              "Could not prepare the ffmpeg PKGBUILD — ffmpeg will not be built this time (this does not affect OBS).")"
+    hint "$(t "Перевір інтернет: PKGBUILD береться з $FFMPEG_PKGBUILD_REPO. Вимкнути: Налаштування → «Збирати ffmpeg»." \
+              "Check the internet: the PKGBUILD comes from $FFMPEG_PKGBUILD_REPO. To turn it off: Settings → “Build ffmpeg”.")"
   fi
 }
 
@@ -2818,7 +3154,7 @@ ffmpeg_smoke_test() {   # $1 = корінь пакета (…/pkg/ffmpeg-legacy-
   local root=$1 log=$2 bin="$1/usr/bin/ffmpeg" codec
   [[ -x "$bin" ]] || return 1
   for codec in h264_nvenc hevc_nvenc; do
-    printf '\n==== OBS-Legacy: перевірка %s ====\n' "$codec" >> "$log"
+    printf "$(t '\n==== OBS-Legacy: перевірка %s ====\n' '\n==== OBS-Legacy: checking %s ====\n')" "$codec" >> "$log"
     if ! LD_LIBRARY_PATH="$root/usr/lib" timeout 60 "$bin" -hide_banner -loglevel error -nostdin \
          -f lavfi -i testsrc2=size=1280x720:rate=30 -frames:v 30 -an -c:v "$codec" -f null - >>"$log" 2>&1; then
       tail -n 5 "$log" | sed 's/^/  /' >&2
@@ -2832,7 +3168,8 @@ build_ffmpeg_package() {
   local start ticks=0 nvcc='' file pkgroot filters
   FFMPEG_FILE=''
   [[ "$FFMPEG_PLAN" == build ]] || return 0
-  say "ffmpeg $FFMPEG_PKGBUILD_VER з NVENC SDK $HEADERS_API → $FFMPEG_PKG (довго: 15–40 хв)"
+  say "$(t "ffmpeg $FFMPEG_PKGBUILD_VER з NVENC SDK $HEADERS_API → $FFMPEG_PKG (довго: 15–40 хв)" \
+           "ffmpeg $FFMPEG_PKGBUILD_VER with NVENC SDK $HEADERS_API → $FFMPEG_PKG (slow: 15–40 min)")"
   # pkgrel: <pkgrel Arch>.<n> — видно, з якого пакета Arch зібрано, і кожна
   # перезбірка того самого пакета новіша для pacman.
   inst=$(pacman -Q "$FFMPEG_PKG" 2>/dev/null | awk '{print $2}' || true)
@@ -2865,7 +3202,8 @@ EOF
     printf '\n# ---- OBS-Legacy: %s ----\n' "$MARKER"
     printf 'pkgname=%q\n' "$FFMPEG_PKG"
     printf 'pkgrel=%q\n' "$rel"
-    printf 'pkgdesc+=%q\n' " — NVENC SDK $HEADERS_API для NVIDIA $PKG_SUFFIX; OBS-Legacy, оптимізовано під ${CPU_MARCH:-$CPU_TUNING}"
+    printf 'pkgdesc+=%q\n' "$(t " — NVENC SDK $HEADERS_API для NVIDIA $PKG_SUFFIX; OBS-Legacy, оптимізовано під ${CPU_MARCH:-$CPU_TUNING}" \
+                                " — NVENC SDK $HEADERS_API for NVIDIA $PKG_SUFFIX; OBS-Legacy, optimized for ${CPU_MARCH:-$CPU_TUNING}")"
     printf 'provides+=(%q)\n' "ffmpeg=${FFMPEG_PKGBUILD_VER%-*}"
     printf 'conflicts=(ffmpeg)\n'
     if [[ -n "$DRIVER_PKG" ]]; then
@@ -2890,13 +3228,15 @@ EOF
       printf 'eval "$(declare -f build | sed %q)"\n' "s/--enable-cuda-llvm /--enable-cuda-llvm --nvccflags='$nvcc' /"
     fi
   } > "$dir/PKGBUILD"
-  bash -n "$dir/PKGBUILD" || { warn "Внутрішня помилка: згенерований PKGBUILD ffmpeg некоректний."; return 0; }
+  bash -n "$dir/PKGBUILD" || { warn "$(t "Внутрішня помилка: згенерований PKGBUILD ffmpeg некоректний." \
+                                         "Internal error: the generated ffmpeg PKGBUILD is invalid.")"; return 0; }
 
   # Обгортка pkg-config: PKGBUILD Arch сам перезаписує PKG_CONFIG_PATH, тож
   # приватні заголовки NVENC мають іти першими саме тут.
   shim="$MAKEPKG_DIR/shim"
   mkdir -p -- "$shim"
-  [[ "$HEADERS_PCDIR" != *"'"* ]] || die "Шлях до заголовків NVENC містить апостроф: $HEADERS_PCDIR"
+  [[ "$HEADERS_PCDIR" != *"'"* ]] || die "$(t "Шлях до заголовків NVENC містить апостроф: $HEADERS_PCDIR" \
+                                              "The path to the NVENC headers contains an apostrophe: $HEADERS_PCDIR")"
   {
     printf '#!/bin/sh\n# %s\n' "$MARKER"
     printf "PKG_CONFIG_PATH='%s'\"\${PKG_CONFIG_PATH:+:\$PKG_CONFIG_PATH}\"\n" "$HEADERS_PCDIR"
@@ -2912,7 +3252,7 @@ EOF
 
   conf=$(write_makepkg_conf)
   mkdir -p -- "$SET_DIR" "$SOURCES_DIR" "$MAKEPKG_DIR/build"
-  printf '  Журнал: %s\n' "$log" >&2
+  printf "$(t '  Журнал: %s\n' '  Log: %s\n')" "$log" >&2
   ( cd -- "$dir" \
     && PATH="$shim:$PATH" GNUPGHOME="$GNUPG_DIR" PKGDEST="$SET_DIR" SRCDEST="$SOURCES_DIR" \
        BUILDDIR="$MAKEPKG_DIR/build" nice -n 10 makepkg --config "$conf" --nocolor --force --cleanbuild --nocheck \
@@ -2923,47 +3263,57 @@ EOF
     sleep 5
     ticks=$(( ticks + 1 ))
     if (( ticks % 12 == 0 )) && kill -0 "$pid" 2>/dev/null; then
-      printf '  … ffmpeg збирається %d хв; скомпільовано файлів: %s\n' \
+      printf "$(t '  … ffmpeg збирається %d хв; скомпільовано файлів: %s\n' \
+                  '  … ffmpeg has been building for %d min; files compiled: %s\n')" \
         $(( (SECONDS - start) / 60 )) "$(grep -c '^CC' -- "$log" 2>/dev/null || echo 0)" >&2
     fi
   done
   wait "$pid" || rc=$?
   if (( rc != 0 )); then
     tail -n 30 "$log" >&2
-    warn "ffmpeg не зібрався (код makepkg $rc) — лишається поточний ffmpeg; OBS це не заважає. Журнал: $log"
+    warn "$(t "ffmpeg не зібрався (код makepkg $rc) — лишається поточний ffmpeg; OBS це не заважає. Журнал: $log" \
+              "ffmpeg did not build (makepkg code $rc) — the current ffmpeg stays; this does not affect OBS. Log: $log")"
     # Коди makepkg: 8 — бракує залежностей (без -s), 16 — не пройшла перевірка PGP.
     case "$rc" in
       8)
-        hint "Бракує пакетів для збирання ffmpeg: постав їх $(deps_action) і повтори."
-        fix deps "Встановити пакети для збирання" ;;
+        hint "$(t "Бракує пакетів для збирання ffmpeg: постав їх $(deps_action) і повтори." \
+                  "Packages needed to build ffmpeg are missing: install them $(deps_action) and try again.")"
+        fix deps "$(t "Встановити пакети для збирання" "Install the build dependencies")" ;;
       16)
-        hint "Не вдалося перевірити підпис вихідних кодів ffmpeg (PGP). Повтори пізніше; якщо не мине — видали $GNUPG_DIR і $SOURCES_DIR/ffmpeg." ;;
+        hint "$(t "Не вдалося перевірити підпис вихідних кодів ffmpeg (PGP). Повтори пізніше; якщо не мине — видали $GNUPG_DIR і $SOURCES_DIR/ffmpeg." \
+                  "Could not verify the signature of the ffmpeg sources (PGP). Try again later; if it does not go away, delete $GNUPG_DIR and $SOURCES_DIR/ffmpeg.")" ;;
       *)
-        hint "Спробуй пізніше (PKGBUILD Arch міг змінитися) або вимкни: Налаштування → «Збирати ffmpeg»." ;;
+        hint "$(t "Спробуй пізніше (PKGBUILD Arch міг змінитися) або вимкни: Налаштування → «Збирати ffmpeg»." \
+                  "Try again later (Arch's PKGBUILD may have changed) or turn it off: Settings → “Build ffmpeg”.")" ;;
     esac
     return 0
   fi
   file=$(find "$SET_DIR" -maxdepth 1 -type f -name "$FFMPEG_PKG-*.pkg.tar.*" ! -name "$FFMPEG_PKG-debug-*" ! -name '*.sig' -print -quit)
   pkgroot="$MAKEPKG_DIR/build/$FFMPEG_PKG/pkg/$FFMPEG_PKG"
   if [[ -z "$file" ]]; then
-    warn "Після makepkg немає пакета $FFMPEG_PKG — ffmpeg цього разу не оновлюється. Журнал: $log"
+    warn "$(t "Після makepkg немає пакета $FFMPEG_PKG — ffmpeg цього разу не оновлюється. Журнал: $log" \
+              "There is no $FFMPEG_PKG package after makepkg — ffmpeg is not updated this time. Log: $log")"
     return 0
   fi
   if ! ffmpeg_smoke_test "$pkgroot" "$log"; then
     rm -f -- "$file"
-    warn "Зібраний ffmpeg не кодує через NVENC — не встановлюю його (журнал: $log)."
-    hint "Перевір, що драйвер NVIDIA працює (nvidia-smi) і NVENC зараз не зайнятий іншими програмами, і повтори."
+    warn "$(t "Зібраний ffmpeg не кодує через NVENC — не встановлюю його (журнал: $log)." \
+              "The built ffmpeg does not encode via NVENC — not installing it (log: $log).")"
+    hint "$(t "Перевір, що драйвер NVIDIA працює (nvidia-smi) і NVENC зараз не зайнятий іншими програмами, і повтори." \
+              "Check that the NVIDIA driver works (nvidia-smi) and that NVENC is not busy with other programs right now, and try again.")"
     return 0
   fi
   # Без «| grep -q»: grep закрив би канал раніше, ffmpeg отримав би SIGPIPE, і
   # через pipefail перевірка «не пройшла» б.
   filters=$(LD_LIBRARY_PATH="$pkgroot/usr/lib" "$pkgroot/usr/bin/ffmpeg" -hide_banner -filters 2>/dev/null || true)
   if [[ "$filters" == *scale_cuda* ]]; then
-    printf '  CUDA-фільтри (scale_cuda тощо): є%s\n' "${nvcc:+, під sm_${GPU_CC/./}}" >&2
+    printf "$(t '  CUDA-фільтри (scale_cuda тощо): є%s\n' \
+                '  CUDA filters (scale_cuda etc.): yes%s\n')" "${nvcc:+$(t ", під sm_${GPU_CC/./}" ", for sm_${GPU_CC/./}")}" >&2
   fi
   FFMPEG_FILE=$file
   SET_FILES+=("$file") SET_CONFLICTS+=(ffmpeg)
-  ok "ffmpeg зібрано, NVENC працює (h264_nvenc, hevc_nvenc): ${file##*/} ($(du -h -- "$file" | cut -f1))"
+  ok "$(t "ffmpeg зібрано, NVENC працює (h264_nvenc, hevc_nvenc): ${file##*/} ($(du -h -- "$file" | cut -f1))" \
+          "ffmpeg built, NVENC works (h264_nvenc, hevc_nvenc): ${file##*/} ($(du -h -- "$file" | cut -f1))")"
 }
 
 backup_obs_config() {
@@ -2976,10 +3326,10 @@ backup_obs_config() {
        --exclude='obs-studio/profiler_data' --exclude='obs-studio/updates' \
        --exclude='*/obs-browser/Cache' --exclude='*/obs-browser/Code Cache' \
        --exclude='*/obs-browser/GPUCache' obs-studio 2>/dev/null; then
-    ok "Копія налаштувань OBS: $out"
+    ok "$(t "Копія налаштувань OBS: $out" "Backup of the OBS settings: $out")"
   else
     rm -f -- "$out"
-    warn "Не вдалося зробити копію $cfg (продовжую)."
+    warn "$(t "Не вдалося зробити копію $cfg (продовжую)." "Could not back up $cfg (continuing).")"
   fi
   while IFS= read -r old; do
     rm -f -- "$old"
@@ -2996,7 +3346,7 @@ cmd_check() {
   require_tools git cmake ninja pkg-config make curl tar xz sha256sum flock timeout
   acquire_lock
   detect_foreign_install
-  print_header "перевірка (нічого не встановлюється)"
+  print_header "$(t "перевірка (нічого не встановлюється)" "check (nothing is installed)")"
   resolve_selected_plugins
   show_inventory
   detect_build_profile
@@ -3010,18 +3360,22 @@ cmd_check() {
   prepare_cef
   check_plugins
   build_cmake_args
-  say "Конфігурація CMake (лише перевірка)"
+  say "$(t "Конфігурація CMake (лише перевірка)" "CMake configuration (check only)")"
   if ((${#DEP_INSTALL_REQ[@]})); then
     # Без цих пакетів CMake гарантовано зупиниться (напр., obs-websocket без
     # websocketpp), тож пробна конфігурація нічого не скаже. Її повторить install.
-    warn "Пробну конфігурацію пропущено: спершу потрібні пакети ${DEP_INSTALL_REQ[*]}."
-    fix deps "Встановити пакети: ${DEP_INSTALL[*]}"
-    printf '\n%sПЕРЕВІРКУ ЗАВЕРШЕНО%s: усе готово до встановлення, бракує лише пакетів з репозиторіїв.\n' \
+    warn "$(t "Пробну конфігурацію пропущено: спершу потрібні пакети ${DEP_INSTALL_REQ[*]}." \
+              "The test configuration was skipped: the packages ${DEP_INSTALL_REQ[*]} are needed first.")"
+    fix deps "$(t "Встановити пакети: ${DEP_INSTALL[*]}" "Install packages: ${DEP_INSTALL[*]}")"
+    printf "$(t '\n%sПЕРЕВІРКУ ЗАВЕРШЕНО%s: усе готово до встановлення, бракує лише пакетів з репозиторіїв.\n' \
+                '\n%sCHECK FINISHED%s: everything is ready for installation, only packages from the repositories are missing.\n')" \
       "$C_YEL$C_BLD" "$C_RST" >&2
-    hint "Постав їх $(deps_action) і перевір систему ще раз — тоді все буде ✓. Або одразу обери $(install_action): він теж їх поставить."
+    hint "$(t "Постав їх $(deps_action) і перевір систему ще раз — тоді все буде ✓. Або одразу обери $(install_action): він теж їх поставить." \
+              "Install them $(deps_action) and check the system again — then everything will be ✓. Or choose $(install_action) right away: it installs them too.")"
   else
     configure_obs "$CHECK_DIR" "$PREFIX" fresh
-    printf '\n%sПЕРЕВІРКУ ПРОЙДЕНО%s: можна встановлювати.\n' "$C_GRN$C_BLD" "$C_RST" >&2
+    printf "$(t '\n%sПЕРЕВІРКУ ПРОЙДЕНО%s: можна встановлювати.\n' \
+                '\n%sCHECK PASSED%s: ready to install.\n')" "$C_GRN$C_BLD" "$C_RST" >&2
   fi
   pkgs=("$OBS_PKG")
   for id in "${PLUGINS_SELECTED[@]}"; do pkgs+=("$(plugin_pkgname "$id")"); done
@@ -3035,13 +3389,16 @@ cmd_check() {
   mapfile -t replaced < <(replaced_packages)
   printf '  OBS %s (%s), CEF %s, nv-codec-headers %s, TLS: %s\n' \
     "$OBS_DESCRIBE" "${OBS_COMMIT:0:12}" "$CEF_BUILD_RESOLVED" "$NV_HEADERS_RESOLVED" "$TLS_MODE" >&2
-  printf '  Профіль: %s · -O%s%s\n' "${CPU_TUNING/native/${CPU_MARCH:-native}}" "$OPT_LEVEL" \
+  printf "$(t '  Профіль: %s · -O%s%s\n' \
+              '  Profile: %s · -O%s%s\n')" "${CPU_TUNING/native/${CPU_MARCH:-native}}" "$OPT_LEVEL" \
     "${GPU_CC:+ · CUDA sm_${GPU_CC/./}}" >&2
-  printf '  Пакети: %s\n' "${pkgs[*]}" >&2
+  printf "$(t '  Пакети: %s\n' '  Packages: %s\n')" "${pkgs[*]}" >&2
   if ((${#replaced[@]})); then
-    printf '  Замінять (pacman спитає під час встановлення): %s\n' "${replaced[*]}" >&2
+    printf "$(t '  Замінять (pacman спитає під час встановлення): %s\n' \
+                '  They will replace (pacman asks during installation): %s\n')" "${replaced[*]}" >&2
   fi
-  printf '  Компіляцію, тест NVENC і пакування виконує %s.\n' "$(install_action)" >&2
+  printf "$(t '  Компіляцію, тест NVENC і пакування виконує %s.\n' \
+              '  Compilation, the NVENC test and packaging are done by %s.\n')" "$(install_action)" >&2
 }
 
 # Спільне для install і package: від перевірок до готового набору пакетів.
@@ -3060,52 +3417,63 @@ plugin_target() {   # $1 = id
 # Що зміниться порівняно зі встановленими пакетами — по рядку на причину; порожньо —
 # оновлювати нічого. Викликається, коли вже відомі цільові OBS, заголовки й профіль.
 update_reasons() {
-  local id inst line label commit f failed
+  local id inst line label commit f failed out
   if [[ ! -f "$INFO_DIR/BUILDINFO.txt" ]]; then
-    printf 'OBS-Legacy ще не встановлено пакетами\n'
+    printf "$(t 'OBS-Legacy ще не встановлено пакетами\n' 'OBS-Legacy is not installed as packages yet\n')"
     return 0
   fi
   if [[ "$(installed_info obs_commit)" != "$OBS_COMMIT" ]]; then
     printf 'OBS %s → %s\n' "$(installed_info obs_version)" "$OBS_DESCRIBE"
   fi
   if [[ "$(installed_info nv_headers_tag)" != "$NV_HEADERS_RESOLVED" ]]; then
-    printf 'заголовки NVENC %s → %s\n' "$(installed_info nv_headers_tag)" "$NV_HEADERS_RESOLVED"
+    printf "$(t 'заголовки NVENC %s → %s\n' \
+                'NVENC headers %s → %s\n')" "$(installed_info nv_headers_tag)" "$NV_HEADERS_RESOLVED"
   fi
   if [[ "$(installed_info profile)" != "$PROFILE_SIG" ]]; then
-    printf 'змінився профіль заліза (тепер %s)\n' "${CPU_MARCH:-$CPU_TUNING}"
+    printf "$(t 'змінився профіль заліза (тепер %s)\n' \
+                'the hardware profile changed (now %s)\n')" "${CPU_MARCH:-$CPU_TUNING}"
   fi
   # Збірки без рядка recipe= зібрано рецептом 1.
   if (( $(installed_info recipe | grep -E '^[0-9]+$' || echo 1) < RECIPE_VERSION )); then
-    printf 'новий рецепт збирання OBS-Legacy (%s → %s)\n' "$(installed_info recipe | grep . || echo 1)" "$RECIPE_VERSION"
+    printf "$(t 'новий рецепт збирання OBS-Legacy (%s → %s)\n' \
+                'new OBS-Legacy build recipe (%s → %s)\n')" "$(installed_info recipe | grep . || echo 1)" "$RECIPE_VERSION"
   fi
   for id in "${PLUGINS_SELECTED[@]}"; do
     inst=$(sed -n "s/^plugin\.$id=//p" "$INFO_DIR/plugins/$id" 2>/dev/null | head -n1 || true)
     if ! line=$(plugin_target "$id"); then
-      warn "Плагін $id: не вдалося дізнатися найновішу версію (мережа?) — зберу його знову."
-      printf 'плагін %s: не вдалося перевірити версію\n' "$id"
+      warn "$(t "Плагін $id: не вдалося дізнатися найновішу версію (мережа?) — зберу його знову." \
+                "Plugin $id: could not find out the newest version (network?) — building it again.")"
+      printf "$(t 'плагін %s: не вдалося перевірити версію\n' 'plugin %s: could not check the version\n')" "$id"
       continue
     fi
     label=${line%%$'\t'*} commit=${line#*$'\t'}
     if [[ -z "$inst" ]]; then
       failed=$(installed_info "plugin_failed.$id")
       if [[ -n "$failed" && "$commit" == "$failed"* ]]; then
-        printf '  Плагін %s %s минулого разу не зібрався — не пробую знову, доки не вийде новіший (спробувати зараз: %s).\n' \
+        printf "$(t '  Плагін %s %s минулого разу не зібрався — не пробую знову, доки не вийде новіший (спробувати зараз: %s).\n' \
+                    '  Plugin %s %s failed to build last time — not trying again until a newer one is out (to try now: %s).\n')" \
           "$id" "$label" "$(rebuild_action)" >&2
       else
-        printf 'плагін %s %s: буде додано\n' "$id" "$label"
+        printf "$(t 'плагін %s %s: буде додано\n' 'plugin %s %s: will be added\n')" "$id" "$label"
       fi
     elif [[ "$commit" != "${inst##* }"* ]]; then
-      printf 'плагін %s: %s → %s\n' "$id" "${inst%% *}" "$label"
+      printf "$(t 'плагін %s: %s → %s\n' 'plugin %s: %s → %s\n')" "$id" "${inst%% *}" "$label"
     fi
   done
   for f in "$INFO_DIR"/plugins/*; do
     [[ -f "$f" ]] || continue
     id=${f##*/}
-    if [[ " ${PLUGINS_SELECTED[*]} " != *" $id "* ]]; then printf 'плагін %s: буде прибрано\n' "$id"; fi
+    if [[ " ${PLUGINS_SELECTED[*]} " != *" $id "* ]]; then printf "$(t 'плагін %s: буде прибрано\n' \
+                                                                       'plugin %s: will be removed\n')" "$id"; fi
   done
   if [[ "$FFMPEG_PLAN" == build ]]; then printf 'ffmpeg: %s\n' "$FFMPEG_REASON"; fi
-  if [[ -x "$PKG_LIBCHECK" ]] && "$PKG_LIBCHECK" 2>/dev/null | grep -q 'бракує бібліотек'; then
-    printf 'після оновлення системи пакетам бракує бібліотек\n'
+  # Рядки з проблемами check-libs друкує з відступом у 6 пробілів — це не залежить від мови.
+  if [[ -x "$PKG_LIBCHECK" ]]; then
+    out=$("$PKG_LIBCHECK" 2>/dev/null || true)
+    if grep -q '^      ' <<<"$out"; then
+      printf '%s\n' "$(t 'після оновлення системи пакетам бракує бібліотек' \
+                          'the packages are missing libraries after a system upgrade')"
+    fi
   fi
 }
 
@@ -3117,7 +3485,7 @@ installed_summary() {
     plugins+="${plugins:+, }$(sed -n 's/^plugin\.\([^=]*\)=\([^ ]*\).*/\1 \2/p' "$f" | head -n1)"
   done
   ff=$(pacman -Q "$FFMPEG_PKG" 2>/dev/null | awk '{print $2}' || true)
-  printf 'OBS %s%s%s\n' "$(installed_info obs_version)" "${plugins:+; плагіни: $plugins}" "${ff:+; $FFMPEG_PKG $ff}"
+  printf 'OBS %s%s%s\n' "$(installed_info obs_version)" "${plugins:+$(t "; плагіни: $plugins" "; plugins: $plugins")}" "${ff:+; $FFMPEG_PKG $ff}"
 }
 
 # Підсумок після встановлення: що змінилося (причини з update_reasons — уже в минулому часі).
@@ -3125,30 +3493,37 @@ install_summary() {   # $1 = версія OBS до встановлення
   local old=$1 r changes=''
   for r in "${UPDATE_REASONS[@]}"; do
     case "$r" in
-      'OBS '*|'OBS-Legacy ще'*|'ffmpeg:'*|*'не вдалося перевірити'*) continue ;;
+      'OBS '*|'OBS-Legacy ще'*|'OBS-Legacy is not'*|'ffmpeg:'*|*'не вдалося перевірити'*|*'could not check'*)
+        continue ;;
       *': буде додано') r="${r%: буде додано}: додано" ;;
+      *': will be added') r="${r%: will be added}: added" ;;
       *': буде прибрано') r="${r%: буде прибрано}: прибрано" ;;
+      *': will be removed') r="${r%: will be removed}: removed" ;;
       'змінився профіль заліза (тепер '*) r="зібрано під новий профіль заліза (${r#*тепер }" ;;
-      'після оновлення системи'*) r='бібліотеки знову на місці' ;;
+      'the hardware profile changed (now '*) r="built for the new hardware profile (${r#*now }" ;;
+      'після оновлення системи'*|*'after a system upgrade') r=$(t 'бібліотеки знову на місці' 'the libraries are back') ;;
     esac
     changes+="${changes:+; }$r"
   done
   if [[ -n "$FFMPEG_FILE" ]]; then
-    changes+="${changes:+; }$FFMPEG_PKG $FFMPEG_PKGBUILD_VER зібрано"
+    changes+="$(t "${changes:+; }$FFMPEG_PKG $FFMPEG_PKGBUILD_VER зібрано" \
+                  "${changes:+; }$FFMPEG_PKG $FFMPEG_PKGBUILD_VER built")"
   elif [[ "$FFMPEG_PLAN" == build ]]; then
-    changes+="${changes:+; }ffmpeg не зібрався — лишився попередній"
+    changes+="$(t "${changes:+; }ffmpeg не зібрався — лишився попередній" \
+                  "${changes:+; }ffmpeg did not build — the previous one stays")"
   fi
   if ((${#PLUGINS_FAILED[@]})); then
-    changes+="${changes:+; }не зібралися плагіни: ${PLUGINS_FAILED[*]}"
+    changes+="$(t "${changes:+; }не зібралися плагіни: ${PLUGINS_FAILED[*]}" \
+                  "${changes:+; }plugins failed to build: ${PLUGINS_FAILED[*]}")"
   fi
   if [[ -z "$old" ]]; then
-    printf 'встановлено OBS %s з NVENC' "$OBS_DESCRIBE"
+    printf "$(t 'встановлено OBS %s з NVENC' 'installed OBS %s with NVENC')" "$OBS_DESCRIBE"
   elif [[ "$old" != "$OBS_DESCRIBE" ]]; then
     printf 'OBS %s → %s' "$old" "$OBS_DESCRIBE"
   elif [[ "$INSTALL_MODE" == rebuild ]]; then
-    printf 'OBS %s перезібрано начисто' "$OBS_DESCRIBE"
+    printf "$(t 'OBS %s перезібрано начисто' 'OBS %s rebuilt from scratch')" "$OBS_DESCRIBE"
   else
-    printf 'OBS %s (версія та сама)' "$OBS_DESCRIBE"
+    printf "$(t 'OBS %s (версія та сама)' 'OBS %s (same version)')" "$OBS_DESCRIBE"
   fi
   if [[ -n "$changes" ]]; then printf '; %s' "$changes"; fi
   printf '\n'
@@ -3156,9 +3531,9 @@ install_summary() {   # $1 = версія OBS до встановлення
 
 # «update»: показати, що оновиться; якщо нічого — NOTHING_NEW=1 (збирати не треба).
 report_update_plan() {
-  say "Що нового"
+  say "$(t "Що нового" "What's new")"
   if ((${#UPDATE_REASONS[@]} == 0)); then
-    ok "Усе вже найновіше: $(installed_summary)."
+    ok "$(t "Усе вже найновіше: $(installed_summary)." "Everything is up to date: $(installed_summary).")"
     NOTHING_NEW=1
     return 0
   fi
@@ -3186,9 +3561,10 @@ build_set() {
   build_cmake_args
 
   LABEL="$(date +%Y%m%d-%H%M%S)_$(sanitize_label "$OBS_DESCRIBE")"
-  say "Конфігурація CMake"
+  say "$(t "Конфігурація CMake" "CMake configuration")"
   if [[ "$INSTALL_MODE" == rebuild ]]; then
-    printf '  Перезбирання начисто: кеш збірки OBS буде очищено.\n' >&2
+    printf "$(t '  Перезбирання начисто: кеш збірки OBS буде очищено.\n' \
+                '  Clean rebuild: the OBS build cache will be cleared.\n')" >&2
     configure_obs "$BUILD_DIR" "$PREFIX" fresh
   else
     configure_obs "$BUILD_DIR" "$PREFIX" reuse
@@ -3210,10 +3586,13 @@ verify_build() {
   local -a good=()
   if ! verify_tree "$STAGED_TREE"; then
     if [[ "$ALLOW_MISSING_LIBS" == 1 ]]; then
-      warn "Продовжую, бо ALLOW_MISSING_LIBS=1 — частина функцій OBS може не працювати."
+      warn "$(t "Продовжую, бо ALLOW_MISSING_LIBS=1 — частина функцій OBS може не працювати." \
+                "Continuing because ALLOW_MISSING_LIBS=1 — some OBS features may not work.")"
     else
-      die "Пакети НЕ зібрано: бракує системних бібліотек (див. вище)." \
-        "Встанови пакети з цими бібліотеками (назву підкаже pacman -F <бібліотека>, спершу sudo pacman -Fy) і запусти $(install_action) ще раз — перезбирати не доведеться."
+      die "$(t "Пакети НЕ зібрано: бракує системних бібліотек (див. вище)." \
+               "The packages were NOT built: system libraries are missing (see above).")" \
+        "$(t "Встанови пакети з цими бібліотеками (назву підкаже pacman -F <бібліотека>, спершу sudo pacman -Fy) і запусти $(install_action) ще раз — перезбирати не доведеться." \
+             "Install the packages with these libraries (pacman -F <library> tells the name, run sudo pacman -Fy first) and run $(install_action) again — no rebuild needed.")"
     fi
   fi
   for id in "${PLUGINS_OK[@]}"; do
@@ -3221,13 +3600,16 @@ verify_build() {
       good+=("$id")
     else
       PLUGINS_FAILED+=("$id")
-      warn "Плагіну $id бракує бібліотек — у цьому наборі його не буде."
+      warn "$(t "Плагіну $id бракує бібліотек — у цьому наборі його не буде." \
+                "Plugin $id is missing libraries — it will not be in this set.")"
     fi
   done
   PLUGINS_OK=("${good[@]}")
   if ((${#PLUGINS_FAILED[@]})) && [[ "$PLUGINS_STRICT" == 1 ]]; then
-    die "Не зібралися плагіни: ${PLUGINS_FAILED[*]} (PLUGINS_STRICT=1). Нічого не встановлено." \
-      "Зніми галочку з цих плагінів (пункт «Плагіни») або вимкни «Суворо з плагінами» в Налаштуваннях. Журнали: $PLUGINS_DIR/<id>/build.log"
+    die "$(t "Не зібралися плагіни: ${PLUGINS_FAILED[*]} (PLUGINS_STRICT=1). Нічого не встановлено." \
+             "Plugins failed to build: ${PLUGINS_FAILED[*]} (PLUGINS_STRICT=1). Nothing was installed.")" \
+      "$(t "Зніми галочку з цих плагінів (пункт «Плагіни») або вимкни «Суворо з плагінами» в Налаштуваннях. Журнали: $PLUGINS_DIR/<id>/build.log" \
+           "Untick these plugins (the “Plugins” item) or turn off “Strict about plugins” in Settings. Logs: $PLUGINS_DIR/<id>/build.log")"
   fi
 }
 
@@ -3241,10 +3623,11 @@ cleanup_stages() {
 }
 
 print_set_summary() {
-  printf '  Пакети (%s):\n' "$SET_DIR" >&2
+  printf "$(t '  Пакети (%s):\n' '  Packages (%s):\n')" "$SET_DIR" >&2
   printf '    %s\n' "${SET_FILES[@]##*/}" >&2
   if ((${#PLUGINS_FAILED[@]})); then
-    warn "Не зібралися плагіни: ${PLUGINS_FAILED[*]} — їх немає в цьому наборі (попередній набір з ними доступний для відкату)."
+    warn "$(t "Не зібралися плагіни: ${PLUGINS_FAILED[*]} — їх немає в цьому наборі (попередній набір з ними доступний для відкату)." \
+              "Plugins failed to build: ${PLUGINS_FAILED[*]} — they are not in this set (the previous set with them is available for rollback).")"
   fi
 }
 
@@ -3293,24 +3676,30 @@ cmd_install() {   # $1 = install | update | rebuild
   acquire_lock
   detect_foreign_install
   case "$INSTALL_MODE" in
-    update)  print_header "оновлення: спершу перевірка, що нового" ;;
-    rebuild) print_header "перезбирання начисто й встановлення" ;;
-    *)       print_header "збірка, пакування й встановлення" ;;
+    update)  print_header "$(t "оновлення: спершу перевірка, що нового" "update: first check what is new")" ;;
+    rebuild) print_header "$(t "перезбирання начисто й встановлення" "clean rebuild and installation")" ;;
+    *)       print_header "$(t "збірка, пакування й встановлення" "build, packaging and installation")" ;;
   esac
   if [[ "$INSTALL_MODE" == rebuild ]]; then clear_stale_git_locks; fi
   old_ver=$(installed_info obs_version)
   build_set
   if (( NOTHING_NEW )) && pending=$(pending_set) && use_stored_set "$pending"; then
-    say "Готовий набір, ще не встановлений"
-    printf '  %s зібрано з тих самих вихідних кодів і під той самий профіль, але не встановлено\n' "$pending" >&2
-    printf '  (минулого разу встановлення скасували чи воно обірвалося) — ставлю його без перезбирання.\n' >&2
+    say "$(t "Готовий набір, ще не встановлений" "A ready set that is not installed yet")"
+    printf "$(t '  %s зібрано з тих самих вихідних кодів і під той самий профіль, але не встановлено\n' \
+                '  %s was built from the same sources and for the same profile, but not installed\n')" "$pending" >&2
+    printf "$(t '  (минулого разу встановлення скасували чи воно обірвалося) — ставлю його без перезбирання.\n' \
+                '  (last time the installation was cancelled or interrupted) — installing it without rebuilding.\n')" >&2
     NOTHING_NEW=0 from_store=1
   fi
   if (( NOTHING_NEW )); then
-    printf '\n%sОНОВЛЕНЬ НЕМАЄ%s: усе вже найновіше, збирати й ставити нічого.\n' "$C_GRN$C_BLD" "$C_RST" >&2
-    printf '  Якщо OBS поводиться дивно або минуле збирання обірвалося (вимкнулося світло, закрилося\n' >&2
-    printf '  вікно) — %s: він збере все начисто й поставить знову.\n' "$(rebuild_action)" >&2
-    summary "оновлень немає — встановлено найновіше: $(installed_summary)"
+    printf "$(t '\n%sОНОВЛЕНЬ НЕМАЄ%s: усе вже найновіше, збирати й ставити нічого.\n' \
+                '\n%sNO UPDATES%s: everything is up to date, nothing to build or install.\n')" "$C_GRN$C_BLD" "$C_RST" >&2
+    printf "$(t '  Якщо OBS поводиться дивно або минуле збирання обірвалося (вимкнулося світло, закрилося\n' \
+                '  If OBS behaves strangely or the last build was interrupted (a power cut, a closed\n')" >&2
+    printf "$(t '  вікно) — %s: він збере все начисто й поставить знову.\n' \
+                '  window) — %s: it rebuilds everything from scratch and installs it again.\n')" "$(rebuild_action)" >&2
+    summary "$(t "оновлень немає — встановлено найновіше: $(installed_summary)" \
+                 "no updates — the newest is installed: $(installed_summary)")"
     return 0
   fi
   backup_obs_config
@@ -3324,20 +3713,27 @@ cmd_install() {   # $1 = install | update | rebuild
   cleanup_stages
   hash -r
 
-  printf '\n%sГОТОВО%s: OBS %s зібрано під цей комп'"'"'ютер, NVENC перевірено, пакети встановлено.\n' \
+  printf "$(t "\n%sГОТОВО%s: OBS %s зібрано під цей комп'ютер, NVENC перевірено, пакети встановлено.\n" \
+              "\n%sDONE%s: OBS %s is built for this computer, NVENC is tested, the packages are installed.\n")" \
     "$C_GRN$C_BLD" "$C_RST" "$OBS_DESCRIBE" >&2
   print_set_summary
-  printf '  Запуск: obs (або OBS Studio в меню програм)\n' >&2
-  printf '  Стан:   %s status   ·   pacman -Qs %s\n' "$SELF_PATH" "$PKG_SUFFIX" >&2
+  printf "$(t '  Запуск: obs (або OBS Studio в меню програм)\n' \
+              '  Launch: obs (or OBS Studio in the applications menu)\n')" >&2
+  printf "$(t '  Стан:   %s status   ·   pacman -Qs %s\n' \
+              '  Status: %s status   ·   pacman -Qs %s\n')" "$SELF_PATH" "$PKG_SUFFIX" >&2
   if [[ -n "$previous" ]]; then
-    printf '  Відкат на попередній набір (%s): %s rollback\n' "$previous" "$SELF_PATH" >&2
+    printf "$(t '  Відкат на попередній набір (%s): %s rollback\n' \
+                '  Roll back to the previous set (%s): %s rollback\n')" "$previous" "$SELF_PATH" >&2
   fi
-  printf '  Сторонні плагіни (AUR) ставляться на цей OBS як завжди: він «надає» obs-studio.\n' >&2
+  printf "$(t '  Сторонні плагіни (AUR) ставляться на цей OBS як завжди: він «надає» obs-studio.\n' \
+              '  Third-party plugins (AUR) install on this OBS as usual: it “provides” obs-studio.\n')" >&2
   if have pgrep && pgrep -x obs >/dev/null 2>&1; then
-    warn "OBS зараз запущений — нова версія запрацює після його перезапуску."
+    warn "$(t "OBS зараз запущений — нова версія запрацює після його перезапуску." \
+              "OBS is running right now — the new version will work after you restart it.")"
   fi
   if (( from_store )); then
-    summary "поставлено готовий набір $LABEL (без перезбирання): $(installed_summary)"
+    summary "$(t "поставлено готовий набір $LABEL (без перезбирання): $(installed_summary)" \
+                 "installed the ready set $LABEL (without rebuilding): $(installed_summary)")"
   else
     summary "$(install_summary "$old_ver")"
   fi
@@ -3356,84 +3752,96 @@ cmd_package() {
   select_priv_tool
   require_tools flock find awk sed tar sha256sum df
   acquire_lock
-  print_header "збірка й пакування (без встановлення)"
+  print_header "$(t "збірка й пакування (без встановлення)" "build and packaging (without installation)")"
   build_set
   prune_store
   cleanup_stages
-  printf '\n%sПАКЕТИ ГОТОВІ%s: OBS %s зібрано під цей комп'"'"'ютер і запаковано (нічого не встановлено).\n' \
+  printf "$(t "\n%sПАКЕТИ ГОТОВІ%s: OBS %s зібрано під цей комп'ютер і запаковано (нічого не встановлено).\n" \
+              "\n%sPACKAGES READY%s: OBS %s is built for this computer and packed (nothing was installed).\n")" \
     "$C_GRN$C_BLD" "$C_RST" "$OBS_DESCRIBE" >&2
   print_set_summary
-  printf '  Встановити: %s (або sudo pacman -U %s/*.pkg.tar.zst)\n' "$(install_action)" "$SET_DIR" >&2
+  printf "$(t '  Встановити: %s (або sudo pacman -U %s/*.pkg.tar.zst)\n' \
+              '  Install: %s (or sudo pacman -U %s/*.pkg.tar.zst)\n')" "$(install_action)" "$SET_DIR" >&2
 }
 
 cmd_status() {
   local l mark latest built id ver active
   local -a pkgs=()
   preflight_common
-  print_header "стан"
+  print_header "$(t "стан" "status")"
   resolve_selected_plugins
-  say "Пакети OBS-Legacy"
+  say "$(t "Пакети OBS-Legacy" "OBS-Legacy packages")"
   mapfile -t pkgs < <(pacman -Q 2>/dev/null | grep -E -- "-$PKG_SUFFIX " || true)
   active=$(installed_label || true)
   if ((${#pkgs[@]})); then
     printf '  %s\n' "${pkgs[@]}" >&2
   else
-    warn "Пакети OBS-Legacy не встановлено."
+    warn "$(t "Пакети OBS-Legacy не встановлено." "The OBS-Legacy packages are not installed.")"
   fi
   if [[ -n "$active" ]]; then
-    ok "Встановлена збірка: $active"
+    ok "$(t "Встановлена збірка: $active" "Installed build: $active")"
     sed 's/^/  /' "$INFO_DIR/BUILDINFO.txt" >&2
     if compgen -G "$INFO_DIR/plugins/*" >/dev/null; then cat -- "$INFO_DIR"/plugins/* | sed 's/^/  /' >&2; fi
     if [[ -f "$INFO_DIR/ffmpeg.txt" ]]; then sed 's/^/  ffmpeg./' "$INFO_DIR/ffmpeg.txt" >&2; fi
     if [[ -x "$PKG_LIBCHECK" ]]; then
       l=$("$PKG_LIBCHECK" 2>/dev/null || true)
-      if [[ -n "$l" ]]; then printf '%s\n' "$l" >&2; else ok "Бібліотеки на місці, ffmpeg актуальний."; fi
+      if [[ -n "$l" ]]; then printf '%s\n' "$l" >&2; else ok "$(t "Бібліотеки на місці, ffmpeg актуальний." \
+                                                                  "Libraries are in place, ffmpeg is up to date.")"; fi
     fi
   fi
   if legacy_install_present; then
-    warn "Лишилася стара збірка в $INSTALL_ROOT (активна: $(current_label || echo '—')) — прибереться під час встановлення пакетів."
+    warn "$(t "Лишилася стара збірка в $INSTALL_ROOT (активна: $(current_label || echo '—')) — прибереться під час встановлення пакетів." \
+              "An old build is left in $INSTALL_ROOT (active: $(current_label || echo '—')) — it will be removed when the packages are installed.")"
   fi
   if [[ -d "$PKG_STORE" ]]; then
-    say "Збережені набори пакетів ($PKG_STORE)"
+    say "$(t "Збережені набори пакетів ($PKG_STORE)" "Saved package sets ($PKG_STORE)")"
     while IFS= read -r l; do
       [[ -n "$l" ]] || continue
       mark=''
-      if [[ "$l" == "$active" ]]; then mark=' [встановлено]'; fi
-      if [[ ! -f "$PKG_STORE/$l/.complete" ]]; then mark+=' [неповний]'; fi
+      if [[ "$l" == "$active" ]]; then mark="$(t ' [встановлено]' ' [installed]')"; fi
+      if [[ ! -f "$PKG_STORE/$l/.complete" ]]; then mark+="$(t ' [неповний]' ' [incomplete]')"; fi
       printf '  %s%s\n' "$l" "$mark" >&2
     done < <(store_sets)
   fi
 
-  say "Інтеграція"
-  printf '  Команда obs → %s\n' "$(command -v obs || echo 'не знайдена')" >&2
-  if grep -qs -- "$MARKER" "$PKG_HOOK"; then ok "pacman-хук $PKG_HOOK на місці."
-  elif [[ -n "$active" && "$INSTALL_PACMAN_HOOK" == 1 ]]; then warn "pacman-хука немає (з'явиться після наступного встановлення)."
+  say "$(t "Інтеграція" "Integration")"
+  printf "$(t '  Команда obs → %s\n' \
+              '  Command obs → %s\n')" "$(command -v obs || echo "$(t 'не знайдена' 'not found')")" >&2
+  if grep -qs -- "$MARKER" "$PKG_HOOK"; then ok "$(t "pacman-хук $PKG_HOOK на місці." \
+                                                     "The pacman hook $PKG_HOOK is in place.")"
+  elif [[ -n "$active" && "$INSTALL_PACMAN_HOOK" == 1 ]]; then warn "$(t "pacman-хука немає (з'явиться після наступного встановлення)." \
+                                                                         "No pacman hook (it will appear after the next installation).")"
   fi
   l=$(nvenc_driver_api || true)
-  printf '  NVENC API драйвера: %s\n' "${l:-невідомо}" >&2
-  printf '  Вибрані плагіни: %s\n' "${PLUGINS_SELECTED[*]:-немає}" >&2
+  printf "$(t '  NVENC API драйвера: %s\n' '  Driver NVENC API: %s\n')" "${l:-$(t невідомо unknown)}" >&2
+  printf "$(t '  Вибрані плагіни: %s\n' '  Selected plugins: %s\n')" "${PLUGINS_SELECTED[*]:-$(t немає none)}" >&2
 
   if have git && have timeout; then
     latest=$(timeout 20 git ls-remote --tags --refs "$OBS_REPO" 2>/dev/null | awk -F/ '{print $3}' \
              | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || true)
     built=$(installed_info obs_version)
     if [[ -n "$latest" ]]; then
-      if [[ "$latest" == "$built" ]]; then ok "Встановлено найновішу стабільну версію OBS ($latest)."
-      else say "Найновіша стабільна версія OBS: $latest (встановлено: ${built:-—}). Оновлення: $(install_action)"; fi
+      if [[ "$latest" == "$built" ]]; then ok "$(t "Встановлено найновішу стабільну версію OBS ($latest)." \
+                                                   "The newest stable OBS version is installed ($latest).")"
+      else say "$(t "Найновіша стабільна версія OBS: $latest (встановлено: ${built:-—}). Оновлення: $(install_action)" \
+                    "Newest stable OBS version: $latest (installed: ${built:-—}). To update: $(install_action)")"; fi
     fi
     if [[ -n "$active" ]]; then
-      say "Оновлення плагінів"
+      say "$(t "Оновлення плагінів" "Plugin updates")"
       for id in "${PLUGINS_SELECTED[@]}"; do
         ver=$(sed -n "s/^plugin\.$id=\([^ ]*\).*/\1/p" "$INFO_DIR/plugins/$id" 2>/dev/null || true)
         latest=$(plugin_latest_remote "$id" || true)
         if [[ -z "$ver" ]]; then
-          warn "$id: не встановлено — з'явиться після $(install_action)."
+          warn "$(t "$id: не встановлено — з'явиться після $(install_action)." \
+                    "$id: not installed — it will appear after $(install_action).")"
         elif [[ -z "$latest" ]]; then
-          printf '  %s: %s (не вдалося перевірити оновлення)\n' "$id" "$ver" >&2
+          printf "$(t '  %s: %s (не вдалося перевірити оновлення)\n' \
+                      '  %s: %s (could not check for updates)\n')" "$id" "$ver" >&2
         elif [[ "$latest" == "$ver" ]]; then
-          ok "$id: найновіша версія ($ver)."
+          ok "$(t "$id: найновіша версія ($ver)." "$id: newest version ($ver).")"
         else
-          say "$id: доступна версія $latest (встановлено: $ver). Оновлення: $(install_action)"
+          say "$(t "$id: доступна версія $latest (встановлено: $ver). Оновлення: $(install_action)" \
+                   "$id: version $latest is available (installed: $ver). To update: $(install_action)")"
         fi
       done
     fi
@@ -3445,24 +3853,29 @@ rollback_legacy() {   # $1 = збірка або порожньо
   local target=$1 cur l
   local -a older=()
   cur=$(current_label || true)
-  [[ -n "$cur" ]] || die "OBS-Legacy не встановлено — немає з чого відкочуватися."
+  [[ -n "$cur" ]] || die "$(t "OBS-Legacy не встановлено — немає з чого відкочуватися." \
+                              "OBS-Legacy is not installed — there is nothing to roll back from.")"
   if [[ -z "$target" ]]; then
     while IFS= read -r l; do
       [[ -n "$l" && "$l" != "$cur" && -f "$VERSIONS_DIR/$l/.complete" ]] || continue
       if [[ "$l" < "$cur" ]]; then older+=("$l"); fi
     done < <(list_versions)
-    if ((${#older[@]} == 0)); then die "Немає старішої збереженої збірки (див. $SELF_PATH status)."; fi
+    if ((${#older[@]} == 0)); then die "$(t "Немає старішої збереженої збірки (див. $SELF_PATH status)." \
+                                            "There is no older saved build (see $SELF_PATH status).")"; fi
     target=${older[-1]}
   fi
   [[ "$target" =~ ^[A-Za-z0-9._-]+$ && -f "$VERSIONS_DIR/$target/.complete" ]] \
-    || die "Збірки '$target' немає або вона неповна (див. $SELF_PATH status)."
-  [[ "$target" != "$cur" ]] || die "Збірка $target уже активна."
+    || die "$(t "Збірки '$target' немає або вона неповна (див. $SELF_PATH status)." \
+                "Build '$target' does not exist or is incomplete (see $SELF_PATH status).")"
+  [[ "$target" != "$cur" ]] || die "$(t "Збірка $target уже активна." "Build $target is already active.")"
   quick_check_binary "$VERSIONS_DIR/$target/bin/obs" \
-    || die "Збірці $target бракує бібліотек — відкат на неї не допоможе."
-  confirm "Перемкнути OBS з $cur на $target?" || cancelled
-  priv_validate || die "Не вдалося отримати права адміністратора." "$PRIV_HINT"
+    || die "$(t "Збірці $target бракує бібліотек — відкат на неї не допоможе." \
+                "Build $target is missing libraries — rolling back to it will not help.")"
+  confirm "$(t "Перемкнути OBS з $cur на $target?" "Switch OBS from $cur to $target?")" || cancelled
+  priv_validate || die "$(t "Не вдалося отримати права адміністратора." \
+                            "Could not get administrator rights.")" "$PRIV_HINT"
   activate_version "$target"
-  ok "Готово. Повернутися назад: $SELF_PATH rollback $cur"
+  ok "$(t "Готово. Повернутися назад: $SELF_PATH rollback $cur" "Done. To go back: $SELF_PATH rollback $cur")"
 }
 
 cmd_rollback() {
@@ -3472,7 +3885,7 @@ cmd_rollback() {
   select_priv_tool
   require_tools flock
   acquire_lock
-  print_header "відкат"
+  print_header "$(t "відкат" "rollback")"
   cur=$(installed_label || true)
   # Набір пакетів можна поставити й тоді, коли пакетів ще немає (замість старої
   # збірки в /opt); інакше без пакетів відкат — між старими збірками в /opt.
@@ -3480,51 +3893,63 @@ cmd_rollback() {
     rollback_legacy "$target"
     return 0
   fi
-  [[ -n "$cur" || -n "$target" ]] || die "OBS-Legacy не встановлено — немає з чого відкочуватися."
+  [[ -n "$cur" || -n "$target" ]] || die "$(t "OBS-Legacy не встановлено — немає з чого відкочуватися." \
+                                              "OBS-Legacy is not installed — there is nothing to roll back from.")"
   if [[ -z "$target" ]]; then
     while IFS= read -r l; do
       [[ -n "$l" && "$l" != "$cur" && -f "$PKG_STORE/$l/.complete" ]] || continue
       if [[ "$l" < "$cur" ]]; then older+=("$l"); fi
     done < <(store_sets)
-    if ((${#older[@]} == 0)); then die "Немає старішого збереженого набору пакетів (див. $SELF_PATH status)."; fi
+    if ((${#older[@]} == 0)); then die "$(t "Немає старішого збереженого набору пакетів (див. $SELF_PATH status)." \
+                                            "There is no older saved package set (see $SELF_PATH status).")"; fi
     target=${older[-1]}
   fi
   [[ "$target" =~ ^[A-Za-z0-9._-]+$ && -f "$PKG_STORE/$target/.complete" ]] \
-    || die "Набору '$target' немає або він неповний (див. $SELF_PATH status)."
-  [[ "$target" != "$cur" ]] || die "Набір $target уже встановлено."
+    || die "$(t "Набору '$target' немає або він неповний (див. $SELF_PATH status)." \
+                "Set '$target' does not exist or is incomplete (see $SELF_PATH status).")"
+  [[ "$target" != "$cur" ]] || die "$(t "Набір $target уже встановлено." "Set $target is already installed.")"
   mapfile -t files < <(find "$PKG_STORE/$target" -maxdepth 1 -type f -name "*-$PKG_SUFFIX-*.pkg.tar.*" ! -name '*.sig' | sort)
-  ((${#files[@]})) || die "У наборі $target немає пакетів."
+  ((${#files[@]})) || die "$(t "У наборі $target немає пакетів." "Set $target has no packages.")"
   mapfile -t stale < <(stale_plugin_packages "${files[@]}")
   set_conflicts_from_files "${files[@]}"
   mapfile -t replaced < <(replaced_packages)
   if [[ -n "$cur" && "$target" < "$cur" ]]; then
-    printf '  Буде встановлено (pacman попередить, що версії старіші):\n' >&2
+    printf "$(t '  Буде встановлено (pacman попередить, що версії старіші):\n' \
+                '  Will be installed (pacman will warn that the versions are older):\n')" >&2
   else
-    printf '  Буде встановлено:\n' >&2
+    printf "$(t '  Буде встановлено:\n' '  Will be installed:\n')" >&2
   fi
   printf '    %s\n' "${files[@]##*/}" >&2
   if ((${#replaced[@]})); then
-    printf '  Буде замінено (pacman спитає — відповідай y): %s\n' "${replaced[*]}" >&2
+    printf "$(t '  Буде замінено (pacman спитає — відповідай y): %s\n' \
+                '  Will be replaced (pacman will ask — answer y): %s\n')" "${replaced[*]}" >&2
   fi
   if ((${#stale[@]})); then
-    printf '  Потім буде прибрано (плагінів немає в наборі): %s\n' "${stale[*]}" >&2
+    printf "$(t '  Потім буде прибрано (плагінів немає в наборі): %s\n' \
+                '  Will then be removed (the plugins are not in the set): %s\n')" "${stale[*]}" >&2
   fi
   if legacy_leftovers_present; then
-    printf '  Потім буде прибрано стару схему: %s, обгортку %s, ярлик-перекриття і хук у /etc.\n' \
+    printf "$(t '  Потім буде прибрано стару схему: %s, обгортку %s, ярлик-перекриття і хук у /etc.\n' \
+                '  The old layout will then be removed: %s, the wrapper %s, the overriding shortcut and the hook in /etc.\n')" \
       "$INSTALL_ROOT" "$WRAPPER" >&2
   fi
   check_pacman_lock
-  confirm "Поставити набір $target${cur:+ замість $cur}?" || cancelled
-  priv_validate || die "Не вдалося отримати права адміністратора." "$PRIV_HINT"
+  confirm "$(t "Поставити набір $target${cur:+ замість $cur}?" \
+               "Install set $target${cur:+ instead of $cur}?")" || cancelled
+  priv_validate || die "$(t "Не вдалося отримати права адміністратора." \
+                            "Could not get administrator rights.")" "$PRIV_HINT"
   priv pacman -U -- "${files[@]}" \
-    || die "pacman не встановив пакети — нічого не змінено." \
-      "Якщо ти відповів «n» на питання pacman — так і має бути. Інакше дивись повідомлення pacman вище."
+    || die "$(t "pacman не встановив пакети — нічого не змінено." \
+                "pacman did not install the packages — nothing was changed.")" \
+      "$(t "Якщо ти відповів «n» на питання pacman — так і має бути. Інакше дивись повідомлення pacman вище." \
+           "If you answered “n” to pacman's question, that is expected. Otherwise see the pacman messages above.")"
   remove_stale_plugins "${files[@]}"
   if legacy_leftovers_present; then remove_legacy_install; fi
   if [[ -n "$cur" ]]; then
-    ok "Готово: встановлено набір $target. Повернутися: $SELF_PATH rollback $cur"
+    ok "$(t "Готово: встановлено набір $target. Повернутися: $SELF_PATH rollback $cur" \
+            "Done: set $target is installed. To go back: $SELF_PATH rollback $cur")"
   else
-    ok "Готово: встановлено набір $target."
+    ok "$(t "Готово: встановлено набір $target." "Done: set $target is installed.")"
   fi
 }
 
@@ -3535,45 +3960,58 @@ cmd_uninstall() {
   select_priv_tool
   require_tools flock
   acquire_lock
-  print_header "видалення OBS-Legacy"
+  print_header "$(t "видалення OBS-Legacy" "removing OBS-Legacy")"
   mapfile -t pkgs < <(pacman -Qq 2>/dev/null | grep -E -- "-$PKG_SUFFIX\$" || true)
   if ((${#pkgs[@]} == 0)) && ! legacy_leftovers_present; then
-    ok "OBS-Legacy не встановлено — прибирати нічого."
+    ok "$(t "OBS-Legacy не встановлено — прибирати нічого." "OBS-Legacy is not installed — nothing to remove.")"
     return 0
   fi
   if have pgrep && pgrep -x obs >/dev/null 2>&1; then
-    die "OBS зараз запущений." "Закрий OBS і повтори."
+    die "$(t "OBS зараз запущений." "OBS is running right now.")" \
+        "$(t "Закрий OBS і повтори." "Close OBS and try again.")"
   fi
   for p in "${pkgs[@]}"; do
     if [[ "$p" != "$FFMPEG_PKG" ]]; then others+=("$p"); fi
   done
-  printf 'Буде виконано:\n' >&2
+  printf "$(t 'Буде виконано:\n' 'Will be done:\n')" >&2
   if [[ " ${pkgs[*]} " == *" $FFMPEG_PKG "* ]]; then
-    printf '  - pacman -S ffmpeg: системний ffmpeg з репозиторію замінить %s\n' "$FFMPEG_PKG" >&2
+    printf "$(t '  - pacman -S ffmpeg: системний ffmpeg з репозиторію замінить %s\n' \
+                '  - pacman -S ffmpeg: the system ffmpeg from the repository will replace %s\n')" "$FFMPEG_PKG" >&2
   fi
   if ((${#others[@]})); then printf '  - pacman -R %s\n' "${others[*]}" >&2; fi
   if legacy_leftovers_present; then
-    printf '  - прибрано стару збірку %s, обгортку %s, ярлик і хук у /etc\n' "$INSTALL_ROOT" "$WRAPPER" >&2
+    printf "$(t '  - прибрано стару збірку %s, обгортку %s, ярлик і хук у /etc\n' \
+                '  - the old build %s, the wrapper %s, the shortcut and the hook in /etc will be removed\n')" "$INSTALL_ROOT" "$WRAPPER" >&2
   fi
-  printf 'Не буде змінено: налаштування ~/.config/obs-studio, кеш збірки, набори пакетів у %s.\n' "$PKG_STORE" >&2
+  printf "$(t 'Не буде змінено: налаштування ~/.config/obs-studio, кеш збірки, набори пакетів у %s.\n' \
+              'Will not be changed: the ~/.config/obs-studio settings, the build cache, the package sets in %s.\n')" "$PKG_STORE" >&2
   check_pacman_lock
-  confirm "Продовжити?" || cancelled
-  priv_validate || die "Не вдалося отримати права адміністратора." "$PRIV_HINT"
+  confirm "$(t "Продовжити?" "Continue?")" || cancelled
+  priv_validate || die "$(t "Не вдалося отримати права адміністратора." \
+                            "Could not get administrator rights.")" "$PRIV_HINT"
   if [[ " ${pkgs[*]} " == *" $FFMPEG_PKG "* ]]; then
-    priv pacman -S ffmpeg || die "Не вдалося повернути системний ffmpeg." \
-      "pacman спитає, чи замінити $FFMPEG_PKG — відповідай y. Якщо бачиш 404 чи «failed retrieving file», спершу онови систему: sudo pacman -Syu."
+    priv pacman -S ffmpeg || die "$(t "Не вдалося повернути системний ffmpeg." \
+                                      "Could not bring back the system ffmpeg.")" \
+      "$(t "pacman спитає, чи замінити $FFMPEG_PKG — відповідай y. Якщо бачиш 404 чи «failed retrieving file», спершу онови систему: sudo pacman -Syu." \
+           "pacman will ask whether to replace $FFMPEG_PKG — answer y. If you see 404 or “failed retrieving file”, first upgrade the system: sudo pacman -Syu.")"
   fi
   if ((${#others[@]})); then
-    priv pacman -R -- "${others[@]}" || die "pacman не прибрав пакети OBS-Legacy." \
-      "Якщо інші пакети (плагіни з AUR) потребують obs-studio — постав звичайний OBS замість OBS-Legacy: sudo pacman -S obs-studio (pacman запропонує замінити $OBS_PKG), а потім прибери плагіни -$PKG_SUFFIX: sudo pacman -R <назви>."
+    priv pacman -R -- "${others[@]}" || die "$(t "pacman не прибрав пакети OBS-Legacy." \
+                                                 "pacman did not remove the OBS-Legacy packages.")" \
+      "$(t "Якщо інші пакети (плагіни з AUR) потребують obs-studio — постав звичайний OBS замість OBS-Legacy: sudo pacman -S obs-studio (pacman запропонує замінити $OBS_PKG), а потім прибери плагіни -$PKG_SUFFIX: sudo pacman -R <назви>." \
+           "If other packages (AUR plugins) need obs-studio, install the regular OBS instead of OBS-Legacy: sudo pacman -S obs-studio (pacman will offer to replace $OBS_PKG), then remove the -$PKG_SUFFIX plugins: sudo pacman -R <names>.")"
   fi
   if legacy_leftovers_present; then remove_legacy_install; fi
-  ok "OBS-Legacy прибрано."
-  printf '  Звичайний OBS з репозиторію: sudo pacman -S obs-studio (на драйвері 580xx — без NVENC).\n' >&2
-  printf '  Набори пакетів лишились (%s): rm -rf %q\n' "$(du -sh -- "$PKG_STORE" 2>/dev/null | cut -f1 || echo '?')" "$PKG_STORE" >&2
-  printf '  Кеш збірки: rm -rf %q · копії налаштувань OBS: %s\n' "$BUILD_ROOT" "$STATE_DIR/config-backups" >&2
+  ok "$(t "OBS-Legacy прибрано." "OBS-Legacy removed.")"
+  printf "$(t '  Звичайний OBS з репозиторію: sudo pacman -S obs-studio (на драйвері 580xx — без NVENC).\n' \
+              '  The regular OBS from the repository: sudo pacman -S obs-studio (no NVENC on the 580xx driver).\n')" >&2
+  printf "$(t '  Набори пакетів лишились (%s): rm -rf %q\n' \
+              '  The package sets are kept (%s): rm -rf %q\n')" "$(du -sh -- "$PKG_STORE" 2>/dev/null | cut -f1 || echo '?')" "$PKG_STORE" >&2
+  printf "$(t '  Кеш збірки: rm -rf %q · копії налаштувань OBS: %s\n' \
+              '  Build cache: rm -rf %q · OBS settings backups: %s\n')" "$BUILD_ROOT" "$STATE_DIR/config-backups" >&2
   if [[ -s "$STATE_DIR/packages-installed-by-script.txt" ]]; then
-    printf '  Пакети, які колись поставив скрипт (перевір, чи вони потрібні іншим програмам):\n    %s\n' \
+    printf "$(t '  Пакети, які колись поставив скрипт (перевір, чи вони потрібні іншим програмам):\n    %s\n' \
+                '  Packages the script once installed (check whether other programs need them):\n    %s\n')" \
       "$(sort -u "$STATE_DIR/packages-installed-by-script.txt" | tr '\n' ' ')" >&2
   fi
 }
@@ -3595,16 +4033,19 @@ cmd_deps() {
   preflight_common
   select_priv_tool
   acquire_lock
-  print_header "встановлення пакетів для збірки"
+  print_header "$(t "встановлення пакетів для збірки" "installing the build dependencies")"
   resolve_selected_plugins
   load_ffmpeg_deps 0
   install_dependencies
   plan_dependencies
   if ((${#DEP_INSTALL[@]})); then
-    die "Не всі пакети встановилися: ${DEP_INSTALL[*]}." "$NOREPO_HINT"
+    die "$(t "Не всі пакети встановилися: ${DEP_INSTALL[*]}." \
+             "Not all packages were installed: ${DEP_INSTALL[*]}.")" "$NOREPO_HINT"
   fi
-  printf '\n%sПАКЕТИ ГОТОВІ%s: усе потрібне для збірки встановлено.\n' "$C_GRN$C_BLD" "$C_RST" >&2
-  hint "Тепер перевір систему ще раз ($(check_action)) — усе має бути ✓."
+  printf "$(t '\n%sПАКЕТИ ГОТОВІ%s: усе потрібне для збірки встановлено.\n' \
+              '\n%sPACKAGES READY%s: everything needed for the build is installed.\n')" "$C_GRN$C_BLD" "$C_RST" >&2
+  hint "$(t "Тепер перевір систему ще раз ($(check_action)) — усе має бути ✓." \
+            "Now check the system again ($(check_action)) — everything should be ✓.")"
 }
 
 cmd_clean() {
@@ -3621,9 +4062,11 @@ cmd_clean() {
       | while IFS= read -r -d '' d; do rm_cache_path "$d"; done
   fi
   after=$(du -sh -- "$BUILD_ROOT" 2>/dev/null | cut -f1 || true)
-  ok "Кеш: було ${before:-?}, стало ${after:-?}. Вихідні коди (OBS, плагіни, ffmpeg) й архів CEF залишено."
-  printf '  Повністю прибрати кеш: rm -rf %q\n' "$BUILD_ROOT" >&2
-  printf '  Набори пакетів для відкату (%s): %s\n' "$(du -sh -- "$PKG_STORE" 2>/dev/null | cut -f1 || echo '0')" "$PKG_STORE" >&2
+  ok "$(t "Кеш: було ${before:-?}, стало ${after:-?}. Вихідні коди (OBS, плагіни, ffmpeg) й архів CEF залишено." \
+          "Cache: was ${before:-?}, now ${after:-?}. Sources (OBS, plugins, ffmpeg) and the CEF archive are kept.")"
+  printf "$(t '  Повністю прибрати кеш: rm -rf %q\n' '  Remove the cache completely: rm -rf %q\n')" "$BUILD_ROOT" >&2
+  printf "$(t '  Набори пакетів для відкату (%s): %s\n' \
+              '  Package sets for rollback (%s): %s\n')" "$(du -sh -- "$PKG_STORE" 2>/dev/null | cut -f1 || echo '0')" "$PKG_STORE" >&2
 }
 
 # Каталог плагінів. --tsv — машинний формат для TUI:
@@ -3633,7 +4076,8 @@ cmd_plugins() {
   local -a f=()
   resolve_selected_plugins
   if [[ "${1:-}" != --tsv ]]; then
-    printf 'Плагіни, які збираються разом з OBS (OBS_PLUGINS="%s"):\n\n' "${PLUGINS_SELECTED[*]:-none}"
+    printf "$(t 'Плагіни, які збираються разом з OBS (OBS_PLUGINS="%s"):\n\n' \
+                'Plugins built together with OBS (OBS_PLUGINS="%s"):\n\n')" "${PLUGINS_SELECTED[*]:-none}"
   fi
   for r in "${PLUGIN_CATALOG[@]}"; do
     IFS='|' read -r -a f <<<"$r"
@@ -3645,12 +4089,14 @@ cmd_plugins() {
     if [[ "${1:-}" == --tsv ]]; then
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$sel" "$def" "$repo" "$pkgs" "$desc" "$pkg"
     else
-      printf '  [%s] %-24s %s\n        %s\n        %s · пакет %s\n' "$( ((sel)) && echo x || echo ' ')" "$id" "$name" \
+      printf "$(t '  [%s] %-24s %s\n        %s\n        %s · пакет %s\n' \
+                  '  [%s] %-24s %s\n        %s\n        %s · package %s\n')" "$( ((sel)) && echo x || echo ' ')" "$id" "$name" \
         "$desc" "$repo" "$pkg"
     fi
   done
   if [[ "${1:-}" != --tsv ]]; then
-    printf '\nВибір: OBS_PLUGINS="obs-multi-rtmp,move-transition" або файл %s\n' "$SETTINGS_FILE"
+    printf "$(t '\nВибір: OBS_PLUGINS="obs-multi-rtmp,move-transition" або файл %s\n' \
+                '\nTo choose: OBS_PLUGINS="obs-multi-rtmp,move-transition" or the file %s\n')" "$SETTINGS_FILE"
   fi
 }
 
@@ -3673,11 +4119,11 @@ run_logged() {
   if sed -E 's/\x1B\[[0-9;]*[A-Za-z]//g; s/^.*\r//' -- "$raw" > "${raw%.raw}.txt" 2>/dev/null; then
     rm -f -- "$raw"
     case "$rc" in
-      0) printf '\nРезультат: успішно\n' ;;
-      "$EXIT_CANCELLED") printf '\nРезультат: скасовано\n' ;;
-      *) printf '\nРезультат: помилка (код %s)\n' "$rc" ;;
+      0) printf '\n%s\n' "$(t 'Результат: успішно' 'Result: success')" ;;
+      "$EXIT_CANCELLED") printf '\n%s\n' "$(t 'Результат: скасовано' 'Result: cancelled')" ;;
+      *) printf '\n%s\n' "$(t "Результат: помилка (код $rc)" "Result: error (code $rc)")" ;;
     esac >> "${raw%.raw}.txt"
-    printf '\nЗвіт: %s\n' "${raw%.raw}.txt" >&2
+    printf '\n%s: %s\n' "$(t Звіт Report)" "${raw%.raw}.txt" >&2
   fi
   exit "$rc"
 }
@@ -3685,7 +4131,24 @@ run_logged() {
 choose_from_menu() {
   local choice=''
   if [[ ! -t 0 ]]; then usage; exit 1; fi
-  cat >&2 <<EOF
+  if ((LANG_EN)); then
+    cat >&2 <<EOF
+
+OBS Studio with NVENC for NVIDIA 580.xx — $SELF_NAME $SCRIPT_VERSION
+  1) Check (installs nothing, no sudo)
+  2) Install (or update, if there is something to update)
+  3) Status
+  4) Roll back to the previous package set
+  5) Remove OBS-Legacy
+  6) Clean intermediate build files
+  7) Plugin catalog
+  8) Install the build dependencies
+  9) Only build the packages (without installing)
+  r) Rebuild from scratch and install again
+  0) Quit
+EOF
+  else
+    cat >&2 <<EOF
 
 OBS Studio з NVENC для NVIDIA 580.xx — $SELF_NAME $SCRIPT_VERSION
   1) Перевірка (нічого не встановлює, без sudo)
@@ -3700,7 +4163,8 @@ OBS Studio з NVENC для NVIDIA 580.xx — $SELF_NAME $SCRIPT_VERSION
   r) Перезібрати начисто й встановити знову
   0) Вихід
 EOF
-  printf 'Вибір: ' >&2
+  fi
+  printf "$(t 'Вибір: ' 'Choice: ')" >&2
   read -r choice || exit 1
   case "$choice" in
     1) MENU_CMD=check ;;
@@ -3714,7 +4178,7 @@ EOF
     9) MENU_CMD=package ;;
     r|R|к|К) MENU_CMD=rebuild ;;
     0|'') exit 0 ;;
-    *) die "Невідомий вибір: $choice" ;;
+    *) die "$(t "Невідомий вибір: $choice" "Unknown choice: $choice")" ;;
   esac
 }
 
@@ -3742,7 +4206,7 @@ main() {
     clean)          cmd_clean ;;
     plugins)        cmd_plugins "$@" ;;
     version)        printf '%s %s\n' "$SELF_NAME" "$SCRIPT_VERSION" ;;
-    *)              usage >&2; die "Невідома команда: $cmd" ;;
+    *)              usage >&2; die "$(t "Невідома команда: $cmd" "Unknown command: $cmd")" ;;
   esac
 }
 

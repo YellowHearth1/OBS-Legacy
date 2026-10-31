@@ -2057,6 +2057,8 @@ impl App {
                 match f.key {
                     "NV_HEADERS_TAG" => self.refresh(),
                     "UI_BACKGROUND" => self.theme = Theme::detect(self.settings.solid_background()),
+                    // Описи плагінів дає скрипт — тією мовою, яку йому передали.
+                    "UI_LANG" => self.spawn_catalog(),
                     _ => {}
                 }
             }

@@ -53,6 +53,7 @@ pub fn load(script: &Path) -> Result<Vec<PluginInfo>> {
         .arg(script)
         .args(["plugins", "--tsv"])
         .env("OBS_LEGACY_SETTINGS", settings::settings_path())
+        .env("OBS_LEGACY_LANG", crate::i18n::lang().code())
         .output()
         .context(tr!("не вдалося запустити bash", "couldn't start bash"))?;
     if !out.status.success() {
