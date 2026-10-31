@@ -545,6 +545,16 @@ mod tests {
     }
 
     #[test]
+    fn english_advice() {
+        let s = sys();
+        crate::i18n::with(crate::i18n::Lang::En, || {
+            let a = advise_with(&s, &[]);
+            assert_eq!((a.title.as_str(), a.action), ("Start with checking the system", Some(Action::Check)));
+            assert!(a.detail.unwrap().starts_with("It changes nothing"));
+        });
+    }
+
+    #[test]
     fn cancelled_install_leaves_ready_set() {
         let mut s = sys();
         let mut b =

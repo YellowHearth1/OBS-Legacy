@@ -99,10 +99,12 @@ impl State {
     pub fn save(&self) -> io::Result<()> {
         let path = Self::path();
         fs::create_dir_all(script::state_dir())?;
-        let mut body = String::from(
+        let mut body = String::from(tr!(
             "# OBS-Legacy: стан фонової перевірки оновлень. Якщо файл видалити, про наявні\n\
              # оновлення буде сповіщено ще раз.\n",
-        );
+            "# OBS-Legacy: state of the background update check. Delete this file to be notified\n\
+             # about the available updates again.\n"
+        ));
         for (k, v) in &self.map {
             let _ = writeln!(body, "{k}={v}");
         }
@@ -203,22 +205,26 @@ impl Facts {
 
     pub fn summary(&self) -> String {
         if !self.online() {
-            return "не вдалося перевірити: немає мережі чи GitHub недоступний".into();
+            return tr!(
+                "не вдалося перевірити: немає мережі чи GitHub недоступний",
+                "couldn't check: no network or GitHub is unreachable"
+            )
+            .into();
         }
         let mut parts = Vec::new();
         if let Some(l) = self.obs_update() {
-            parts.push(format!("вийшов OBS {l}"));
+            parts.push(trf!("вийшов OBS {l}", "OBS {l} is out"));
         }
         if !self.plugin_updates.is_empty() {
-            parts.push(format!("нові версії плагінів: {}", plugin_list(&self.plugin_updates)));
+            parts.push(trf!("нові версії плагінів: {}", "new plugin versions: {}", plugin_list(&self.plugin_updates)));
         }
         if let Some(v) = &self.ffmpeg_new {
-            parts.push(format!("у репозиторії новий ffmpeg {v}"));
+            parts.push(trf!("у репозиторії новий ffmpeg {v}", "new ffmpeg {v} in the repository"));
         }
         if let Some(l) = self.self_update() {
-            parts.push(format!("вийшов OBS-Legacy {}", l.trim_start_matches('v')));
+            parts.push(trf!("вийшов OBS-Legacy {}", "OBS-Legacy {} is out", l.trim_start_matches('v')));
         }
-        if parts.is_empty() { "нового немає".into() } else { parts.join("; ") }
+        if parts.is_empty() { tr!("нового немає", "nothing new").into() } else { parts.join("; ") }
     }
 }
 
@@ -253,43 +259,70 @@ impl Notice {
     }
 }
 
-const HOW_INSTALL: &str = "OBS-Legacy → «Встановити / оновити OBS»";
+/// Як оновити OBS (і плагіни, і ffmpeg) — пункт меню.
+fn how_install() -> &'static str {
+    tr!("OBS-Legacy → «Встановити / оновити OBS»", "OBS-Legacy → “Install / update OBS”")
+}
 
 /// Сповіщення про нові версії (без бібліотек).
 pub fn notices(f: &Facts) -> Vec<Notice> {
     let mut out = Vec::new();
     let plugin_items = || f.plugin_updates.iter().map(|p| (format!("plugin.{}", p.id), p.latest.clone()));
     if let (Some(latest), Some(installed)) = (f.obs_update(), f.obs_installed.as_deref()) {
-        let mut body = format!(
-            "У тебе OBS {installed}. Онови: {HOW_INSTALL}. Нова збірка ввімкнеться лише після перевірки NVENC, \
-             а поточна лишиться для відкату."
+        let how = how_install();
+        let mut body = trf!(
+            "У тебе OBS {installed}. Онови: {how}. Нова збірка ввімкнеться лише після перевірки NVENC, \
+             а поточна лишиться для відкату.",
+            "You have OBS {installed}. Update: {how}. The new build is switched on only after the NVENC check, \
+             and the current one stays for rollback."
         );
         if !f.plugin_updates.is_empty() {
-            let _ = write!(body, " Разом з OBS оновляться плагіни: {}.", plugin_list(&f.plugin_updates));
+            let list = plugin_list(&f.plugin_updates);
+            body.push_str(&trf!(
+                " Разом з OBS оновляться плагіни: {list}.",
+                " Plugins are updated together with OBS: {list}."
+            ));
         }
         let mut items = vec![("obs".to_string(), latest.to_string())];
         items.extend(plugin_items());
-        out.push(Notice { items, title: format!("Вийшов OBS {latest}"), body, urgent: false });
+        out.push(Notice {
+            items, title: trf!("Вийшов OBS {latest}", "OBS {latest} is out"), body, urgent: false
+        });
     } else if !f.plugin_updates.is_empty() {
         let (title, what) = match f.plugin_updates.as_slice() {
-            [p] => (format!("Нова версія плагіна {}: {}", p.name, p.latest), format!("У тебе {}", p.installed)),
-            many => (format!("Нові версії плагінів OBS: {}", many.len()), plugin_list(many)),
+            [p] => (
+                trf!("Нова версія плагіна {}: {}", "New version of the {} plugin: {}", p.name, p.latest),
+                trf!("У тебе {}", "You have {}", p.installed),
+            ),
+            many => {
+                (trf!("Нові версії плагінів OBS: {}", "New OBS plugin versions: {}", many.len()), plugin_list(many))
+            }
         };
+        let how = how_install();
         out.push(Notice {
             items: plugin_items().collect(),
             title,
-            body: format!("{what}. Плагіни оновлюються разом з OBS: {HOW_INSTALL}."),
+            body: trf!(
+                "{what}. Плагіни оновлюються разом з OBS: {how}.",
+                "{what}. Plugins are updated together with OBS: {how}."
+            ),
             urgent: false,
         });
     }
     if let Some(new) = &f.ffmpeg_new {
-        let built = f.ffmpeg_built.as_deref().unwrap_or("старішої версії");
+        let built = f.ffmpeg_built.as_deref().unwrap_or(tr!("старішої версії", "an older version"));
+        let how = how_install();
         out.push(Notice {
             items: vec![("ffmpeg".into(), new.clone())],
-            title: format!("Новий ffmpeg {new} — перезбери ffmpeg-legacy-580xx"),
-            body: format!(
-                "Твій ffmpeg-legacy-580xx зібрано з {built}. Перезбери його з NVENC під свій драйвер: {HOW_INSTALL} \
-                 (ffmpeg збирається ~15 хв). До того працює поточний."
+            title: trf!(
+                "Новий ffmpeg {new} — перезбери ffmpeg-legacy-580xx",
+                "New ffmpeg {new} — rebuild ffmpeg-legacy-580xx"
+            ),
+            body: trf!(
+                "Твій ffmpeg-legacy-580xx зібрано з {built}. Перезбери його з NVENC під свій драйвер: {how} \
+                 (ffmpeg збирається ~15 хв). До того працює поточний.",
+                "Your ffmpeg-legacy-580xx was built from {built}. Rebuild it with NVENC for your driver: {how} \
+                 (ffmpeg takes ~15 min to build). Until then the current one works."
             ),
             urgent: false,
         });
@@ -297,16 +330,31 @@ pub fn notices(f: &Facts) -> Vec<Notice> {
     if let Some(latest) = f.self_update() {
         let file = format!("obs-legacy-{}-1-x86_64.pkg.tar.zst", latest.trim_start_matches('v'));
         let how = if f.self_menu {
-            "Онови: OBS-Legacy → Додатково → «Оновити OBS-Legacy».".to_string()
+            tr!(
+                "Онови: OBS-Legacy → Додатково → «Оновити OBS-Legacy».",
+                "Update: OBS-Legacy → More → “Update OBS-Legacy”."
+            )
+            .to_string()
         } else if f.self_package {
-            format!("Завантаж пакет {file} з {RELEASES} і постав: sudo pacman -U {file}")
+            trf!(
+                "Завантаж пакет {file} з {RELEASES} і постав: sudo pacman -U {file}",
+                "Download the {file} package from {RELEASES} and install it: sudo pacman -U {file}"
+            )
         } else {
-            "Онови так само, як встановлював: git pull і ./install.sh у теці з вихідними кодами.".to_string()
+            tr!(
+                "Онови так само, як встановлював: git pull і ./install.sh у теці з вихідними кодами.",
+                "Update the way you installed it: git pull and ./install.sh in the source folder."
+            )
+            .to_string()
         };
+        let mine = &f.self_version;
         out.push(Notice {
             items: vec![("self".into(), latest.to_string())],
-            title: format!("Вийшов OBS-Legacy {}", latest.trim_start_matches('v')),
-            body: format!("У тебе {}. {how} Твій OBS не зміниться.", f.self_version),
+            title: trf!("Вийшов OBS-Legacy {}", "OBS-Legacy {} is out", latest.trim_start_matches('v')),
+            body: trf!(
+                "У тебе {mine}. {how} Твій OBS не зміниться.",
+                "You have {mine}. {how} Your OBS stays as it is."
+            ),
             urgent: false,
         });
     }
@@ -344,14 +392,17 @@ pub fn libs_notice(problems: &[String]) -> Option<Notice> {
     libs.dedup();
     let mut list = libs.iter().take(3).copied().collect::<Vec<_>>().join(", ");
     if libs.len() > 3 {
-        let _ = write!(list, " і ще {}", libs.len() - 3);
+        let more = libs.len() - 3;
+        list.push_str(&trf!(" і ще {more}", " and {more} more"));
     }
     Some(Notice {
         items: vec![("libs".into(), fingerprint(problems))],
-        title: "OBS після оновлення системи може не запуститися".into(),
-        body: format!(
-            "Власній збірці OBS бракує бібліотек: {list}. Перезбери: {HOW_INSTALL}. До того команда obs \
-             запускатиме системний OBS, якщо він встановлений."
+        title: tr!("OBS після оновлення системи може не запуститися", "OBS may not start after the system update")
+            .into(),
+        body: trf!(
+            "Власній збірці OBS бракує бібліотек: {list}. Перезбери: {}.",
+            "Your OBS build is missing libraries: {list}. Rebuild: {}.",
+            how_install()
         ),
         urgent: true,
     })
@@ -538,7 +589,11 @@ fn acquire_lock() -> io::Result<File> {
     // SAFETY: flock на власному дескрипторі.
     if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
         let other = fs::read_to_string(lock_path()).unwrap_or_default();
-        log(&format!("Фонова перевірка вже працює (PID {}) — чекаю, поки вона завершиться.", other.trim()));
+        log(&trf!(
+            "Фонова перевірка вже працює (PID {}) — чекаю, поки вона завершиться.",
+            "The background check is already running (PID {}) — waiting for it to end.",
+            other.trim()
+        ));
         // SAFETY: як вище; цього разу — чекати.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
             return Err(io::Error::last_os_error());
@@ -560,7 +615,10 @@ fn deliver(list: Vec<Notice>, st: &mut State, open: Option<&Path>, verbose: bool
     }
     let Some(session) = notify::find_session() else {
         if verbose {
-            cli::warn("Графічної сесії не знайдено — сповіщення не показано.");
+            cli::warn(tr!(
+                "Графічної сесії не знайдено — сповіщення не показано.",
+                "No graphical session found — the notification wasn't shown."
+            ));
         }
         return list;
     };
@@ -568,16 +626,20 @@ fn deliver(list: Vec<Notice>, st: &mut State, open: Option<&Path>, verbose: bool
         .filter_map(|n| match notify::send(&session, &n.message(open)) {
             Ok(()) => {
                 n.mark(st);
-                log(&format!("Сповіщення: «{}» ({})", n.title, session.describe()));
+                log(&trf!("Сповіщення: «{}» ({})", "Notification: “{}” ({})", n.title, session.describe()));
                 if verbose {
-                    cli::ok(&format!("Сповіщення: «{}»", n.title));
+                    cli::ok(&trf!("Сповіщення: «{}»", "Notification: “{}”", n.title));
                 }
                 None
             }
             Err(e) => {
-                log(&format!("Не вдалося показати «{}»: {e}", n.title));
+                log(&trf!("Не вдалося показати «{}»: {e}", "Couldn't show “{}”: {e}", n.title));
                 if verbose {
-                    cli::warn(&format!("Не вдалося показати сповіщення «{}»: {e}", n.title));
+                    cli::warn(&trf!(
+                        "Не вдалося показати сповіщення «{}»: {e}",
+                        "Couldn't show the notification “{}”: {e}",
+                        n.title
+                    ));
                 }
                 Some(n)
             }
@@ -588,41 +650,60 @@ fn deliver(list: Vec<Notice>, st: &mut State, open: Option<&Path>, verbose: bool
 /// Підсумок перевірки рядками [OK]/[УВАГА].
 fn report(f: &Facts, libs: Option<&[String]>) {
     match (f.obs_installed.as_deref(), f.obs_latest.as_deref()) {
-        (_, None) => cli::warn("Не вдалося дізнатися найновішу версію OBS: немає мережі чи GitHub недоступний."),
+        (_, None) => cli::warn(tr!(
+            "Не вдалося дізнатися найновішу версію OBS: немає мережі чи GitHub недоступний.",
+            "Couldn't find out the latest OBS version: no network or GitHub is unreachable."
+        )),
         (Some(i), Some(l)) if newer(l, i) => match &f.obs_pinned {
-            Some(pin) => {
-                cli::ok(&format!("Вийшов OBS {l}, але версію зафіксовано (OBS_REF={pin}) — про OBS не сповіщаю."))
-            }
-            None => cli::warn(&format!("Вийшов OBS {l} (у тебе {i}).")),
+            Some(pin) => cli::ok(&trf!(
+                "Вийшов OBS {l}, але версію зафіксовано (OBS_REF={pin}) — про OBS не сповіщаю.",
+                "OBS {l} is out, but the version is pinned (OBS_REF={pin}) — no notification about OBS."
+            )),
+            None => cli::warn(&trf!("Вийшов OBS {l} (у тебе {i}).", "OBS {l} is out (you have {i}).")),
         },
-        (Some(i), Some(_)) => cli::ok(&format!("OBS {i} — найновіший.")),
-        (None, Some(l)) => cli::ok(&format!("Найновіший OBS — {l}. Власну збірку ще не встановлено.")),
+        (Some(i), Some(_)) => cli::ok(&trf!("OBS {i} — найновіший.", "OBS {i} is the latest.")),
+        (None, Some(l)) => cli::ok(&trf!(
+            "Найновіший OBS — {l}. Власну збірку ще не встановлено.",
+            "The latest OBS is {l}. Your own build isn't installed yet."
+        )),
     }
     if !f.plugin_updates.is_empty() {
-        cli::warn(&format!("Нові версії плагінів: {}.", plugin_list(&f.plugin_updates)));
+        cli::warn(&trf!("Нові версії плагінів: {}.", "New plugin versions: {}.", plugin_list(&f.plugin_updates)));
     } else if f.plugins_checked > 0 && f.online() {
-        cli::ok(&format!("Плагіни збірки ({}) — найновіші.", f.plugins_checked));
+        cli::ok(&trf!(
+            "Плагіни збірки ({}) — найновіші.",
+            "The build's plugins ({}) are the latest.",
+            f.plugins_checked
+        ));
     }
     match f.self_latest.as_deref() {
-        Some(l) if newer(l, &f.self_version) => {
-            cli::warn(&format!("Вийшов OBS-Legacy {} (у тебе {}).", l.trim_start_matches('v'), f.self_version))
-        }
-        Some(_) => cli::ok(&format!("OBS-Legacy {} — найновіший.", f.self_version)),
-        None => cli::ok(&format!(
+        Some(l) if newer(l, &f.self_version) => cli::warn(&trf!(
+            "Вийшов OBS-Legacy {} (у тебе {}).",
+            "OBS-Legacy {} is out (you have {}).",
+            l.trim_start_matches('v'),
+            f.self_version
+        )),
+        Some(_) => cli::ok(&trf!("OBS-Legacy {} — найновіший.", "OBS-Legacy {} is the latest.", f.self_version)),
+        None => cli::ok(&trf!(
             "OBS-Legacy {}: найновішу версію дізнатися не вдалося (репозиторій закритий чи немає мережі).",
+            "OBS-Legacy {}: couldn't find out the latest version (private repository or no network).",
             f.self_version
         )),
     }
     match libs {
         None => {}
-        Some([]) => cli::ok("Бібліотеки власної збірки на місці."),
-        Some(p) => cli::warn(&format!("Власній збірці OBS бракує бібліотек: {}.", p.join("; "))),
+        Some([]) => cli::ok(tr!("Бібліотеки власної збірки на місці.", "Your build's libraries are in place.")),
+        Some(p) => cli::warn(&trf!(
+            "Власній збірці OBS бракує бібліотек: {}.",
+            "Your OBS build is missing libraries: {}.",
+            p.join("; ")
+        )),
     }
 }
 
 /// `obs-legacy --check-updates`: перевірити зараз і сповістити про нове.
 pub fn check_main() -> ExitCode {
-    cli::say("Перевірка оновлень");
+    cli::say(tr!("Перевірка оновлень", "Checking for updates"));
     let facts = gather();
     let libs = check_libs();
     report(&facts, libs.as_deref());
@@ -640,12 +721,12 @@ pub fn check_main() -> ExitCode {
     list.extend(libs.as_deref().and_then(libs_notice));
     let fresh: Vec<Notice> = list.into_iter().filter(|n| n.is_new(&st)).collect();
     if fresh.is_empty() {
-        cli::info("Нового, про що ще не сповіщав, немає.");
+        cli::info(tr!("Нового, про що ще не сповіщав, немає.", "Nothing new that wasn't notified about."));
     }
     deliver(fresh, &mut st, None, true);
-    log(&format!("Перевірка вручну: {}", facts.summary()));
+    log(&trf!("Перевірка вручну: {}", "Manual check: {}", facts.summary()));
     if let Err(e) = st.save() {
-        cli::warn(&format!("Не вдалося зберегти {}: {e}", State::path().display()));
+        cli::warn(&trf!("Не вдалося зберегти {}: {e}", "Couldn't save {}: {e}", State::path().display()));
     }
     ExitCode::SUCCESS
 }
@@ -656,12 +737,16 @@ pub fn watch_main(exe: &Path) -> ExitCode {
     let _lock = match acquire_lock() {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("obs-legacy: не вдалося створити {}: {e}", lock_path().display());
+            eprintln!(
+                "obs-legacy: {}",
+                trf!("не вдалося створити {}: {e}", "couldn't create {}: {e}", lock_path().display())
+            );
             return ExitCode::FAILURE;
         }
     };
-    log(&format!(
+    log(&trf!(
         "Фонова перевірка оновлень запущена: OBS-Legacy {}, PID {}.",
+        "Background update check started: OBS-Legacy {}, PID {}.",
         env!("CARGO_PKG_VERSION"),
         std::process::id()
     ));
@@ -675,6 +760,8 @@ pub fn watch_main(exe: &Path) -> ExitCode {
         }
     };
     loop {
+        // Мову могли змінити в налаштуваннях, поки служба працює.
+        crate::i18n::set(Settings::load().ui_lang());
         let mut dirty = false;
         // Після транзакції pacman (і коли вона вже завершилася) — бібліотеки.
         if let Some(m) = pacman_mtime()
@@ -686,7 +773,11 @@ pub fn watch_main(exe: &Path) -> ExitCode {
             match check_libs() {
                 Some(p) if p.is_empty() => st.remove("notified.libs"),
                 Some(p) => {
-                    log(&format!("Власній збірці OBS бракує бібліотек: {}", p.join("; ")));
+                    log(&trf!(
+                        "Власній збірці OBS бракує бібліотек: {}",
+                        "Your OBS build is missing libraries: {}",
+                        p.join("; ")
+                    ));
                     if let Some(n) = libs_notice(&p) {
                         add(&mut pending, &st, n);
                     }
@@ -705,7 +796,7 @@ pub fn watch_main(exe: &Path) -> ExitCode {
             st.set("summary", facts.summary());
             next = st.next_check(t);
             dirty = true;
-            log(&format!("Перевірка: {}", facts.summary()));
+            log(&trf!("Перевірка: {}", "Check: {}", facts.summary()));
             for n in notices(&facts) {
                 add(&mut pending, &st, n);
             }
@@ -716,7 +807,7 @@ pub fn watch_main(exe: &Path) -> ExitCode {
             dirty |= pending.len() != before;
         }
         if dirty && let Err(e) = st.save() {
-            log(&format!("Не вдалося зберегти {}: {e}", State::path().display()));
+            log(&trf!("Не вдалося зберегти {}: {e}", "Couldn't save {}: {e}", State::path().display()));
         }
         let wait = next.saturating_sub(now()).clamp(1, TICK);
         thread::sleep(Duration::from_secs(wait));

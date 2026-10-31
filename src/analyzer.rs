@@ -446,6 +446,36 @@ mod tests {
     }
 
     #[test]
+    fn english_prefixes() {
+        let mut a = Analyzer::new();
+        feed_all(
+            &mut a,
+            &[
+                "\x1b[34m\x1b[1m==>\x1b[0m Build packages\r\n\x1b[33m[WARNING]\x1b[0m missing: swig\r\n",
+                "\x1b[36m[HINT]\x1b[0m Install them.\r\n\x1b[32m[FIX]\x1b[0m deps: install packages: swig\r\n",
+                "\x1b[34m\x1b[1m==>\x1b[0m CEF\r\n\x1b[31m[ERROR]\x1b[0m broken\r\n",
+                "Summary: OBS 33.0.0 → 33.0.1\r\nReport: /home/u/.cache/x/reports/1-update.txt\r\n",
+            ],
+        );
+        a.finish(false, Instant::now());
+        let states: Vec<_> = a.steps.iter().map(|s| (s.title.as_str(), s.state)).collect();
+        assert_eq!(states, [("Build packages", StepState::Warn), ("CEF", StepState::Failed)]);
+        assert_eq!(
+            (a.warnings.as_slice(), a.errors.as_slice()),
+            (&["missing: swig".to_string()][..], &["broken".to_string()][..])
+        );
+        let warning = &a.problems[0];
+        assert_eq!(warning.hints, ["Install them."]);
+        assert_eq!(warning.fix.as_ref().map(|f| f.command.as_str()), Some("deps"));
+        assert_eq!(a.summary.as_deref(), Some("OBS 33.0.0 → 33.0.1"));
+        assert_eq!(a.report.as_deref(), Some("/home/u/.cache/x/reports/1-update.txt"));
+
+        let mut c = Analyzer::new();
+        feed_all(&mut c, &["[CANCELLED] Nothing was changed.\r\n"]);
+        assert_eq!(c.cancelled.as_deref(), Some("Nothing was changed."));
+    }
+
+    #[test]
     fn hints_attach_to_the_preceding_problem() {
         let mut a = Analyzer::new();
         feed_all(

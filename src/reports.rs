@@ -44,15 +44,15 @@ pub fn dir() -> PathBuf {
 
 pub fn command_label(command: &str) -> &'static str {
     match command {
-        "check" => "Перевірка системи",
-        "install" => "Встановлення OBS",
-        "update" => "Оновлення OBS",
-        "rebuild" => "Перезбирання OBS",
-        "package" => "Збирання пакетів",
-        "rollback" => "Відкат",
-        "uninstall" => "Видалення OBS-Legacy",
-        "deps" => "Пакети для збірки",
-        _ => "Інше",
+        "check" => tr!("Перевірка системи", "System check"),
+        "install" => tr!("Встановлення OBS", "OBS installation"),
+        "update" => tr!("Оновлення OBS", "OBS update"),
+        "rebuild" => tr!("Перезбирання OBS", "OBS rebuild"),
+        "package" => tr!("Збирання пакетів", "Package build"),
+        "rollback" => tr!("Відкат", "Rollback"),
+        "uninstall" => tr!("Видалення OBS-Legacy", "OBS-Legacy removal"),
+        "deps" => tr!("Пакети для збірки", "Build packages"),
+        _ => tr!("Інше", "Other"),
     }
 }
 
@@ -69,7 +69,7 @@ fn today() -> String {
     }
 }
 
-/// «20261028-174550» → «сьогодні 17:45» або «28.10.2026 17:45».
+/// «20261028-174550» → «сьогодні 17:45» або «28.10.2026 17:45» (англійською — «today 17:45», «2026-10-28 17:45»).
 pub fn when(stamp: &str) -> String {
     when_relative(stamp, &today())
 }
@@ -80,10 +80,11 @@ fn when_relative(stamp: &str, today: &str) -> String {
         return stamp.to_string();
     }
     let hm = format!("{}:{}", &time[..2], &time[2..4]);
+    let (y, m, d) = (&date[..4], &date[4..6], &date[6..8]);
     if date == today {
-        format!("сьогодні {hm}")
+        trf!("сьогодні {hm}", "today {hm}")
     } else {
-        format!("{}.{}.{} {hm}", &date[6..8], &date[4..6], &date[..4])
+        trf!("{d}.{m}.{y} {hm}", "{y}-{m}-{d} {hm}")
     }
 }
 
@@ -167,8 +168,9 @@ pub fn list_in(dir: &Path) -> Vec<ReportInfo> {
 
 /// Повний текст звіту для переглядача (дуже великі — лише кінець).
 pub fn load_lines(path: &Path) -> std::io::Result<Vec<String>> {
-    let text = read_tail(path, 8 * 1024 * 1024)
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "не вдалося прочитати файл"))?;
+    let text = read_tail(path, 8 * 1024 * 1024).ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::NotFound, tr!("не вдалося прочитати файл", "couldn't read the file"))
+    })?;
     Ok(text.lines().map(|l| l.replace('\t', "    ")).collect())
 }
 
@@ -211,6 +213,10 @@ mod tests {
         assert_eq!(when_relative("20261028-174550", "20261028"), "сьогодні 17:45");
         assert_eq!(when_relative("20261027-090102", "20261028"), "27.10.2026 09:01");
         assert_eq!(when_relative("дивно", "20261028"), "дивно");
+        crate::i18n::with(crate::i18n::Lang::En, || {
+            assert_eq!(when_relative("20261028-174550", "20261028"), "today 17:45");
+            assert_eq!(when_relative("20261027-090102", "20261028"), "2026-10-27 09:01");
+        });
     }
 
     #[test]
@@ -257,7 +263,19 @@ mod tests {
     fn classifies_lines() {
         assert_eq!(classify("==> Система"), LineKind::Step);
         assert_eq!(classify("[ПОРАДА] x"), LineKind::Hint);
+        assert_eq!(classify("[HINT] x"), LineKind::Hint);
+        assert!(classify("[WARNING] x").is_problem() && classify("[ERROR] x").is_problem());
+        assert_eq!(classify("Result: success"), LineKind::Plain);
         assert!(classify("[УВАГА] x").is_problem());
         assert!(!classify("  звичайний рядок").is_problem());
+    }
+
+    #[test]
+    fn english_results() {
+        let (o, _, p) = analyze("==> X\n[ERROR] Wrong tag.\n[HINT] Delete the cache.\n\nResult: error (code 1)\n");
+        assert_eq!(o, Outcome::Failed);
+        assert_eq!(p.map(|p| p.hints), Some(vec!["Delete the cache.".to_string()]));
+        assert_eq!(analyze("[CANCELLED] Nothing changed.\nResult: cancelled\n").0, Outcome::Cancelled);
+        assert_eq!(analyze("[WARNING] note\nResult: success\n").0, Outcome::Success);
     }
 }
