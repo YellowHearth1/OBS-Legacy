@@ -451,7 +451,7 @@ mod tests {
         feed_all(
             &mut a,
             &[
-                "\x1b[34m\x1b[1m==>\x1b[0m Build packages\r\n\x1b[33m[WARNING]\x1b[0m missing: swig\r\n",
+                "\x1b[34m\x1b[1m==>\x1b[0m Build dependencies\r\n\x1b[33m[WARNING]\x1b[0m missing: swig\r\n",
                 "\x1b[36m[HINT]\x1b[0m Install them.\r\n\x1b[32m[FIX]\x1b[0m deps: install packages: swig\r\n",
                 "\x1b[34m\x1b[1m==>\x1b[0m CEF\r\n\x1b[31m[ERROR]\x1b[0m broken\r\n",
                 "Summary: OBS 33.0.0 → 33.0.1\r\nReport: /home/u/.cache/x/reports/1-update.txt\r\n",
@@ -459,7 +459,7 @@ mod tests {
         );
         a.finish(false, Instant::now());
         let states: Vec<_> = a.steps.iter().map(|s| (s.title.as_str(), s.state)).collect();
-        assert_eq!(states, [("Build packages", StepState::Warn), ("CEF", StepState::Failed)]);
+        assert_eq!(states, [("Build dependencies", StepState::Warn), ("CEF", StepState::Failed)]);
         assert_eq!(
             (a.warnings.as_slice(), a.errors.as_slice()),
             (&["missing: swig".to_string()][..], &["broken".to_string()][..])

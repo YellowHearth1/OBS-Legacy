@@ -103,7 +103,7 @@ pub fn list(f: &mut Frame, app: &mut App, area: Rect) {
         lines.extend(hanging(Span::styled(format!("{label} "), t.muted()), &p.text, Style::new(), width));
         for h in &p.hints {
             lines.extend(hanging(
-                Span::styled(tr!("Що робити    ", "What to do   "), t.muted()),
+                Span::styled(tr!("Що робити    ", "What to do    "), t.muted()),
                 h,
                 Style::new(),
                 width,

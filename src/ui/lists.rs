@@ -197,17 +197,18 @@ pub fn rollback(f: &mut Frame, app: &mut App, area: Rect) {
     if app.builds.is_empty() {
         let msg = Paragraph::new(vec![
             Line::from(""),
-            Line::from(Span::styled(tr!(" Збережених збірок ще немає.", " No saved builds yet."), t.strong())),
+            Line::from(Span::styled(tr!("Збережених збірок ще немає.", "No saved builds yet."), t.strong())),
             Line::from(Span::styled(
                 tr!(
-                    " Після першого «Встановити / оновити OBS» тут з'являться набори пакетів для відкату.",
-                    " After the first “Install / update OBS”, package sets for rollback appear here."
+                    "Після першого «Встановити / оновити OBS» тут з'являться набори пакетів для відкату.",
+                    "After the first “Install / update OBS”, package sets for rollback appear here."
                 ),
                 t.muted(),
             )),
         ])
         .wrap(Wrap { trim: false });
-        f.render_widget(msg, inner);
+        // Відступ — полем, а не пробілом: інакше перенесені рядки липнуть до рамки.
+        f.render_widget(msg, inner.inner(ratatui::layout::Margin::new(1, 0)));
         let about = details_panel(
             &t,
             tr!("Як працює відкат", "How rollback works"),

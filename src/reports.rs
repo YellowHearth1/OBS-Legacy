@@ -51,7 +51,7 @@ pub fn command_label(command: &str) -> &'static str {
         "package" => tr!("Збирання пакетів", "Package build"),
         "rollback" => tr!("Відкат", "Rollback"),
         "uninstall" => tr!("Видалення OBS-Legacy", "OBS-Legacy removal"),
-        "deps" => tr!("Пакети для збірки", "Build packages"),
+        "deps" => tr!("Пакети для збірки", "Build dependencies"),
         _ => tr!("Інше", "Other"),
     }
 }

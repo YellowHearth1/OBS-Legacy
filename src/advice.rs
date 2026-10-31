@@ -102,7 +102,7 @@ fn wants_deps(r: &ReportInfo) -> bool {
 
 fn missing_packages_advice(stage: Stage, missing: &[String]) -> Advice {
     let n = missing.len();
-    Advice::new(Tone::Warn, stage, trf!("Бракує пакетів для збірки: {n}", "Missing build packages: {n}"))
+    Advice::new(Tone::Warn, stage, trf!("Бракує пакетів для збірки: {n}", "Missing build dependencies: {n}"))
         .detail(trf!(
             "{}. Програма поставить лише їх через pacman (залежності pacman додасть сам), без оновлення \
              системи. Потім перевір систему ще раз — усе має бути ✓.",
@@ -438,7 +438,7 @@ pub fn advise(i: &Input) -> Advice {
             .action(Action::Check)
             .alt(Action::Install),
             None if wants_deps(r) => {
-                Advice::new(Tone::Warn, stage, tr!("Бракує пакетів для збірки", "Build packages are missing"))
+                Advice::new(Tone::Warn, stage, tr!("Бракує пакетів для збірки", "Build dependencies are missing"))
                     .report(r)
                     .action(Action::Deps)
                     .alt(Action::Install)

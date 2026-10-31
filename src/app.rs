@@ -1066,7 +1066,7 @@ impl App {
                 let what = if missing.is_empty() {
                     tr!(
                         "Скрипт перевірить, чи всі пакети для збірки на місці, і поставить ті, яких бракує.",
-                        "The script checks that all build packages are in place and installs the missing ones."
+                        "The script checks that all build dependencies are in place and installs the missing ones."
                     )
                     .to_string()
                 } else {
@@ -1074,7 +1074,7 @@ impl App {
                     trf!("Буде встановлено: {list}.", "To be installed: {list}.")
                 };
                 self.dialog = Some(Dialog {
-                    title: tr!("Встановити пакети для збірки?", "Install the build packages?").into(),
+                    title: tr!("Встановити пакети для збірки?", "Install the build dependencies?").into(),
                     lines: vec![
                         what,
                         String::new(),
@@ -1500,7 +1500,7 @@ impl App {
                 if let Some(best) = service::available().first() {
                     lines.push(trf!(
                         "Перевірку запускатиме {} — це підходить для твоєї системи. OBS-Legacy можна закривати.",
-                        "The check will be run by {} — that suits your system. You can close OBS-Legacy.",
+                        "The check will run via the {} — that suits your system. You can close OBS-Legacy.",
                         best.backend.label()
                     ));
                 }
