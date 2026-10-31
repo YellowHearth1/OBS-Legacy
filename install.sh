@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC1111  # типографські лапки “…” в англійських повідомленнях — навмисні
 # =============================================================================
 #  install.sh — встановлює TUI OBS-Legacy для поточного користувача
 #  https://github.com/YellowHearth1/OBS-Legacy

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC1111  # типографські лапки “…” в англійських повідомленнях — навмисні
 # Імітація скрипта збирання для розробки TUI без справжньої збірки OBS:
 #
 #   OBS_LEGACY_SCRIPT="$PWD/dev/fake-build.sh" cargo run

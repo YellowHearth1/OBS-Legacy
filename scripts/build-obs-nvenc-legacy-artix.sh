@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC1111  # типографські лапки “…” в англійських повідомленнях — навмисні
 # =============================================================================
 #  build-obs-nvenc-legacy-artix.sh — рушій проєкту OBS-Legacy
 #  https://github.com/YellowHearth1/OBS-Legacy
