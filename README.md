@@ -45,11 +45,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/YellowHearth1/OBS-Legacy/commits/main"><img src="https://img.shields.io/github/last-commit/YellowHearth1/OBS-Legacy?label=last%20commit" alt="Last commit"></a>
-  <a href="https://github.com/YellowHearth1/OBS-Legacy/stargazers"><img src="https://img.shields.io/github/stars/YellowHearth1/OBS-Legacy?label=stars" alt="Stars"></a>
-  <a href="https://github.com/YellowHearth1/OBS-Legacy/issues"><img src="https://img.shields.io/github/issues/YellowHearth1/OBS-Legacy?label=issues" alt="Issues"></a>
-  <a href="https://github.com/YellowHearth1/OBS-Legacy/releases"><img src="https://img.shields.io/github/downloads/YellowHearth1/OBS-Legacy/total?label=downloads" alt="Downloads"></a>
-  <img src="https://img.shields.io/github/repo-size/YellowHearth1/OBS-Legacy?label=size" alt="Repository size">
+  <a href="https://github.com/YellowHearth1/OBS-Legacy/commits/main"><img src="https://img.shields.io/github/last-commit/YellowHearth1/OBS-Legacy?style=flat&label=last%20commit" alt="Last commit"></a>
+  <a href="https://github.com/YellowHearth1/OBS-Legacy/stargazers"><img src="https://img.shields.io/github/stars/YellowHearth1/OBS-Legacy?style=flat&label=stars" alt="Stars"></a>
+  <a href="https://github.com/YellowHearth1/OBS-Legacy/issues"><img src="https://img.shields.io/github/issues/YellowHearth1/OBS-Legacy?style=flat&label=issues" alt="Issues"></a>
+  <a href="https://github.com/YellowHearth1/OBS-Legacy/releases"><img src="https://img.shields.io/github/downloads/YellowHearth1/OBS-Legacy/total?style=flat&label=downloads" alt="Downloads"></a>
+  <img src="https://img.shields.io/github/repo-size/YellowHearth1/OBS-Legacy?style=flat&label=size" alt="Repository size">
 </p>
 
 > [!WARNING]

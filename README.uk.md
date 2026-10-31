@@ -45,11 +45,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/YellowHearth1/OBS-Legacy/commits/main"><img src="https://img.shields.io/github/last-commit/YellowHearth1/OBS-Legacy?label=%D0%BE%D1%81%D1%82%D0%B0%D0%BD%D0%BD%D1%96%D0%B9%20%D0%BA%D0%BE%D0%BC%D1%96%D1%82" alt="Останній коміт"></a>
-  <a href="https://github.com/YellowHearth1/OBS-Legacy/stargazers"><img src="https://img.shields.io/github/stars/YellowHearth1/OBS-Legacy?label=%D0%B7%D1%96%D1%80%D0%BA%D0%B8" alt="Зірки"></a>
-  <a href="https://github.com/YellowHearth1/OBS-Legacy/issues"><img src="https://img.shields.io/github/issues/YellowHearth1/OBS-Legacy?label=issues" alt="Issues"></a>
-  <a href="https://github.com/YellowHearth1/OBS-Legacy/releases"><img src="https://img.shields.io/github/downloads/YellowHearth1/OBS-Legacy/total?label=%D0%B7%D0%B0%D0%B2%D0%B0%D0%BD%D1%82%D0%B0%D0%B6%D0%B5%D0%BD%D0%BD%D1%8F" alt="Завантаження"></a>
-  <img src="https://img.shields.io/github/repo-size/YellowHearth1/OBS-Legacy?label=%D1%80%D0%BE%D0%B7%D0%BC%D1%96%D1%80" alt="Розмір репозиторію">
+  <a href="https://github.com/YellowHearth1/OBS-Legacy/commits/main"><img src="https://img.shields.io/github/last-commit/YellowHearth1/OBS-Legacy?style=flat&label=%D0%BE%D1%81%D1%82%D0%B0%D0%BD%D0%BD%D1%96%D0%B9%20%D0%BA%D0%BE%D0%BC%D1%96%D1%82" alt="Останній коміт"></a>
+  <a href="https://github.com/YellowHearth1/OBS-Legacy/stargazers"><img src="https://img.shields.io/github/stars/YellowHearth1/OBS-Legacy?style=flat&label=%D0%B7%D1%96%D1%80%D0%BA%D0%B8" alt="Зірки"></a>
+  <a href="https://github.com/YellowHearth1/OBS-Legacy/issues"><img src="https://img.shields.io/github/issues/YellowHearth1/OBS-Legacy?style=flat&label=issues" alt="Issues"></a>
+  <a href="https://github.com/YellowHearth1/OBS-Legacy/releases"><img src="https://img.shields.io/github/downloads/YellowHearth1/OBS-Legacy/total?style=flat&label=%D0%B7%D0%B0%D0%B2%D0%B0%D0%BD%D1%82%D0%B0%D0%B6%D0%B5%D0%BD%D0%BD%D1%8F" alt="Завантаження"></a>
+  <img src="https://img.shields.io/github/repo-size/YellowHearth1/OBS-Legacy?style=flat&label=%D1%80%D0%BE%D0%B7%D0%BC%D1%96%D1%80" alt="Розмір репозиторію">
 </p>
 
 > [!WARNING]
