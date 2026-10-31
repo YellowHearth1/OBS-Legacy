@@ -63,7 +63,7 @@ git clone https://github.com/YellowHearth1/OBS-Legacy.git && cd OBS-Legacy
 Спершу `./install.sh --uninstall`, якщо програма вже стоїть з вихідних кодів. Пакет — з релізу на GitHub:
 
 ```bash
-sudo pacman -U obs-legacy-0.0.3-1-x86_64.pkg.tar.zst
+sudo pacman -U obs-legacy-0.0.4-1-x86_64.pkg.tar.zst
 ```
 
 - [ ] `pacman -Qi obs-legacy` — версія релізу; `command -v obs-legacy` → `/usr/bin/obs-legacy`.
@@ -87,7 +87,7 @@ curl -fsSL https://github.com/YellowHearth1/OBS-Legacy/releases/latest/download/
 - [ ] «Відкрити OBS-Legacy зараз? [Y/n]» — Enter відкриває меню в тому самому терміналі.
 - [ ] Ярлик «OBS-Legacy» з іконкою є в меню програм.
 - [ ] `cat ~/.local/share/obs-legacy/release-install` — тег релізу, а `source-dir` немає.
-- [ ] «Додатково → Оновити OBS-Legacy» є (у версіях після 0.0.3) і ставить програму з найновішого релізу.
+- [ ] «Додатково → Оновити OBS-Legacy» є (з 0.0.4) і ставить програму з найновішого релізу.
 - [ ] `curl -fsSL …/install.sh | bash -s -- --uninstall` прибирає програму, ярлики й сповіщення.
 
 ## 2. Головний екран
