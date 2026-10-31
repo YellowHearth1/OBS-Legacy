@@ -24,11 +24,32 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/YellowHearth1/OBS-Legacy/actions/workflows/ci.yml"><img src="https://github.com/YellowHearth1/OBS-Legacy/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Ліцензія Apache-2.0"></a>
-  <img src="https://img.shields.io/badge/Artix%20%7C%20Arch-Linux-1793d1" alt="Artix | Arch Linux">
-  <img src="https://img.shields.io/badge/NVIDIA-580xx-76b900" alt="NVIDIA 580xx">
-  <img src="https://img.shields.io/badge/version-0.0.3-555" alt="Версія 0.0.3">
+  <a href="https://github.com/YellowHearth1/OBS-Legacy/releases/latest"><img src="https://img.shields.io/github/v/release/YellowHearth1/OBS-Legacy?style=for-the-badge&label=%D1%80%D0%B5%D0%BB%D1%96%D0%B7&color=76b900" alt="Найновіший реліз"></a>
+  <a href="https://github.com/YellowHearth1/OBS-Legacy/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/YellowHearth1/OBS-Legacy/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI" alt="CI"></a>
+  <a href="https://github.com/obsproject/obs-studio/releases/latest"><img src="https://img.shields.io/github/v/release/obsproject/obs-studio?style=for-the-badge&label=OBS%20Studio&color=302e31" alt="OBS Studio (найновіший реліз)"></a>
+  <img src="https://img.shields.io/badge/NVIDIA-580xx-76b900?style=for-the-badge" alt="NVIDIA 580xx">
+  <img src="https://img.shields.io/badge/NVENC%20SDK-13.0-76b900?style=for-the-badge" alt="NVENC SDK 13.0">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Artix-Linux-10a0cc?style=for-the-badge&logo=artixlinux&logoColor=white" alt="Artix Linux">
+  <img src="https://img.shields.io/badge/Arch-Linux-1793d1?style=for-the-badge&logo=archlinux&logoColor=white" alt="Arch Linux">
+  <img src="https://img.shields.io/badge/init-dinit%20%C2%B7%20OpenRC%20%C2%B7%20runit%20%C2%B7%20s6%20%C2%B7%20systemd-4e9a06?style=for-the-badge" alt="init: dinit, OpenRC, runit, s6, systemd">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Rust-1.88%2B-b7410e?style=for-the-badge&logo=rust&logoColor=white" alt="Rust 1.88+">
+  <img src="https://img.shields.io/badge/TUI-ratatui-1e90ff?style=for-the-badge&logo=ratatui&logoColor=white" alt="TUI: ratatui">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/%D0%BB%D1%96%D1%86%D0%B5%D0%BD%D0%B7%D1%96%D1%8F-Apache--2.0-2b5797?style=for-the-badge" alt="Ліцензія Apache-2.0"></a>
+  <a href="https://claude.com/claude-code"><img src="https://img.shields.io/badge/%D0%B7%D1%80%D0%BE%D0%B1%D0%BB%D0%B5%D0%BD%D0%BE%20%D0%B7-Claude%20Code-d97757?style=for-the-badge" alt="Зроблено з Claude Code"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/YellowHearth1/OBS-Legacy/commits/main"><img src="https://img.shields.io/github/last-commit/YellowHearth1/OBS-Legacy?label=%D0%BE%D1%81%D1%82%D0%B0%D0%BD%D0%BD%D1%96%D0%B9%20%D0%BA%D0%BE%D0%BC%D1%96%D1%82" alt="Останній коміт"></a>
+  <a href="https://github.com/YellowHearth1/OBS-Legacy/stargazers"><img src="https://img.shields.io/github/stars/YellowHearth1/OBS-Legacy?label=%D0%B7%D1%96%D1%80%D0%BA%D0%B8" alt="Зірки"></a>
+  <a href="https://github.com/YellowHearth1/OBS-Legacy/issues"><img src="https://img.shields.io/github/issues/YellowHearth1/OBS-Legacy?label=issues" alt="Issues"></a>
+  <a href="https://github.com/YellowHearth1/OBS-Legacy/releases"><img src="https://img.shields.io/github/downloads/YellowHearth1/OBS-Legacy/total?label=%D0%B7%D0%B0%D0%B2%D0%B0%D0%BD%D1%82%D0%B0%D0%B6%D0%B5%D0%BD%D0%BD%D1%8F" alt="Завантаження"></a>
+  <img src="https://img.shields.io/github/repo-size/YellowHearth1/OBS-Legacy?label=%D1%80%D0%BE%D0%B7%D0%BC%D1%96%D1%80" alt="Розмір репозиторію">
 </p>
 
 > [!WARNING]
@@ -127,7 +148,25 @@ OBS-Legacy збирає **офіційний OBS Studio** з приватною 
 
 ## Встановлення
 
-Потрібні Artix або Arch і драйвер NVIDIA 580xx. Вибери один із двох способів.
+Потрібні Artix або Arch (x86_64) і драйвер NVIDIA 580xx. Вибери один із трьох способів.
+
+**Однією командою** — найшвидше. Команда завантажує готову програму з найновішого
+[релізу](https://github.com/YellowHearth1/OBS-Legacy/releases/latest), перевіряє її суму SHA-256, кладе в
+`~/.local/bin`, додає ярлик **OBS-Legacy** у меню програм і одразу запускає. Без Rust і без збирання:
+
+```bash
+curl -fsSL https://github.com/YellowHearth1/OBS-Legacy/releases/latest/download/install.sh | bash
+```
+
+Те саме через `wget`:
+
+```bash
+wget -qO- https://github.com/YellowHearth1/OBS-Legacy/releases/latest/download/install.sh | bash
+```
+
+Хочеш спершу прочитати скрипт? Завантаж `install.sh` з релізу, переглянь і запусти `bash install.sh`.
+Оновлення — та сама команда ще раз (або «Додатково → Оновити OBS-Legacy»). Щоб прибрати програму, допиши
+після `bash` `-s -- --uninstall`.
 
 **Готовий пакет.** До кожного [релізу](https://github.com/YellowHearth1/OBS-Legacy/releases), починаючи з 0.0.3,
 додано `obs-legacy-<версія>-1-x86_64.pkg.tar.zst`, зібраний з вихідних кодів релізу в чистому контейнері Arch
@@ -156,8 +195,8 @@ cd OBS-Legacy && ./install.sh
 [сповіщення про оновлення](#сповіщення-про-оновлення). Далі просто клацни по ярлику або набери
 `obs-legacy` у терміналі.
 
-Вибирай щось одне: копія в `~/.local/bin` перекриває ту, що з пакета. Переходиш на пакет — спершу
-`./install.sh --uninstall`.
+Вибирай щось одне: копія в `~/.local/bin` перекриває ту, що з пакета. Переходиш на пакет — спершу прибери
+копію: `./install.sh --uninstall` (або та сама одна команда з `-s -- --uninstall`).
 
 ## Як користуватися
 
@@ -346,7 +385,8 @@ pacman-хук із пакета OBS перевіряє бібліотеки па
 - **Оновити OBS і плагіни** — «Встановити / оновити OBS» → «Оновити»: збирає, лише якщо є нове, і
   використовує попереднє збирання, тож швидше. «Перезібрати» (або «Додатково → Перезібрати OBS») — з нуля.
 - **Оновити саму програму** — «Додатково → Оновити OBS-Legacy» (або `git pull && ./install.sh --update`
-  у теці з репозиторієм). Ставив готовий пакет — постав пакет з нового релізу:
+  у теці з репозиторієм). Ставив однією командою — той самий пункт меню завантажить готову програму з
+  найновішого релізу, або просто запусти команду ще раз. Ставив готовий пакет — постав пакет з нового релізу:
   `sudo pacman -U obs-legacy-<версія>-1-x86_64.pkg.tar.zst`.
 - **Відкат** — «Додатково → Відкат на іншу збірку»: ставить збережений набір пакетів через `pacman -U`,
   без перезбирання.
@@ -358,7 +398,8 @@ pacman-хук із пакета OBS перевіряє бібліотеки па
 ./install.sh --uninstall
 ```
 
-Якщо ставив готовий пакет: `sudo pacman -R obs-legacy`.
+Якщо ставив однією командою: `curl -fsSL https://github.com/YellowHearth1/OBS-Legacy/releases/latest/download/install.sh | bash -s -- --uninstall`. Якщо готовий пакет:
+`sudo pacman -R obs-legacy`.
 
 ### Сповіщення про оновлення
 
@@ -446,7 +487,7 @@ dunst або swaync. Якщо ні init-система, ні віконний м
 | Копії налаштувань OBS | `~/.local/share/obs-studio-nvenc-artix/config-backups/` |
 | Налаштування OBS-Legacy | `~/.config/obs-legacy/settings.env` |
 | Сповіщення про оновлення | стан і журнал `~/.local/state/obs-legacy/`; служба — див. [вище](#сповіщення-про-оновлення) |
-| Програма | `~/.local/bin/obs-legacy`, ярлик `~/.local/share/applications/obs-legacy.desktop`; з готового пакета — `/usr/bin/obs-legacy`, `/usr/share/applications/obs-legacy.desktop` |
+| Програма | `~/.local/bin/obs-legacy` (з вихідних кодів чи однією командою), ярлик `~/.local/share/applications/obs-legacy.desktop`; з готового пакета — `/usr/bin/obs-legacy`, `/usr/share/applications/obs-legacy.desktop` |
 
 ## Розробка
 

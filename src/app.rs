@@ -21,7 +21,7 @@ use crate::catalog::{self, PluginInfo};
 use crate::desktop;
 use crate::reports::{self, Outcome, ReportInfo};
 use crate::runner::Job;
-use crate::script;
+use crate::script::{self, SelfSource};
 use crate::service;
 use crate::settings::{self, Kind, Settings};
 use crate::system::{self, BuildInfo, SysInfo, Updates};
@@ -247,10 +247,11 @@ pub const MENU: &[MenuItem] = &[
         icon: "↪",
         label: ("Оновити OBS-Legacy", "Update OBS-Legacy"),
         about: (
-            "Завантажує нову версію самої програми з GitHub (git pull) і перевстановлює її. Твій OBS \
-             не зміниться. Після оновлення перезапусти програму.",
-            "Downloads the new version of the program itself from GitHub (git pull) and reinstalls it. Your \
-             OBS stays as it is. Restart the program afterwards.",
+            "Завантажує нову версію самої програми з GitHub і ставить її: з вихідних кодів — git pull і \
+             збирання, з релізу — готову програму. Твій OBS не зміниться. Після оновлення перезапусти програму.",
+            "Downloads the new version of the program itself from GitHub and installs it: from source — git pull \
+             and a build, from a release — the ready-made program. Your OBS stays as it is. Restart the program \
+             afterwards.",
         ),
         sudo: false,
         changes_system: false,
@@ -621,7 +622,7 @@ pub struct App {
     pub toast: Option<Toast>,
     pub hits: Vec<(Rect, Target)>,
     pub tick: u64,
-    pub self_update_src: Option<PathBuf>,
+    pub self_source: Option<SelfSource>,
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
     quit: bool,
@@ -741,7 +742,7 @@ impl App {
             toast: None,
             hits: Vec::new(),
             tick: 0,
-            self_update_src: script::source_dir(),
+            self_source: script::self_source(),
             tx,
             rx,
             quit: false,
@@ -780,8 +781,7 @@ impl App {
     pub fn rows(&self) -> Vec<Row> {
         let promoted = self.deps_promoted();
         let visible = |m: &&MenuItem| {
-            (m.action != Action::SelfUpdate || self.self_update_src.is_some())
-                && !(promoted && m.action == Action::Deps)
+            (m.action != Action::SelfUpdate || self.self_source.is_some()) && !(promoted && m.action == Action::Deps)
         };
         let mut rows: Vec<Row> = Vec::new();
         for m in MENU.iter().filter(|m| !m.advanced && !matches!(m.action, Action::Help | Action::Quit)) {
@@ -826,7 +826,7 @@ impl App {
             reports: &self.reports,
             selected_plugins: &plugins,
             missing_packages: self.missing_packages.as_deref(),
-            self_update: self.self_update_src.is_some(),
+            self_update: self.self_source.is_some(),
             notifier: self.notifier.map(|n| n.is_some()),
             build_running: self.build_running(),
         }))
@@ -837,7 +837,7 @@ impl App {
         let u = self.updates.as_ref()?;
         let active = self.sys.as_ref().and_then(SysInfo::active_build);
         let catalog = self.catalog.as_deref().unwrap_or_default();
-        Some(updates::facts_from(active, u, &self.settings, catalog, self.self_update_src.is_some()))
+        Some(updates::facts_from(active, u, &self.settings, catalog, self.self_source.is_some()))
     }
 
     /// Поки людина не рухала вибір, курсор стоїть на рекомендованому пункті.
@@ -1156,23 +1156,33 @@ impl App {
                 });
             }
             Action::SelfUpdate => {
-                if let Some(dir) = self.self_update_src.clone() {
-                    self.dialog = Some(Dialog {
-                        title: tr!("Оновити OBS-Legacy?", "Update OBS-Legacy?").into(),
-                        lines: vec![
-                            trf!("git pull у {}", "git pull in {}", short_path(&dir)),
-                            tr!(
-                                "і перевстановлення програми (cargo build). Твій OBS і налаштування не зміняться.",
-                                "and reinstalling the program (cargo build). Your OBS and settings stay as they are."
-                            )
-                            .into(),
-                        ],
-                        confirm: tr!("Оновити", "Update"),
-                        danger: false,
-                        alt: None,
-                        action: DialogAction::Run(Action::SelfUpdate),
-                    });
-                }
+                let lines = match &self.self_source {
+                    Some(SelfSource::Git(dir)) => vec![
+                        trf!("git pull у {}", "git pull in {}", short_path(dir)),
+                        tr!(
+                            "і перевстановлення програми (cargo build). Твій OBS і налаштування не зміняться.",
+                            "and reinstalling the program (cargo build). Your OBS and settings stay as they are."
+                        )
+                        .into(),
+                    ],
+                    Some(SelfSource::Release) => vec![
+                        tr!(
+                            "Готова програма з найновішого релізу на GitHub, без збирання.",
+                            "The ready-made program from the latest release on GitHub, no build."
+                        )
+                        .into(),
+                        tr!("Твій OBS і налаштування не зміняться.", "Your OBS and settings stay as they are.").into(),
+                    ],
+                    None => return,
+                };
+                self.dialog = Some(Dialog {
+                    title: tr!("Оновити OBS-Legacy?", "Update OBS-Legacy?").into(),
+                    lines,
+                    confirm: tr!("Оновити", "Update"),
+                    danger: false,
+                    alt: None,
+                    action: DialogAction::Run(Action::SelfUpdate),
+                });
             }
             Action::Help => {
                 self.help_scroll = 0;
@@ -1211,8 +1221,8 @@ impl App {
                 self.start_script(Action::Deps, &["deps"]);
             }
             DialogAction::Run(Action::SelfUpdate) => {
-                if let Some(dir) = self.self_update_src.clone() {
-                    let args = vec![
+                let args = match self.self_source.clone() {
+                    Some(SelfSource::Git(dir)) => vec![
                         "-c".to_string(),
                         format!(
                             "set -e; cd \"$1\"; echo \"==> git pull ($1)\"; git pull --ff-only; \
@@ -1221,9 +1231,31 @@ impl App {
                         ),
                         "obs-legacy-update".to_string(),
                         dir.display().to_string(),
-                    ];
-                    self.start_job(Action::SelfUpdate, "bash", args);
-                }
+                    ],
+                    // --prebuilt: тимчасова тека не має вважатися теками з вихідними кодами.
+                    Some(SelfSource::Release) => vec![
+                        "-c".to_string(),
+                        format!(
+                            "set -e; tmp=$(mktemp); trap 'rm -f \"$tmp\"' EXIT; echo \"==> {}: $1\"; \
+                             curl -fsSL --retry 3 -o \"$tmp\" \"$1\" || {{ echo '{}'; echo '{}'; exit 1; }}; \
+                             bash \"$tmp\" --prebuilt --update",
+                            tr!("Завантажую install.sh з релізу", "Downloading install.sh from the release"),
+                            tr!(
+                                "[ПОМИЛКА] Не вдалося завантажити install.sh з релізу.",
+                                "[ERROR] Could not download install.sh from the release."
+                            ),
+                            trf!(
+                                "[ПОРАДА] Перевір інтернет і чи відкривається {}, і спробуй ще раз.",
+                                "[HINT] Check the internet connection and that {} opens, then try again.",
+                                updates::RELEASES
+                            ),
+                        ),
+                        "obs-legacy-update".to_string(),
+                        updates::INSTALLER_URL.to_string(),
+                    ],
+                    None => return,
+                };
+                self.start_job(Action::SelfUpdate, "bash", args);
             }
             DialogAction::Run(other) => self.activate(other),
             DialogAction::LaunchSystemObs => self.launch_obs(true),
@@ -2334,7 +2366,7 @@ mod tests {
     #[test]
     fn beginner_menu_is_short_and_expands() {
         let mut app = App::new(PathBuf::from("/bin/true"), PathBuf::from("/bin/true"));
-        app.self_update_src = None;
+        app.self_source = None;
         let collapsed = app.rows();
         // Чотири кроки, «Додатково», довідка й вихід.
         assert_eq!(collapsed.len(), 7);
@@ -2344,6 +2376,19 @@ mod tests {
         app.select_action(Action::Uninstall);
         assert!(app.advanced_open);
         assert_eq!(app.rows()[app.menu_sel], Row::Item(Action::Uninstall));
+        assert!(!app.rows().contains(&Row::Item(Action::SelfUpdate)));
+    }
+
+    #[test]
+    fn release_install_updates_from_the_menu() {
+        let mut app = App::new(PathBuf::from("/bin/true"), PathBuf::from("/bin/true"));
+        app.self_source = Some(SelfSource::Release);
+        app.select_action(Action::SelfUpdate);
+        assert_eq!(app.rows()[app.menu_sel], Row::Item(Action::SelfUpdate));
+        app.activate(Action::SelfUpdate);
+        let dialog = app.dialog.take().expect("діалог оновлення");
+        assert!(dialog.lines[0].contains("релізу"), "{:?}", dialog.lines);
+        app.self_source = None;
         assert!(!app.rows().contains(&Row::Item(Action::SelfUpdate)));
     }
 }

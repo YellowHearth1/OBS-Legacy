@@ -9,7 +9,7 @@
 |---|---|---|
 | Рушій | `scripts/build-obs-nvenc-legacy-artix.sh` (bash, ~3700 рядків) | Уся реальна робота: профіль заліза, перевірка, збирання OBS, плагінів і ffmpeg, пакети pacman (`*-legacy-580xx`), встановлення через `pacman -U`, відкат, видалення, pacman-хук у пакеті |
 | TUI | `src/` (Rust, ratatui 0.30) | Інтерфейс поверх рушія: меню, панель стану, вбудований термінал, плагіни, налаштування |
-| Установник | `install.sh`, `assets/obs-legacy.svg` | Збирає TUI (`--target-dir` репозиторію), ставить у `~/.local/bin` і прибирає `target/`, ярлик у меню й на робочий стіл, пропонує ввімкнути сповіщення |
+| Установник | `install.sh`, `assets/obs-legacy.svg` | У теці з вихідними кодами збирає TUI (`--target-dir` репозиторію) і прибирає `target/`; без неї (`curl … \| bash`) завантажує з релізу готовий `obs-legacy-x86_64` і звіряє SHA-256. Далі однаково: `~/.local/bin`, ярлик у меню й на робочий стіл, пропонує ввімкнути сповіщення |
 | Сповіщення | `src/updates.rs`, `src/notify.rs`, `src/service.rs` | Фонова перевірка оновлень (`obs-legacy --watch`) і сповіщення на робочому столі; служба користувача systemd, dinit, OpenRC, runit, s6 або автозапуск сесії (див. «Сповіщення про оновлення») |
 | Імітатор | `dev/fake-build.sh` | Друкує те саме, що рушій (разом зі звітом), але нічого не робить — для розробки інтерфейсу |
 | Скріншоти | `dev/screenshot.py` | PNG зі знімка `tmux capture-pane -e -p -N` (Pillow) — для `docs/screenshots/` |
@@ -130,7 +130,7 @@ BUILDINFO) → `build_plugins` (кожен у свій `stage/`) → `verify_bui
 | Стан | `~/.local/share/obs-studio-nvenc-artix/` (`packages/`, `config-backups/`, `history.tsv`, `build-number`, `*-original.backup`, хеші CEF) |
 | Налаштування | `~/.config/obs-legacy/settings.env` |
 | TUI | `~/.local/bin/obs-legacy`, `~/.local/share/applications/obs-legacy.desktop`, `~/.local/share/icons/hicolor/scalable/apps/obs-legacy.svg` |
-| Дані TUI | `~/.local/share/obs-legacy/` (`build-obs-nvenc-legacy-artix.sh` — розпакований скрипт, `source-dir` — звідки встановлено) |
+| Дані TUI | `~/.local/share/obs-legacy/` (`build-obs-nvenc-legacy-artix.sh` — розпакований скрипт, `source-dir` — тека з вихідними кодами, з якої встановлено, або `release-install` — тег релізу, якщо програму поставлено готовою) |
 | Сповіщення | `~/.local/state/obs-legacy/` (`updates.env` — що вже показано, `updates.log` — журнал, `watch.lock` — PID фонової перевірки); служба — див. таблицю в «Сповіщення про оновлення» |
 
 ## Налаштування
@@ -192,7 +192,8 @@ X.Y ≤ NVENC API драйвера (580xx → n13.0.19.1), а `obs_min_nvenc_api
 
 ffmpeg: `configure` бере `CFLAGS` з makepkg (тобто профіль) і додає свій `-O3`, а його асемблерний код вибирає
 SIMD-інструкції під процесор під час роботи (`runtime cpu detection`). Програма `obs-legacy` теж збирається
-під процесор: `install.sh` додає `RUSTFLAGS=-C target-cpu=native` (CI збирає без нього). Системні бібліотеки
+під процесор: `install.sh` у теці з вихідними кодами додає `RUSTFLAGS=-C target-cpu=native` (CI, пакет і
+готова програма з релізу — без нього, бо ставляться на будь-який комп'ютер). Системні бібліотеки
 (Qt, x264, mbedTLS) не перезбираються: найважчі з них самі вибирають SIMD під процесор; CEF — готовий архів
 OBS Project, з якого лише прибирається налагоджувальна інформація.
 
@@ -541,6 +542,19 @@ xfce4-terminal, mate-terminal, qterminal, lxterminal, terminator, tilix, urxvt, 
 «Оновити OBS-Legacy»: `git pull --ff-only` + `./install.sh --update` (неінтерактивно; бінарник
 замінюється атомарно через `mv`). Після цього TUI треба перезапустити.
 
+Поставлена однією командою (`curl … | bash`, `install.sh` без вихідних кодів поруч) програма — той самий
+бінарник, що в пакеті, з релізу (`obs-legacy-x86_64` + `.sha256`). `install.sh` пише тег релізу в
+`release-install` і прибирає `source-dir` (і навпаки: збирання з вихідних кодів прибирає `release-install`,
+тож діє останній спосіб). `script::self_source()` повертає `SelfSource::Git(тека)` чи `SelfSource::Release`;
+другий — лише коли запущено саме `~/.local/bin/obs-legacy`. Для `Release` пункт меню завантажує
+`releases/latest/download/install.sh` і запускає його з `--prebuilt --update` (`--prebuilt` — щоб тимчасова
+тека не вважалася теками з вихідними кодами), а сповіщення радить той самий пункт меню.
+
+Під `curl … | bash` stdin — сам скрипт, тому `main` тоді читає з `/dev/tty` (якщо термінал є): питання
+працюють, а наприкінці `exec obs-legacy` відкриває меню. Без термінала (CI) — без питань, як `--update`.
+`OBS_LEGACY_TAG` вибирає інший реліз, `OBS_LEGACY_DOWNLOAD_URL` — теку з тими самими файлами замість релізу
+(перевірки, `file://…`).
+
 Поставлену готовим пакетом програму (`/usr/bin/obs-legacy`, теки з вихідними кодами немає) меню не
 оновлює: сповіщення про новий OBS-Legacy (`Facts::self_package`) радить завантажити пакет з релізу й
 поставити його `sudo pacman -U`. `install.sh` попереджає, якщо пакет `obs-legacy` уже стоїть: копія в
@@ -561,6 +575,12 @@ xfce4-terminal, mate-terminal, qterminal, lxterminal, terminator, tilix, urxvt, 
 що змінює `packaging/` чи сам workflow, — лише збирає й зберігає пакет як артефакт. Для релізного пакета
 версію тегу й суми підставляє сам workflow; `pkgver` і `sha256sums` у `PKGBUILD` репозиторію оновлюють після
 релізу (`updpkgsums`), щоб працювало й ручне `makepkg -si` у теці `packaging/`.
+
+З того самого збирання workflow бере `usr/bin/obs-legacy` як `obs-legacy-x86_64` (+ `.sha256`) і кладе
+`install.sh` з підставленим тегом (`RELEASE_TAG="${OBS_LEGACY_TAG:-vX.Y.Z}"`): установник релізу бере програму
+саме з нього, а `releases/latest/download/install.sh` — завжди з найновішого. Перед вивантаженням крок
+«Try install.sh» ставить і прибирає програму так, як `curl … | bash` (`bash -s < install.sh`, файли — з
+`file://` замість релізу); PR, що змінює `install.sh`, теж його запускає.
 
 ## Сповіщення про оновлення
 

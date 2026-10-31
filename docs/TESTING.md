@@ -73,6 +73,23 @@ sudo pacman -U obs-legacy-0.0.3-1-x86_64.pkg.tar.zst
 - [ ] `./install.sh` поруч із пакетом попереджає, що копія в `~/.local/bin` його перекриє.
 - [ ] `sudo pacman -R obs-legacy` прибирає програму; пакети `*-legacy-580xx` лишаються.
 
+### 1б. Однією командою (готова програма з релізу)
+
+Спершу `./install.sh --uninstall`, якщо програма вже стоїть з вихідних кодів:
+
+```bash
+curl -fsSL https://github.com/YellowHearth1/OBS-Legacy/releases/latest/download/install.sh | bash
+```
+
+- [ ] `==> Завантажую готову програму: …/obs-legacy-x86_64`, `[OK] Сума SHA-256 збігається`,
+      `[OK] Програма: ~/.local/bin/obs-legacy (obs-legacy <версія> …)` — без Rust і без `cargo build`.
+- [ ] Питання про ярлик на робочому столі й про сповіщення працюють, хоч stdin — сам скрипт.
+- [ ] «Відкрити OBS-Legacy зараз? [Y/n]» — Enter відкриває меню в тому самому терміналі.
+- [ ] Ярлик «OBS-Legacy» з іконкою є в меню програм.
+- [ ] `cat ~/.local/share/obs-legacy/release-install` — тег релізу, а `source-dir` немає.
+- [ ] «Додатково → Оновити OBS-Legacy» є (у версіях після 0.0.3) і ставить програму з найновішого релізу.
+- [ ] `curl -fsSL …/install.sh | bash -s -- --uninstall` прибирає програму, ярлики й сповіщення.
+
 ## 2. Головний екран
 
 - [ ] «Твоя система» (клавіша `d`): відеокарта, «Драйвер … ✓ гілка 580xx (legacy)», «NVENC API 13.0 ✓».

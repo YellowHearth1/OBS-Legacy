@@ -1,12 +1,16 @@
 name: Package
 
-# Пакет pacman самої програми (obs-legacy-<версія>-1-x86_64.pkg.tar.zst) для релізу.
-# Збирається в чистому контейнері Arch з архіву тегу: у .BUILDINFO пакета лише
-# пакети цього контейнера, а не список програм чийогось комп'ютера.
+# Готова програма для релізу, зібрана в чистому контейнері Arch з архіву тегу (у .BUILDINFO
+# пакета лише пакети цього контейнера, а не список програм чийогось комп'ютера):
+#   * obs-legacy-<версія>-1-x86_64.pkg.tar.zst — пакет pacman;
+#   * obs-legacy-x86_64 — той самий бінарник без пакета (його ставить install.sh);
+#   * install.sh — установник «curl … | bash», що бере obs-legacy-x86_64 саме з цього релізу.
+# Коли:
 #   * реліз опубліковано — збирає й прикріплює до нього;
-#   * вручну (Actions → Package → Run workflow, тег) — те саме для наявного релізу;
-#   * PR, що змінює packaging/ чи цей файл, — лише збирає з вихідних кодів PR, з тестами
-#     (перевірка PKGBUILD).
+#   * вручну (Actions → Package → Run workflow, тег) — те саме для наявного релізу
+#     (install.sh тоді — з гілки, з якої запущено);
+#   * PR, що змінює packaging/, install.sh чи цей файл, — лише збирає з вихідних кодів PR,
+#     з тестами, і пробує install.sh (перевірка).
 
 on:
   release:
@@ -19,6 +23,7 @@ on:
   pull_request:
     paths:
       - 'packaging/**'
+      - 'install.sh'
       - '.github/workflows/package.yml'
 
 jobs:
@@ -59,18 +64,54 @@ jobs:
           fi
           sudo -u builder env PACKAGER='YellowHearth1 <111094130+YellowHearth1@users.noreply.github.com>' \
             makepkg --noconfirm --noprogressbar "$opts"
-          for f in *.pkg.tar.zst; do sha256sum "$f" > "$f.sha256"; done
-          ls -l *.pkg.tar.zst*
+          # Той самий бінарник без пакета — для install.sh.
+          bsdtar -xOf obs-legacy-*-x86_64.pkg.tar.zst usr/bin/obs-legacy > obs-legacy-x86_64
+          chmod 755 obs-legacy-x86_64
+          ./obs-legacy-x86_64 --version
+          # install.sh релізу бере програму саме з цього релізу, а не з найновішого.
+          if [ -n "$TAG" ]; then
+            sed 's|^RELEASE_TAG=.*|RELEASE_TAG="${OBS_LEGACY_TAG:-'"$TAG"'}"|' "$GITHUB_WORKSPACE/install.sh" > install.sh
+            grep -qxF "RELEASE_TAG=\"\${OBS_LEGACY_TAG:-$TAG}\"" install.sh
+          else
+            cp "$GITHUB_WORKSPACE/install.sh" install.sh
+          fi
+          chmod 755 install.sh
+          for f in *.pkg.tar.zst obs-legacy-x86_64; do sha256sum "$f" > "$f.sha256"; done
+          ls -l *.pkg.tar.zst* obs-legacy-x86_64* install.sh
+
+      - name: Try install.sh
+        run: |
+          # Як «curl … | bash», лише файли — з цієї теки замість релізу. Встановити й прибрати.
+          cd /home/builder/pkg
+          mkdir -p try/dl try/home
+          cp obs-legacy-x86_64 obs-legacy-x86_64.sha256 "$GITHUB_WORKSPACE/assets/obs-legacy.svg" try/dl/
+          chown -R builder: try
+          sudo -u builder env -i HOME="$PWD/try/home" PATH=/usr/bin LANG=C.UTF-8 \
+            OBS_LEGACY_DOWNLOAD_URL="file://$PWD/try/dl" bash -c '
+              set -ex
+              bash -s -- --no-desktop < install.sh
+              "$HOME/.local/bin/obs-legacy" --version
+              test -f "$HOME/.local/share/applications/obs-legacy.desktop"
+              test -f "$HOME/.local/share/icons/hicolor/scalable/apps/obs-legacy.svg"
+              test -s "$HOME/.local/share/obs-legacy/release-install"
+              bash -s -- --uninstall < install.sh
+              test ! -e "$HOME/.local/bin/obs-legacy"'
 
       - name: Upload to the release
         if: env.TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" /home/builder/pkg/*.pkg.tar.zst /home/builder/pkg/*.pkg.tar.zst.sha256 --clobber --repo "$GITHUB_REPOSITORY"
+        run: |
+          cd /home/builder/pkg
+          gh release upload "$TAG" *.pkg.tar.zst *.pkg.tar.zst.sha256 obs-legacy-x86_64 obs-legacy-x86_64.sha256 \
+            install.sh --clobber --repo "$GITHUB_REPOSITORY"
 
       - name: Keep the package (PR)
         if: env.TAG == ''
         uses: actions/upload-artifact@v4
         with:
           name: obs-legacy-package
-          path: /home/builder/pkg/*.pkg.tar.zst*
+          path: |
+            /home/builder/pkg/*.pkg.tar.zst*
+            /home/builder/pkg/obs-legacy-x86_64*
+            /home/builder/pkg/install.sh

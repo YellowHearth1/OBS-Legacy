@@ -66,6 +66,27 @@ pub fn source_dir() -> Option<PathBuf> {
     (dir.join(".git").exists() && dir.join("install.sh").is_file()).then_some(dir)
 }
 
+/// Звідки програма оновлює саму себе з меню («Оновити OBS-Legacy»).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SelfSource {
+    /// Клон репозиторію, з якого її зібрав install.sh: git pull і ./install.sh --update.
+    Git(PathBuf),
+    /// Готова програма з релізу (install.sh поза вихідними кодами): install.sh з найновішого релізу.
+    Release,
+}
+
+/// Як оновлювати саму програму, якщо це вміє меню. Пакет pacman (/usr/bin/obs-legacy) — ні:
+/// його оновлює pacman.
+pub fn self_source() -> Option<SelfSource> {
+    if let Some(dir) = source_dir() {
+        return Some(SelfSource::Git(dir));
+    }
+    // install.sh з релізу пише сюди тег; запущено має бути саме ту копію, яку він поставив.
+    let installed = fs::canonicalize(home().join(".local/bin/obs-legacy"));
+    (data_dir().join("release-install").is_file() && installed.is_ok_and(|p| p == crate::service::exe_path()))
+        .then_some(SelfSource::Release)
+}
+
 /// Шлях до скрипта, готового до запуску. `OBS_LEGACY_SCRIPT` дозволяє
 /// підставити власну копію (для розробки).
 pub fn ensure_extracted() -> Result<PathBuf> {
