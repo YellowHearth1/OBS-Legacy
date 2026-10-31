@@ -15,18 +15,24 @@ pub fn probe_main() -> i32 {
     unsafe {
         let lib = libc::dlopen(c"libnvidia-encode.so.1".as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL);
         if lib.is_null() {
-            eprintln!("libnvidia-encode.so.1 не знайдено");
+            eprintln!("{}", tr!("libnvidia-encode.so.1 не знайдено", "libnvidia-encode.so.1 not found"));
             return 2;
         }
         let sym = libc::dlsym(lib, c"NvEncodeAPIGetMaxSupportedVersion".as_ptr());
         if sym.is_null() {
-            eprintln!("NvEncodeAPIGetMaxSupportedVersion не знайдено");
+            eprintln!(
+                "{}",
+                tr!("NvEncodeAPIGetMaxSupportedVersion не знайдено", "NvEncodeAPIGetMaxSupportedVersion not found")
+            );
             return 3;
         }
         let get_version = std::mem::transmute::<*mut libc::c_void, GetMaxSupportedVersion>(sym);
         let mut version: u32 = 0;
         if get_version(&mut version) != 0 {
-            eprintln!("драйвер не повідомив версію NVENC API");
+            eprintln!(
+                "{}",
+                tr!("драйвер не повідомив версію NVENC API", "the driver did not report its NVENC API version")
+            );
             return 4;
         }
         println!("{}.{}", version >> 4, version & 0xF);

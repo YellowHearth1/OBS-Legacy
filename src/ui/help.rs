@@ -15,6 +15,22 @@ use crate::settings;
 use crate::theme::Theme;
 
 fn text(t: &Theme, width: u16) -> Vec<Line<'static>> {
+    let mut v = if crate::i18n::en() { text_en(t, width) } else { text_uk(t, width) };
+    v.extend(notice_lines(t, width));
+    v.push(Line::from(""));
+    v.extend(credit_lines(t));
+    v.push(Line::from(""));
+    v.push(Line::from(Span::styled(
+        tr!(
+            "Окрема подяка розробникам OBS Studio, FFmpeg/nv-codec-headers, ratatui та авторам плагінів.",
+            "Special thanks to the developers of OBS Studio, FFmpeg/nv-codec-headers, ratatui and the plugin authors."
+        ),
+        t.muted(),
+    )));
+    v
+}
+
+fn text_uk(t: &Theme, width: u16) -> Vec<Line<'static>> {
     let p = |s: &str| vec![Line::from(s.to_string())];
     let b = |s: &str| bullet(Span::styled("  •  ", Style::new().fg(t.accent2)), s, width);
     let n = |i: u8, s: &str| bullet(Span::styled(format!("  {i}.  "), t.title()), s, width);
@@ -149,16 +165,146 @@ fn text(t: &Theme, width: u16) -> Vec<Line<'static>> {
         ])],
         gap(),
     ];
-    let mut v: Vec<Line<'static>> = parts.into_iter().flatten().collect();
-    v.extend(notice_lines(t, width));
-    v.push(Line::from(""));
-    v.extend(credit_lines(t));
-    v.push(Line::from(""));
-    v.push(Line::from(Span::styled(
-        "Окрема подяка розробникам OBS Studio, FFmpeg/nv-codec-headers, ratatui та авторам плагінів.",
-        t.muted(),
-    )));
-    v
+    parts.into_iter().flatten().collect()
+}
+
+fn text_en(t: &Theme, width: u16) -> Vec<Line<'static>> {
+    let p = |s: &str| vec![Line::from(s.to_string())];
+    let b = |s: &str| bullet(Span::styled("  •  ", Style::new().fg(t.accent2)), s, width);
+    let n = |i: u8, s: &str| bullet(Span::styled(format!("  {i}.  "), t.title()), s, width);
+    let k = |key: &str, what: &str| {
+        vec![Line::from(vec![Span::styled(format!("  {key:<16}"), t.key()), Span::raw(what.to_string())])]
+    };
+    let code = |s: &str| vec![Line::from(Span::styled(format!("    {s}"), Style::new().fg(t.accent2)))];
+    let gap = || vec![Line::from("")];
+    let head = |s: &'static str| vec![section(t, s)];
+    let script_path = short_path(&script::data_dir().join(script::SCRIPT_NAME));
+    let store = short_path(&script::package_store());
+    let parts: Vec<Vec<Line<'static>>> = vec![
+        head("Quick start"),
+        n(1, "“Check system” — make sure everything is ready. Changes nothing, 5–15 min."),
+        n(2, "“Plugins” — optionally choose what to build together with OBS (obs-multi-rtmp is already ticked)."),
+        n(
+            3,
+            "“Install / update OBS” — builds OBS for your computer, checks NVENC and installs pacman packages. \
+             30–90 min (longer the first time, with ffmpeg).",
+        ),
+        n(4, "Start OBS as usual: from the application menu, with the obs command or with “Launch OBS”."),
+        gap(),
+        p("Not sure what to do next? The “What next” panel on the home screen shows the next step, and the menu \
+           cursor is already on it — just press Enter."),
+        gap(),
+        head("What it is"),
+        p("OBS-Legacy builds OBS Studio with working NVENC hardware encoding for NVIDIA cards on the 580xx driver \
+           branch (Maxwell / Pascal / Volta: GTX 900, GTX 1000, Titan V) on Artix and Arch Linux. These drivers \
+           support NVENC API only up to 13.0, while OBS and ffmpeg from the repositories are built with the newer \
+           SDK 13.1 — so NVENC doesn't turn on there. OBS-Legacy builds the official OBS with the NVENC 13.0 \
+           headers, the official CEF (Browser Source), the selected plugins and ffmpeg, and installs everything as \
+           pacman packages with the -legacy-580xx suffix: obs-studio-legacy-580xx, <plugin>-legacy-580xx, \
+           ffmpeg-legacy-580xx."),
+        gap(),
+        head("Hardware optimization"),
+        b("The program detects the distribution, processor, graphics card and driver itself and picks the \
+           options: compiler flags for this processor (-march=native: AVX and so on), the rest from the \
+           distribution's makepkg.conf; the newest NVENC headers the driver knows; for ffmpeg — the CUDA \
+           architecture of the card."),
+        b("You can see all of it in the report at the “Hardware optimization” step and in “Your system” (key d)."),
+        b("Such packages are the fastest but run only on this processor. After a processor change the program \
+           warns you and offers to rebuild. Portable packages: “Settings → Tune for CPU”."),
+        gap(),
+        head("When something goes wrong"),
+        b("After every run a card appears at the bottom: what happened and what to do. The script itself writes \
+           the advice."),
+        b("If it can be fixed right away (for example, by installing missing packages), the card's main button is \
+           “Fix” (Enter). Afterwards the program offers to check the system again."),
+        b("Every run keeps a full report. Key o opens it right here, c copies its path, e opens it in a text \
+           app. All reports — “More → Reports”."),
+        b("In the report viewer, n and p jump between warnings and errors."),
+        b("Packages are installed only after every check passes, so your current OBS won't break."),
+        b("Don't like the new version — “Roll back to another build” (the previous package set). Don't need \
+           OBS-Legacy — “Remove OBS-Legacy”."),
+        b("Didn't help — open an issue on GitHub and attach the report."),
+        gap(),
+        head("For the long run, instead of the repository OBS"),
+        b("OBS-Legacy installs into the same places as the repository OBS (/usr) and “provides” obs-studio: pacman \
+           offers to replace obs-studio or obs-studio-git itself, and AUR plugins install on top of it as usual. \
+           The obs command and the menu entry are the regular ones, from the package."),
+        b("The OBS package carries a pacman hook: after every pacman -Syu it checks the libraries of the \
+           OBS-Legacy packages and tells you when to rebuild (usually after an ffmpeg or Qt update), and also when \
+           a new ffmpeg is out in the repository."),
+        b("Updating is the same “Install / update OBS” item: once OBS is installed, the default button is \
+           “Update”. It first checks what is new (OBS, plugins, ffmpeg, libraries) and builds only if there is \
+           something to update; the result card shows what changed (“OBS 33.0.0 → 33.0.1”). “What next” tells you \
+           when a new version is out, and notifications (below) — even when the program is closed."),
+        b("“Rebuild” (key R in the update dialog or “More → Rebuild OBS”) builds everything from scratch and \
+           installs it again — when a build was cut off (power outage, closed window) or OBS behaves oddly. \
+           “What next” notices a cut-off build by itself."),
+        b("Every build is kept as a package set; the previous one stays — rollback without rebuilding."),
+        b("If a new OBS version ever stops working with the 580xx driver, you can pin the last working one in \
+           “Settings” (the “OBS version” field)."),
+        gap(),
+        head("Update notifications"),
+        b("“More → Update notifications” turns on a background check: every 12 hours — whether new OBS, plugin \
+           or OBS-Legacy versions are out; after every system update — whether your OBS is missing libraries. \
+           Each piece of news is one desktop notification, and clicking it opens OBS-Legacy."),
+        b("The check is run by a user service of your init system: systemd, dinit, OpenRC (0.60+), runit or s6 (a \
+           user service directory, e.g. from turnstile). If the init system doesn't run user services — by the \
+           graphical session's autostart. No sudo needed."),
+        b("Without the menu: obs-legacy --notifier status | enable | disable | test, and to check right now — \
+           obs-legacy --check-updates."),
+        gap(),
+        head("Browser Source and plugins"),
+        p("Browser Source is built in: the build uses OBS's official Linux CEF archive, and its SHA-256 is checked \
+           against the official hash from the OBS sources. If obs-browser fails to build, the installation is \
+           cancelled — your current OBS stays as it was."),
+        gap(),
+        p("Every plugin is built from source for exactly your OBS build and your processor and becomes a separate \
+           <AUR name>-legacy-580xx package (e.g. obs-multi-rtmp-legacy-580xx), so it is updated and rolled back \
+           together with OBS, and pacman offers to replace the same plugin from the AUR itself. If a plugin fails \
+           to build (for example, it doesn't support the new OBS version yet), OBS is installed without it, with a \
+           warning. To pin a plugin version: a PLUGIN_REF_<id>=tag line in settings.env (replace dashes in the id \
+           with _), e.g. PLUGIN_REF_obs_multi_rtmp=0.7.4.5."),
+        gap(),
+        head("Keys"),
+        k("↑↓ / j k", "select in lists"),
+        k("Enter", "open / run / change"),
+        k("Esc / q", "back (in the menu — quit)"),
+        k("o", "view the report"),
+        k("c / e / f", "copy the report path / open in an app / open the folder"),
+        k("d", "the “Your system” panel: brief or detailed"),
+        k("?  F1", "this help"),
+        k("r  F5", "refresh"),
+        k("Space", "tick / untick a plugin"),
+        k("PgUp / PgDn", "scroll the output and reports"),
+        k("Ctrl+C ×2", "interrupt the task (×2 more — kill it)"),
+        k("Mouse", "click to select, click again to open; the wheel scrolls"),
+        k("Shift+mouse", "select and copy text in most terminals"),
+        gap(),
+        p("While a task runs, letters, Enter and Backspace go straight to the script: that is how you type the \
+           sudo/doas password and answer [y/N] questions. When the script is waiting for an answer, a yellow hint \
+           appears at the bottom. Arrows, Home and End scroll the output and don't go to the script. Answer y in \
+           Latin letters: with the Ukrainian layout the Y key types «н», and the script asks again."),
+        gap(),
+        head("Where things live"),
+        b("Packages: pacman -Qs legacy-580xx; build information — /usr/share/obs-legacy/"),
+        b(&format!("Package sets for rollback: {store}/")),
+        b(&format!("Reports: {}", short_path(&reports::dir()))),
+        b("Build cache: ~/.cache/obs-studio-nvenc-artix/  (plugin logs — plugins/<id>/build.log)"),
+        b("Copies of the OBS settings before every update: ~/.local/share/obs-studio-nvenc-artix/config-backups/"),
+        b(&format!("OBS-Legacy settings: {}", short_path(&settings::settings_path()))),
+        b(&format!("Update notifications: what was already shown, and the log — {}", short_path(&script::state_dir()))),
+        b(&format!("Build script: {script_path} — it also runs without the TUI:")),
+        code(&format!("{script_path} help")),
+        gap(),
+        head("About"),
+        vec![Line::from(vec![
+            Span::styled(format!("OBS-Legacy v{}", env!("CARGO_PKG_VERSION")), t.title()),
+            Span::styled(format!(" · script {} · ", script::script_version()), t.muted()),
+            Span::styled(REPO_URL, Style::new().fg(t.accent2).add_modifier(Modifier::UNDERLINED)),
+        ])],
+        gap(),
+    ];
+    parts.into_iter().flatten().collect()
 }
 
 pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
@@ -166,11 +312,12 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
     let [bar, _, body, foot] =
         Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Min(5), Constraint::Length(1)])
             .areas(area);
-    top_bar(f, app, bar, &["Довідка"], &format!("v{}", env!("CARGO_PKG_VERSION")));
+    top_bar(f, app, bar, &[tr!("Довідка", "Help")], &format!("v{}", env!("CARGO_PKG_VERSION")));
     let width = body.width.saturating_sub(2).min(110);
     let r = body.centered_horizontally(Constraint::Length(width));
-    let block = panel(&t, Line::from(Span::styled(" Довідка і про програму ", t.title())), true)
-        .padding(ratatui::widgets::Padding::horizontal(1));
+    let block =
+        panel(&t, Line::from(Span::styled(tr!(" Довідка і про програму ", " Help and about "), t.title())), true)
+            .padding(ratatui::widgets::Padding::horizontal(1));
     let inner = block.inner(r);
     let para = Paragraph::new(text(&t, inner.width)).wrap(Wrap { trim: false });
     let total = para.line_count(inner.width) as u16;
@@ -182,5 +329,11 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
     } else {
         format!("{}%", u32::from(app.help_scroll) * 100 / u32::from(app.help_max_scroll))
     };
-    footer(f, app, foot, &[("Esc", "назад"), ("↑↓ PgUp PgDn", "прокрутка"), ("", pos.as_str())], true);
+    footer(
+        f,
+        app,
+        foot,
+        &[("Esc", tr!("назад", "back")), ("↑↓ PgUp PgDn", tr!("прокрутка", "scroll")), ("", pos.as_str())],
+        true,
+    );
 }

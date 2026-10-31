@@ -22,25 +22,40 @@ pub fn notice_lines(t: &crate::theme::Theme, width: u16) -> Vec<Line<'static>> {
     let marker = || Span::styled("  •  ", Style::new().fg(t.warn));
     let mut lines = vec![
         Line::from(Span::styled(
-            "Скрипт зроблений за допомогою Claude Code.",
+            tr!("Скрипт зроблений за допомогою Claude Code.", "This script was made with Claude Code."),
             Style::new().fg(t.warn).add_modifier(Modifier::BOLD),
         ))
         .alignment(Alignment::Center),
         Line::from(""),
-        Line::from(
+        Line::from(tr!(
             "Цю програму — TUI-оболонку OBS-Legacy і скрипт збирання — створено за допомогою Claude Code, \
              ШІ-асистента для програмування від Anthropic, на замовлення і під керівництвом автора \
              репозиторію YellowHearth1.",
-        ),
+            "This program — the OBS-Legacy TUI and the build script — was made with Claude Code, Anthropic's \
+             AI coding assistant, commissioned and directed by the repository owner YellowHearth1."
+        )),
         Line::from(""),
     ];
     for text in [
-        "Код написав штучний інтелект; незалежного аудиту безпеки він не проходив.",
-        "Програма збирає OBS Studio, плагіни й ffmpeg з вихідних кодів під твоє залізо, пакує їх у пакети \
-         pacman і ставить через pacman (лише після твого підтвердження) за допомогою sudo/doas.",
-        "Система змінюється лише через pacman; попередній набір пакетів лишається для відкату.",
-        "Почни з «Перевірити систему» — вона нічого не змінює.",
-        "Використовуєш на власний ризик, без жодних гарантій (ліцензія Apache-2.0).",
+        tr!(
+            "Код написав штучний інтелект; незалежного аудиту безпеки він не проходив.",
+            "The code was written by an AI and has not had an independent security audit."
+        ),
+        tr!(
+            "Програма збирає OBS Studio, плагіни й ffmpeg з вихідних кодів під твоє залізо, пакує їх у пакети \
+             pacman і ставить через pacman (лише після твого підтвердження) за допомогою sudo/doas.",
+            "The program builds OBS Studio, plugins and ffmpeg from source for your hardware, packs them into \
+             pacman packages and installs them with pacman (only after you confirm), using sudo/doas."
+        ),
+        tr!(
+            "Система змінюється лише через pacman; попередній набір пакетів лишається для відкату.",
+            "The system is changed only through pacman; the previous package set stays for rollback."
+        ),
+        tr!("Почни з «Перевірити систему» — вона нічого не змінює.", "Start with “Check system” — it changes nothing."),
+        tr!(
+            "Використовуєш на власний ризик, без жодних гарантій (ліцензія Apache-2.0).",
+            "Use at your own risk, without any warranty (Apache-2.0 license)."
+        ),
     ] {
         lines.extend(bullet(marker(), text, width));
     }
@@ -51,10 +66,13 @@ pub fn credit_lines(t: &crate::theme::Theme) -> Vec<Line<'static>> {
     vec![
         Line::from(vec![
             Span::styled("♥ ", Style::new().fg(t.err).add_modifier(Modifier::BOLD)),
-            Span::styled("Натхнення: ", t.strong()),
+            Span::styled(tr!("Натхнення: ", "Inspired by: "), t.strong()),
             Span::styled(INSPIRATION_URL, Style::new().fg(t.accent2).add_modifier(Modifier::UNDERLINED)),
         ]),
-        Line::from("Якби не цей проєкт, OBS-Legacy не з'явився б. Дякуємо його автору!"),
+        Line::from(tr!(
+            "Якби не цей проєкт, OBS-Legacy не з'явився б. Дякуємо його автору!",
+            "Without this project, OBS-Legacy would not exist. Thanks to its author!"
+        )),
     ]
 }
 
@@ -104,12 +122,12 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
         f.render_widget(Paragraph::new(logo::compact(&t)).alignment(Alignment::Center), header);
     }
     let mut sub = vec![
-        Span::styled("OBS Studio з NVENC для NVIDIA 580xx", t.strong()),
+        Span::styled(tr!("OBS Studio з NVENC для NVIDIA 580xx", "OBS Studio with NVENC for NVIDIA 580xx"), t.strong()),
         Span::styled(format!("  ·  v{}", env!("CARGO_PKG_VERSION")), t.muted()),
     ];
     if subtitle.width >= 90 {
         sub.insert(1, Span::styled("  ·  Artix / Arch Linux", t.muted()));
-        sub.push(Span::styled(format!(" (скрипт {})", script::script_version()), t.muted()));
+        sub.push(Span::styled(trf!(" (скрипт {})", " (script {})", script::script_version()), t.muted()));
     }
     f.render_widget(Paragraph::new(Line::from(sub)).alignment(Alignment::Center), subtitle);
 
@@ -118,7 +136,7 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
         .border_style(Style::new().fg(t.warn))
         .style(t.panel())
         .title(Line::from(Span::styled(
-            " ⚠  ВАЖЛИВО — ПРОЧИТАЙ ПЕРЕД ПОЧАТКОМ ",
+            tr!(" ⚠  ВАЖЛИВО — ПРОЧИТАЙ ПЕРЕД ПОЧАТКОМ ", " ⚠  IMPORTANT — READ BEFORE YOU START "),
             Style::new().fg(t.warn).add_modifier(Modifier::BOLD),
         )))
         .title_alignment(Alignment::Center)
@@ -140,7 +158,10 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
         f,
         app,
         buttons_r,
-        &[("Enter", "Зрозуміло, продовжити", true, Target::Continue), ("Q", "Вийти", false, Target::Quit)],
+        &[
+            ("Enter", tr!("Зрозуміло, продовжити", "Got it, continue"), true, Target::Continue),
+            ("Q", tr!("Вийти", "Quit"), false, Target::Quit),
+        ],
         true,
     );
 }

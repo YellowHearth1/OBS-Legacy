@@ -4,6 +4,9 @@
 //! Створено за допомогою Claude Code (Anthropic) на замовлення і під керівництвом
 //! автора репозиторію. Натхнення: https://github.com/sl5net/build-obs-nvenc-legacy
 
+#[macro_use]
+mod i18n;
+
 mod advice;
 mod analyzer;
 mod app;
@@ -34,8 +37,36 @@ use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::SetTitle;
 
 fn print_help() {
-    println!(
-        "OBS-Legacy {} — OBS Studio з NVENC для NVIDIA 580xx (Artix/Arch)
+    let v = env!("CARGO_PKG_VERSION");
+    if i18n::en() {
+        println!(
+            "OBS-Legacy {v} — OBS Studio with NVENC for NVIDIA 580xx (Artix/Arch)
+
+Usage: obs-legacy [option]
+
+Without options it opens the menu. Started without a terminal (a click in the
+application menu or a file manager), it opens a terminal window itself.
+
+Options:
+  --script-path   print the path of the build script (it also runs without the TUI)
+  --check-updates check for new versions of OBS, plugins and OBS-Legacy now
+  --notifier status          update notifications: on or off, the last check
+  --notifier enable [service] turn on the background check (every 12 hours): a
+                             systemd, dinit, openrc, runit, s6 or autostart service;
+                             without a name the program picks one itself
+  --notifier disable         turn it off and remove the service
+  --notifier restart         restart it if it is on (after updating the program)
+  --notifier test            a test notification
+  --watch         the background check (the service starts it; not needed by hand)
+  -V, --version   version
+  -h, --help      this help
+
+Made with Claude Code (Anthropic).
+Inspired by https://github.com/sl5net/build-obs-nvenc-legacy"
+        );
+    } else {
+        println!(
+            "OBS-Legacy {v} — OBS Studio з NVENC для NVIDIA 580xx (Artix/Arch)
 
 Використання: obs-legacy [параметр]
 
@@ -57,12 +88,13 @@ fn print_help() {
   -h, --help      ця довідка
 
 Створено за допомогою Claude Code (Anthropic).
-Натхнення: https://github.com/sl5net/build-obs-nvenc-legacy",
-        env!("CARGO_PKG_VERSION")
-    );
+Натхнення: https://github.com/sl5net/build-obs-nvenc-legacy"
+        );
+    }
 }
 
 fn main() -> ExitCode {
+    i18n::set(settings::Settings::load().ui_lang());
     let mut no_relaunch = env::var_os(launcher::NO_RELAUNCH_ENV).is_some_and(|v| v == "1");
     let args: Vec<String> = env::args().skip(1).collect();
     for (i, arg) in args.iter().enumerate() {
@@ -72,7 +104,12 @@ fn main() -> ExitCode {
                 return ExitCode::SUCCESS;
             }
             "-V" | "--version" => {
-                println!("obs-legacy {} (скрипт {})", env!("CARGO_PKG_VERSION"), script::script_version());
+                println!(
+                    "obs-legacy {} ({} {})",
+                    env!("CARGO_PKG_VERSION"),
+                    tr!("скрипт", "script"),
+                    script::script_version()
+                );
                 return ExitCode::SUCCESS;
             }
             "--probe-nvenc" => return ExitCode::from(nvenc::probe_main() as u8),
@@ -93,7 +130,7 @@ fn main() -> ExitCode {
             }
             "--no-relaunch" => no_relaunch = true,
             other => {
-                eprintln!("obs-legacy: невідомий параметр «{other}»\n");
+                eprintln!("obs-legacy: {}\n", trf!("невідомий параметр «{other}»", "unknown option \"{other}\""));
                 print_help();
                 return ExitCode::from(2);
             }
@@ -102,7 +139,7 @@ fn main() -> ExitCode {
 
     if !(io::stdin().is_terminal() && io::stdout().is_terminal()) {
         if no_relaunch {
-            eprintln!("obs-legacy: потрібен термінал.");
+            eprintln!("obs-legacy: {}", tr!("потрібен термінал.", "a terminal is required."));
             return ExitCode::FAILURE;
         }
         return match launcher::relaunch_in_terminal() {

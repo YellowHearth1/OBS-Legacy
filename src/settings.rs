@@ -19,15 +19,15 @@ pub enum Kind {
         optional: bool,
     },
     Toggle,
-    /// Один з варіантів (значення, пояснення); Enter перебирає їх по колу.
-    Choice(&'static [(&'static str, &'static str)]),
+    /// Один з варіантів (значення, пояснення українською, англійською); Enter перебирає їх по колу.
+    Choice(&'static [(&'static str, &'static str, &'static str)]),
 }
 
 impl Kind {
     /// Пояснення до значення варіанта («native» → «цей процесор»).
     pub fn choice_label(self, value: &str) -> Option<&'static str> {
         match self {
-            Kind::Choice(options) => options.iter().find(|(v, _)| *v == value).map(|(_, l)| *l),
+            Kind::Choice(options) => options.iter().find(|(v, _, _)| *v == value).map(|(_, uk, en)| tr!(*uk, *en)),
             _ => None,
         }
     }
@@ -35,143 +35,231 @@ impl Kind {
     /// Наступний варіант після `value` (по колу).
     pub fn next_choice(self, value: &str) -> Option<&'static str> {
         let Kind::Choice(options) = self else { return None };
-        let i = options.iter().position(|(v, _)| *v == value).map_or(0, |i| (i + 1) % options.len());
-        options.get(i).map(|(v, _)| *v)
+        let i = options.iter().position(|(v, _, _)| *v == value).map_or(0, |i| (i + 1) % options.len());
+        options.get(i).map(|(v, _, _)| *v)
     }
 }
 
 pub struct Field {
     pub key: &'static str,
-    pub label: &'static str,
-    pub help: &'static str,
+    /// Назва й пояснення: українською, англійською (див. `label()`, `help()`).
+    pub label: (&'static str, &'static str),
+    pub help: (&'static str, &'static str),
     pub kind: Kind,
     pub default: &'static str,
     /// Для досвідчених: показується окремою групою нижче.
     pub advanced: bool,
 }
 
+impl Field {
+    pub fn label(&self) -> &'static str {
+        tr!(self.label.0, self.label.1)
+    }
+
+    pub fn help(&self) -> &'static str {
+        tr!(self.help.0, self.help.1)
+    }
+}
+
 /// Спершу основне, потім — для досвідчених (так їх і показує екран).
 pub const FIELDS: &[Field] = &[
     Field {
         key: "OBS_REF",
-        label: "Версія OBS",
-        help: "stable — найновіший стабільний реліз (рекомендовано). Можна вказати тег (33.0.0), гілку (master) \
-               або коміт. Якщо нова версія OBS колись перестане працювати з драйвером 580xx — зафіксуй тут останню робочу.",
+        label: ("Версія OBS", "OBS version"),
+        help: (
+            "stable — найновіший стабільний реліз (рекомендовано). Можна вказати тег (33.0.0), гілку (master) \
+             або коміт. Якщо нова версія OBS колись перестане працювати з драйвером 580xx — зафіксуй тут останню \
+             робочу.",
+            "stable — the latest stable release (recommended). You can also give a tag (33.0.0), a branch (master) \
+             or a commit. If a new OBS version ever stops working with the 580xx driver, pin the last working one \
+             here.",
+        ),
         kind: Kind::Text,
         default: "stable",
         advanced: false,
     },
     Field {
         key: "CPU_TUNING",
-        label: "Під який процесор",
-        help: "native — саме під цей процесор: найшвидше, програма сама визначає його можливості (AVX тощо). Такі \
-               пакети працюють лише на цьому процесорі — після його заміни перезбери OBS. generic — переносно, як \
-               пакети з репозиторію. x86-64-v2/v3/v4 — рівень набору інструкцій, якщо пакети потрібні для кількох \
-               комп'ютерів. Решта прапорців — з makepkg.conf твого дистрибутива.",
+        label: ("Під який процесор", "Tune for CPU"),
+        help: (
+            "native — саме під цей процесор: найшвидше, програма сама визначає його можливості (AVX тощо). Такі \
+             пакети працюють лише на цьому процесорі — після його заміни перезбери OBS. generic — переносно, як \
+             пакети з репозиторію. x86-64-v2/v3/v4 — рівень набору інструкцій, якщо пакети потрібні для кількох \
+             комп'ютерів. Решта прапорців — з makepkg.conf твого дистрибутива.",
+            "native — for exactly this processor: the fastest; the program detects its features (AVX and so on) \
+             itself. Such packages run only on this processor — rebuild OBS after replacing it. generic — portable, \
+             like the repository packages. x86-64-v2/v3/v4 — an instruction-set level, if the packages are meant \
+             for several computers. All other flags come from your distribution's makepkg.conf.",
+        ),
         kind: Kind::Choice(&[
-            ("native", "саме під цей процесор"),
-            ("generic", "переносно, як у репозиторії"),
-            ("x86-64-v2", "рівень v2 (SSE4.2)"),
-            ("x86-64-v3", "рівень v3 (AVX2)"),
-            ("x86-64-v4", "рівень v4 (AVX-512)"),
+            ("native", "саме під цей процесор", "for this very processor"),
+            ("generic", "переносно, як у репозиторії", "portable, like the repository"),
+            ("x86-64-v2", "рівень v2 (SSE4.2)", "level v2 (SSE4.2)"),
+            ("x86-64-v3", "рівень v3 (AVX2)", "level v3 (AVX2)"),
+            ("x86-64-v4", "рівень v4 (AVX-512)", "level v4 (AVX-512)"),
         ]),
         default: "native",
         advanced: false,
     },
     Field {
         key: "BUILD_FFMPEG",
-        label: "Збирати ffmpeg",
-        help: "Збирати ffmpeg-legacy-580xx: той самий ffmpeg, що в репозиторії, але з NVENC для драйвера 580xx і під \
-               цей процесор. Він замінить системний ffmpeg (pacman спитає) — NVENC запрацює і в «Власний вивід \
-               (FFmpeg)» в OBS, і в Kdenlive, і в ffmpeg у терміналі. Перезбирається лише тоді, коли в репозиторії \
-               виходить новий ffmpeg. Сам OBS кодує NVENC власним модулем і без цього.",
+        label: ("Збирати ffmpeg", "Build ffmpeg"),
+        help: (
+            "Збирати ffmpeg-legacy-580xx: той самий ffmpeg, що в репозиторії, але з NVENC для драйвера 580xx і під \
+             цей процесор. Він замінить системний ffmpeg (pacman спитає) — NVENC запрацює і в «Власний вивід \
+             (FFmpeg)» в OBS, і в Kdenlive, і в ffmpeg у терміналі. Перезбирається лише тоді, коли в репозиторії \
+             виходить новий ffmpeg. Сам OBS кодує NVENC власним модулем і без цього.",
+            "Build ffmpeg-legacy-580xx: the same ffmpeg as in the repository, but with NVENC for the 580xx driver and \
+             tuned for this processor. It replaces the system ffmpeg (pacman asks) — NVENC then works in OBS's \
+             \"Custom Output (FFmpeg)\", in Kdenlive and in ffmpeg in the terminal. It is rebuilt only when the \
+             repository gets a new ffmpeg. OBS itself encodes with NVENC through its own module even without it.",
+        ),
         kind: Kind::Toggle,
         default: "1",
         advanced: false,
     },
     Field {
         key: "KEEP_VERSIONS",
-        label: "Скільки наборів тримати",
-        help: "Скільки наборів пакетів (OBS + плагіни, ~0,3–0,6 ГБ кожен) зберігати разом зі встановленим — для \
-               відкату через pacman без перезбирання.",
+        label: ("Скільки наборів тримати", "Package sets to keep"),
+        help: (
+            "Скільки наборів пакетів (OBS + плагіни, ~0,3–0,6 ГБ кожен) зберігати разом зі встановленим — для \
+             відкату через pacman без перезбирання.",
+            "How many package sets (OBS + plugins, ~0.3–0.6 GB each) to keep besides the installed one — for \
+             rolling back with pacman without rebuilding.",
+        ),
         kind: Kind::Number { optional: false },
         default: "2",
         advanced: false,
     },
     Field {
         key: "INSTALL_PACMAN_HOOK",
-        label: "Перевірка після оновлень",
-        help: "Пакет OBS містить pacman-хук: після кожного оновлення системи він перевіряє, чи пакетам OBS-Legacy \
-               вистачає бібліотек і чи не вийшов новий ffmpeg, і підказує, коли перезібрати. Нічого не змінює. \
-               Діє з наступного встановлення.",
+        label: ("Перевірка після оновлень", "Check after updates"),
+        help: (
+            "Пакет OBS містить pacman-хук: після кожного оновлення системи він перевіряє, чи пакетам OBS-Legacy \
+             вистачає бібліотек і чи не вийшов новий ffmpeg, і підказує, коли перезібрати. Нічого не змінює. \
+             Діє з наступного встановлення.",
+            "The OBS package carries a pacman hook: after every system update it checks that the OBS-Legacy \
+             packages still find their libraries and whether a new ffmpeg is out, and tells you when to rebuild. \
+             It changes nothing. Takes effect from the next installation.",
+        ),
         kind: Kind::Toggle,
         default: "1",
         advanced: false,
     },
     Field {
+        key: "UI_LANG",
+        label: ("Мова інтерфейсу", "Interface language"),
+        help: (
+            "auto — як у системі: українська, якщо мова системи українська, інакше англійська. Діє одразу — і на \
+             меню, і на повідомлення скрипта збирання.",
+            "auto — follow the system: Ukrainian if the system language is Ukrainian, English otherwise. Applies \
+             right away — to the menus and to the build script's messages.",
+        ),
+        kind: Kind::Choice(&[
+            ("auto", "як у системі", "follow the system"),
+            ("uk", "українська", "Ukrainian"),
+            ("en", "англійська", "English"),
+        ]),
+        default: "auto",
+        advanced: false,
+    },
+    Field {
         key: "UI_BACKGROUND",
-        label: "Суцільний фон",
-        help: "Темне полотно під усім інтерфейсом, щоб текст добре читався в прозорих терміналах \
-               (Kitty, Alacritty, Konsole). Вимкни, якщо хочеш бачити тло термінала.",
+        label: ("Суцільний фон", "Solid background"),
+        help: (
+            "Темне полотно під усім інтерфейсом, щоб текст добре читався в прозорих терміналах \
+             (Kitty, Alacritty, Konsole). Вимкни, якщо хочеш бачити тло термінала.",
+            "A dark canvas under the whole interface, so the text stays readable in transparent terminals \
+             (Kitty, Alacritty, Konsole). Turn it off to see the terminal background.",
+        ),
         kind: Kind::Toggle,
         default: "1",
         advanced: false,
     },
     Field {
         key: "BUILD_JOBS",
-        label: "Потоки компіляції",
-        help: "Порожньо — автоматично (з урахуванням вільної пам'яті: ~2 ГБ на потік).",
+        label: ("Потоки компіляції", "Build jobs"),
+        help: (
+            "Порожньо — автоматично (з урахуванням вільної пам'яті: ~2 ГБ на потік).",
+            "Empty — automatic (taking free memory into account: ~2 GB per job).",
+        ),
         kind: Kind::Number { optional: true },
         default: "",
         advanced: true,
     },
     Field {
         key: "FORCE_CLEAN_BUILD",
-        label: "Щоразу чиста збірка",
-        help: "Не використовувати попередню збірку для пришвидшення. Повільніше, але інколи допомагає після великих оновлень.",
+        label: ("Щоразу чиста збірка", "Clean build every time"),
+        help: (
+            "Не використовувати попередню збірку для пришвидшення. Повільніше, але інколи допомагає після великих \
+             оновлень.",
+            "Don't reuse the previous build to speed things up. Slower, but sometimes helps after big updates.",
+        ),
         kind: Kind::Toggle,
         default: "0",
         advanced: true,
     },
     Field {
         key: "PLUGINS_STRICT",
-        label: "Суворо з плагінами",
-        help: "Скасувати встановлення, якщо хоч один вибраний плагін не зібрався. \
-               Типово OBS встановлюється без такого плагіна, з попередженням.",
+        label: ("Суворо з плагінами", "Strict about plugins"),
+        help: (
+            "Скасувати встановлення, якщо хоч один вибраний плагін не зібрався. \
+             Типово OBS встановлюється без такого плагіна, з попередженням.",
+            "Cancel the installation if any selected plugin fails to build. \
+             By default OBS is installed without such a plugin, with a warning.",
+        ),
         kind: Kind::Toggle,
         default: "0",
         advanced: true,
     },
     Field {
         key: "OPT_LEVEL",
-        label: "Рівень оптимізації",
-        help: "2 — як у дистрибутива (рекомендовано). 3 — агресивніша оптимізація компілятора: інколи трохи швидше, \
-               але OBS і плагіни з нею майже не тестують. Головний виграш дає «Під який процесор», а не цей рівень.",
-        kind: Kind::Choice(&[("2", "-O2, рекомендовано"), ("3", "-O3, агресивніше")]),
+        label: ("Рівень оптимізації", "Optimization level"),
+        help: (
+            "2 — як у дистрибутива (рекомендовано). 3 — агресивніша оптимізація компілятора: інколи трохи швидше, \
+             але OBS і плагіни з нею майже не тестують. Головний виграш дає «Під який процесор», а не цей рівень.",
+            "2 — as in the distribution (recommended). 3 — more aggressive compiler optimization: sometimes a bit \
+             faster, but OBS and plugins are hardly ever tested with it. The real gain comes from \"Tune for CPU\", \
+             not from this level.",
+        ),
+        kind: Kind::Choice(&[
+            ("2", "-O2, рекомендовано", "-O2, recommended"),
+            ("3", "-O3, агресивніше", "-O3, more aggressive"),
+        ]),
         default: "2",
         advanced: true,
     },
     Field {
         key: "NV_HEADERS_TAG",
-        label: "nv-codec-headers",
-        help: "auto — найновіші заголовки NVENC, які знає драйвер (580xx → 13.0). Можна вказати тег, напр. \
-               n13.0.19.1. Не змінюй без потреби.",
+        label: ("nv-codec-headers", "nv-codec-headers"),
+        help: (
+            "auto — найновіші заголовки NVENC, які знає драйвер (580xx → 13.0). Можна вказати тег, напр. \
+             n13.0.19.1. Не змінюй без потреби.",
+            "auto — the newest NVENC headers the driver knows (580xx → 13.0). You can give a tag, e.g. \
+             n13.0.19.1. Leave it alone unless you need to.",
+        ),
         kind: Kind::Text,
         default: "auto",
         advanced: true,
     },
     Field {
         key: "CEF_BUILD",
-        label: "Версія CEF",
-        help: "Порожньо — автоматично з вихідних кодів OBS (разом з офіційним SHA-256).",
+        label: ("Версія CEF", "CEF version"),
+        help: (
+            "Порожньо — автоматично з вихідних кодів OBS (разом з офіційним SHA-256).",
+            "Empty — automatic, from the OBS sources (together with the official SHA-256).",
+        ),
         kind: Kind::Number { optional: true },
         default: "",
         advanced: true,
     },
     Field {
         key: "EXTRA_CMAKE_ARGS",
-        label: "Додатково для CMake",
-        help: "Додаткові параметри CMake для OBS, напр. -DENABLE_WEBSOCKET=OFF.",
+        label: ("Додатково для CMake", "Extra CMake options"),
+        help: (
+            "Додаткові параметри CMake для OBS, напр. -DENABLE_WEBSOCKET=OFF.",
+            "Extra CMake options for OBS, e.g. -DENABLE_WEBSOCKET=OFF.",
+        ),
         kind: Kind::Text,
         default: "",
         advanced: true,
@@ -185,34 +273,39 @@ pub fn field(key: &str) -> Option<&'static Field> {
 /// Перевіряє значення поля; повертає опис помилки.
 pub fn validate(field: &Field, value: &str) -> Result<(), String> {
     if value.contains(['\n', '\r']) {
-        return Err("значення не може містити перенесення рядка".into());
+        return Err(tr!("значення не може містити перенесення рядка", "the value can't contain a line break").into());
     }
     match field.kind {
         Kind::Number { optional } => {
             if value.is_empty() {
-                return if optional { Ok(()) } else { Err("потрібне число".into()) };
+                return if optional {
+                    Ok(())
+                } else {
+                    Err(tr!("потрібне число", "a number is required").into())
+                };
             }
             match value.parse::<u32>() {
                 Ok(n) if n > 0 => Ok(()),
-                _ => Err("потрібне додатне ціле число".into()),
+                _ => Err(tr!("потрібне додатне ціле число", "a positive whole number is required").into()),
             }
         }
         Kind::Toggle => match value {
             "0" | "1" => Ok(()),
-            _ => Err("значення 0 або 1".into()),
+            _ => Err(tr!("значення 0 або 1", "0 or 1").into()),
         },
         Kind::Choice(options) => {
-            if options.iter().any(|(v, _)| *v == value) {
+            if options.iter().any(|(v, _, _)| *v == value) {
                 Ok(())
             } else {
-                Err(format!("одне з: {}", options.iter().map(|(v, _)| *v).collect::<Vec<_>>().join(", ")))
+                let all = options.iter().map(|(v, _, _)| *v).collect::<Vec<_>>().join(", ");
+                Err(trf!("одне з: {all}", "one of: {all}"))
             }
         }
         Kind::Text => {
             if field.key != "EXTRA_CMAKE_ARGS" && value.chars().any(char::is_whitespace) {
-                Err("без пробілів".into())
+                Err(tr!("без пробілів", "no spaces").into())
             } else if matches!(field.key, "OBS_REF" | "NV_HEADERS_TAG") && value.is_empty() {
-                Err("не може бути порожнім".into())
+                Err(tr!("не може бути порожнім", "can't be empty").into())
             } else {
                 Ok(())
             }
@@ -291,11 +384,29 @@ impl Settings {
             *line = new_line;
         } else {
             if self.lines.is_empty() {
-                self.lines.push("# Налаштування OBS-Legacy (KEY=VALUE). Їх читає і TUI obs-legacy, і скрипт".into());
-                self.lines.push("# build-obs-nvenc-legacy-artix.sh. Змінні середовища мають пріоритет.".into());
+                self.lines.push(
+                    tr!(
+                        "# Налаштування OBS-Legacy (KEY=VALUE). Їх читає і TUI obs-legacy, і скрипт",
+                        "# OBS-Legacy settings (KEY=VALUE). Read by both the obs-legacy TUI and the script"
+                    )
+                    .into(),
+                );
+                self.lines.push(
+                    tr!(
+                        "# build-obs-nvenc-legacy-artix.sh. Змінні середовища мають пріоритет.",
+                        "# build-obs-nvenc-legacy-artix.sh. Environment variables take precedence."
+                    )
+                    .into(),
+                );
             }
             self.lines.push(new_line);
         }
+    }
+
+    /// Мова інтерфейсу з UI_LANG (змінна середовища має пріоритет) і локалі системи.
+    pub fn ui_lang(&self) -> crate::i18n::Lang {
+        let setting = Self::env_override("UI_LANG").unwrap_or_else(|| self.get("UI_LANG"));
+        crate::i18n::resolve(&setting, crate::i18n::system_locale().as_deref())
     }
 
     /// Чи малювати суцільний фон (UI_BACKGROUND; змінна середовища має пріоритет).

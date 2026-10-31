@@ -53,14 +53,15 @@ pub fn load(script: &Path) -> Result<Vec<PluginInfo>> {
         .arg(script)
         .args(["plugins", "--tsv"])
         .env("OBS_LEGACY_SETTINGS", settings::settings_path())
+        .env("OBS_LEGACY_LANG", crate::i18n::lang().code())
         .output()
-        .context("не вдалося запустити bash")?;
+        .context(tr!("не вдалося запустити bash", "couldn't start bash"))?;
     if !out.status.success() {
         bail!("{}", String::from_utf8_lossy(&out.stderr).trim());
     }
     let list = parse_tsv(&String::from_utf8_lossy(&out.stdout));
     if list.is_empty() {
-        bail!("скрипт повернув порожній каталог плагінів");
+        bail!(tr!("скрипт повернув порожній каталог плагінів", "the script returned an empty plugin catalog"));
     }
     Ok(list)
 }

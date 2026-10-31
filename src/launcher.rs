@@ -165,7 +165,10 @@ pub fn relaunch_in_terminal() -> Result<()> {
             return Ok(());
         }
     }
-    let msg = "Не знайдено термінала. Встанови, напр., kitty, alacritty або konsole, чи задай змінну TERMINAL.";
+    let msg = tr!(
+        "Не знайдено термінала. Встанови, напр., kitty, alacritty або konsole, чи задай змінну TERMINAL.",
+        "No terminal found. Install one, e.g. kitty, alacritty or konsole, or set the TERMINAL variable."
+    );
     notify(msg);
     bail!(msg)
 }

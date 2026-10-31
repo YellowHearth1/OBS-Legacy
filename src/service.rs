@@ -74,12 +74,12 @@ impl Backend {
     /// Для людини: «служба dinit», «автозапуск сесії».
     pub fn label(self) -> &'static str {
         match self {
-            Backend::Systemd => "служба systemd",
-            Backend::Dinit => "служба dinit",
-            Backend::Openrc => "служба OpenRC",
-            Backend::Runit => "служба runit",
-            Backend::S6 => "служба s6",
-            Backend::Autostart => "автозапуск сесії",
+            Backend::Systemd => tr!("служба systemd", "systemd service"),
+            Backend::Dinit => tr!("служба dinit", "dinit service"),
+            Backend::Openrc => tr!("служба OpenRC", "OpenRC service"),
+            Backend::Runit => tr!("служба runit", "runit service"),
+            Backend::S6 => tr!("служба s6", "s6 service"),
+            Backend::Autostart => tr!("автозапуск сесії", "session autostart"),
         }
     }
 
@@ -139,7 +139,8 @@ fn run(program: &str, args: &[&str]) -> Result<String, String> {
         Ok(text.trim().to_string())
     } else {
         let text = text.trim();
-        Err(if text.is_empty() { format!("{program} {}: код {}", args.join(" "), out.status) } else { text.into() })
+        let call = format!("{program} {}", args.join(" "));
+        Err(if text.is_empty() { trf!("{call}: код {}", "{call}: code {}", out.status) } else { text.into() })
     }
 }
 
@@ -302,46 +303,66 @@ fn desktop_exec(path: &Path) -> String {
     q
 }
 
-const ABOUT: &str = "OBS-Legacy: сповіщення про нові версії OBS, плагінів і самого OBS-Legacy";
+/// Опис служби (коментарі й Description) — мовою інтерфейсу на момент увімкнення.
+fn about() -> &'static str {
+    tr!(
+        "OBS-Legacy: сповіщення про нові версії OBS, плагінів і самого OBS-Legacy",
+        "OBS-Legacy: notifications about new versions of OBS, plugins and OBS-Legacy itself"
+    )
+}
 
 pub fn render(backend: Backend, exe: &Path) -> String {
-    let manage =
-        "Керувати: obs-legacy → Додатково → «Сповіщення про оновлення» або obs-legacy --notifier status|disable";
+    let about = about();
+    let manage = tr!(
+        "Керувати: obs-legacy → Додатково → «Сповіщення про оновлення» або obs-legacy --notifier status|disable",
+        "Manage: obs-legacy → More → “Update notifications” or obs-legacy --notifier status|disable"
+    );
+    let limit = |n: u32, minutes: u32, who: &str| {
+        trf!(
+            "Падає раз за разом — після {n} перезапусків за {minutes} хв {who} більше не перезапускає.",
+            "Crashing again and again — after {n} restarts within {minutes} min {who} stops restarting it."
+        )
+    };
     match backend {
         Backend::Systemd => format!(
-            "# {MARKER}\n# {ABOUT}.\n# {manage}\n[Unit]\nDescription={ABOUT}\n\
-             # Падає раз за разом — після 4 запусків за 10 хв systemd більше не перезапускає.\n\
+            "# {MARKER}\n# {about}.\n# {manage}\n[Unit]\nDescription={about}\n# {}\n\
              StartLimitIntervalSec=600\nStartLimitBurst=4\n\n[Service]\nType=simple\n\
              ExecStart={} --watch\nRestart=on-failure\nRestartSec=60\n\n[Install]\nWantedBy=default.target\n",
+            limit(4, 10, "systemd"),
             quoted(exe)
         ),
         Backend::Dinit => format!(
-            "# {MARKER}\n# {ABOUT}.\n# {manage}\n# (або dinitctl --user status {NAME})\n\
-             # Служба користувача: її запускає dinit --user після входу, а не системний dinit.\n\
-             type     = process\ncommand  = {} --watch\nrestart  = true\n\
-             # Падає раз за разом — після 3 перезапусків за 5 хв dinit більше не перезапускає.\n\
+            "# {MARKER}\n# {about}.\n# {manage}\n# ({} dinitctl --user status {NAME})\n# {}\n\
+             type     = process\ncommand  = {} --watch\nrestart  = true\n# {}\n\
              restart-delay          = 10\nrestart-limit-interval = 300\nrestart-limit-count    = 3\n\
              log-type = buffer\n",
-            quoted(exe)
+            tr!("або", "or"),
+            tr!(
+                "Служба користувача: її запускає dinit --user після входу, а не системний dinit.",
+                "A user service: dinit --user starts it after login, not the system dinit."
+            ),
+            quoted(exe),
+            limit(3, 5, "dinit")
         ),
         Backend::Openrc => format!(
-            "#!{}\n# {MARKER}\n# {manage}\ndescription=\"{ABOUT}\"\nsupervisor=supervise-daemon\n\
-             command={}\ncommand_args=\"--watch\"\n\
-             # Падає раз за разом — після 3 перезапусків за 10 хв supervise-daemon більше не перезапускає.\n\
+            "#!{}\n# {MARKER}\n# {manage}\ndescription=\"{about}\"\nsupervisor=supervise-daemon\n\
+             command={}\ncommand_args=\"--watch\"\n# {}\n\
              respawn_delay=60\nrespawn_max=3\nrespawn_period=600\n",
             find_in_path("openrc-run").map_or_else(|| "/sbin/openrc-run".into(), |p| p.display().to_string()),
-            sh_quoted(exe)
+            sh_quoted(exe),
+            limit(3, 10, "supervise-daemon")
         ),
         Backend::Runit | Backend::S6 => {
-            format!("#!/bin/sh\n# {MARKER}\n# {ABOUT}.\n# {manage}\nexec {} --watch 2>&1\n", sh_quoted(exe))
+            format!("#!/bin/sh\n# {MARKER}\n# {about}.\n# {manage}\nexec {} --watch 2>&1\n", sh_quoted(exe))
         }
         Backend::Autostart => {
             let exec = desktop_exec(exe);
+            // Назва й опис — обома мовами: показує їх середовище робочого столу за своєю мовою.
             format!(
                 "[Desktop Entry]\n# {MARKER}\n# {manage}\nType=Application\n\
-                 Name=OBS-Legacy: сповіщення про оновлення\nName[en]=OBS-Legacy: update notifications\n\
-                 Comment=Раз на 12 годин перевіряє нові версії OBS, плагінів і OBS-Legacy\n\
-                 Comment[en]=Checks for new OBS, plugin and OBS-Legacy versions every 12 hours\n\
+                 Name=OBS-Legacy: update notifications\nName[uk]=OBS-Legacy: сповіщення про оновлення\n\
+                 Comment=Checks for new OBS, plugin and OBS-Legacy versions every 12 hours\n\
+                 Comment[uk]=Раз на 12 годин перевіряє нові версії OBS, плагінів і OBS-Legacy\n\
                  Exec={exec} --watch\nIcon=obs-legacy\nTerminal=false\nNoDisplay=true\n\
                  X-GNOME-Autostart-enabled=true\n"
             )
@@ -354,8 +375,12 @@ pub fn render(backend: Backend, exe: &Path) -> String {
 /// виходу ./run; зупинку сигналом runit передає як -1, s6 — як 256.
 fn render_finish() -> String {
     format!(
-        "#!/bin/sh\n# {MARKER}\n# Фонова перевірка впала (а не зупинена) — зачекати хвилину перед перезапуском.\n\
-         [ \"$1\" -gt 0 ] 2>/dev/null && [ \"$1\" -lt 256 ] && sleep 60\nexit 0\n"
+        "#!/bin/sh\n# {MARKER}\n# {}\n\
+         [ \"$1\" -gt 0 ] 2>/dev/null && [ \"$1\" -lt 256 ] && sleep 60\nexit 0\n",
+        tr!(
+            "Фонова перевірка впала (а не зупинена) — зачекати хвилину перед перезапуском.",
+            "The background check crashed (rather than was stopped) — wait a minute before restarting."
+        )
     )
 }
 
@@ -392,7 +417,11 @@ fn dinit_check_body(body: &str) -> Result<(), String> {
     let errors = dinit_errors(&dir);
     let _ = fs::remove_dir_all(&dir);
     match errors {
-        Some(e) if !e.is_empty() => Err(format!("dinit-check знайшов помилки в описі служби: {}", e.join("; "))),
+        Some(e) if !e.is_empty() => Err(trf!(
+            "dinit-check знайшов помилки в описі служби: {}",
+            "dinit-check found errors in the service description: {}",
+            e.join("; ")
+        )),
         _ => Ok(()),
     }
 }
@@ -425,12 +454,13 @@ fn dinit_load(again: bool) -> Result<(), String> {
 
 /// Записати файл атомарно (через тимчасовий поруч).
 fn write_file(path: &Path, body: &str, mode: u32) -> Result<(), String> {
-    let dir = path.parent().ok_or("без теки")?;
-    fs::create_dir_all(dir).map_err(|e| format!("не вдалося створити {}: {e}", dir.display()))?;
+    let dir = path.parent().ok_or(tr!("без теки", "no directory"))?;
+    fs::create_dir_all(dir)
+        .map_err(|e| trf!("не вдалося створити {}: {e}", "couldn't create {}: {e}", dir.display()))?;
     let tmp = dir.join(format!(".{NAME}.tmp{}", std::process::id()));
-    fs::write(&tmp, body).map_err(|e| format!("не вдалося записати {}: {e}", tmp.display()))?;
+    fs::write(&tmp, body).map_err(|e| trf!("не вдалося записати {}: {e}", "couldn't write {}: {e}", tmp.display()))?;
     fs::set_permissions(&tmp, fs::Permissions::from_mode(mode)).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, path).map_err(|e| format!("не вдалося записати {}: {e}", path.display()))
+    fs::rename(&tmp, path).map_err(|e| trf!("не вдалося записати {}: {e}", "couldn't write {}: {e}", path.display()))
 }
 
 /// «служба dinit» → «Служба dinit» (на початку речення).
@@ -472,7 +502,9 @@ fn spawn_detached(exe: &Path) -> Result<(), String> {
             Ok(())
         });
     }
-    cmd.spawn().map(|_| ()).map_err(|e| format!("не вдалося запустити {} --watch: {e}", exe.display()))
+    cmd.spawn()
+        .map(|_| ())
+        .map_err(|e| trf!("не вдалося запустити {} --watch: {e}", "couldn't start {} --watch: {e}", exe.display()))
 }
 
 /// Зупинити фонову перевірку, якщо вона працює (і це справді наш `--watch`).
@@ -545,13 +577,14 @@ fn activate(place: &Place, exe: &Path, again: bool) -> Result<(), String> {
                 }
             } else {
                 // Тека з'являється одразу готовою: runsvdir і s6-svscan не беруть теки з крапкою.
-                let parent = p.parent().ok_or("без теки")?;
+                let parent = p.parent().ok_or(tr!("без теки", "no directory"))?;
                 let tmp = parent.join(format!(".{NAME}.new"));
                 let _ = fs::remove_dir_all(&tmp);
                 for (name, body, mode) in &files {
                     write_file(&tmp.join(name), body, *mode)?;
                 }
-                fs::rename(&tmp, p).map_err(|e| format!("не вдалося створити {}: {e}", p.display()))?;
+                fs::rename(&tmp, p)
+                    .map_err(|e| trf!("не вдалося створити {}: {e}", "couldn't create {}: {e}", p.display()))?;
                 if place.backend == Backend::S6 {
                     run("s6-svscanctl", &["-a", &parent.display().to_string()])?;
                 }
@@ -584,7 +617,8 @@ fn deactivate(place: &Place) -> Result<(), String> {
             // запису, тож куди веде посилання — байдуже.
             for link in dinit_boot_links(p) {
                 if fs::symlink_metadata(&link).is_ok() {
-                    fs::remove_file(&link).map_err(|e| format!("не вдалося прибрати {}: {e}", link.display()))?;
+                    fs::remove_file(&link)
+                        .map_err(|e| trf!("не вдалося прибрати {}: {e}", "couldn't remove {}: {e}", link.display()))?;
                 }
             }
             fs::remove_file(p).map_err(|e| e.to_string())?;
@@ -644,7 +678,7 @@ impl Status {
     /// «Остання перевірка: 2026-10-29 14:05 — нового немає».
     pub fn last_line(&self) -> Option<String> {
         let t = self.last_check?;
-        let mut s = format!("Остання перевірка: {}", updates::local_time(t));
+        let mut s = trf!("Остання перевірка: {}", "Last check: {}", updates::local_time(t));
         if let Some(sum) = &self.summary {
             let _ = write!(s, " — {sum}");
         }
@@ -667,56 +701,78 @@ pub fn status() -> Status {
 
 fn print_status() -> ExitCode {
     let s = status();
-    cli::say("Сповіщення про оновлення");
+    cli::say(tr!("Сповіщення про оновлення", "Update notifications"));
     if s.installed.is_empty() {
-        cli::warn("Вимкнено.");
+        cli::warn(tr!("Вимкнено.", "Off."));
         let best = available().into_iter().next();
         if let Some(b) = best {
-            cli::hint(&format!(
+            cli::hint(&trf!(
                 "Увімкнути: obs-legacy → Додатково → «Сповіщення про оновлення» або obs-legacy --notifier enable \
                  ({} підходить для цієї системи).",
+                "To turn on: obs-legacy → More → “Update notifications” or obs-legacy --notifier enable \
+                 ({} suits this system).",
                 b.backend.label()
             ));
         }
     }
     for p in &s.installed {
-        cli::ok(&format!("Увімкнено: {} ({}).", p.backend.label(), p.shown()));
+        cli::ok(&trf!("Увімкнено: {} ({}).", "On: {} ({}).", p.backend.label(), p.shown()));
         if p.backend == Backend::Dinit
             && let Some(errors) = p.path.parent().and_then(dinit_errors)
         {
             if errors.is_empty() {
-                cli::ok("Опис служби dinit перевірено (dinit-check): помилок немає.");
+                cli::ok(tr!(
+                    "Опис служби dinit перевірено (dinit-check): помилок немає.",
+                    "The dinit service description is checked (dinit-check): no errors."
+                ));
             } else {
-                cli::fail(&format!("dinit-check знайшов помилки в описі служби: {}", errors.join("; ")));
-                cli::hint(
+                cli::fail(&trf!(
+                    "dinit-check знайшов помилки в описі служби: {}",
+                    "dinit-check found errors in the service description: {}",
+                    errors.join("; ")
+                ));
+                cli::hint(tr!(
                     "Зламаний опис служби в boot.d не дає dinit --user запуститися після входу. Вимкни й увімкни \
                      сповіщення знову: obs-legacy --notifier disable, потім obs-legacy --notifier enable",
-                );
+                    "A broken service description in boot.d keeps dinit --user from starting after login. Turn the \
+                     notifications off and on again: obs-legacy --notifier disable, then obs-legacy --notifier enable"
+                ));
             }
         }
     }
     match s.running {
-        Some(pid) => cli::ok(&format!("Фонова перевірка працює (PID {pid}).")),
+        Some(pid) => {
+            cli::ok(&trf!("Фонова перевірка працює (PID {pid}).", "The background check is running (PID {pid})."))
+        }
         None if s.enabled() => {
-            cli::warn("Фонова перевірка зараз не працює.");
-            cli::hint("Вона запуститься після наступного входу в систему; одразу — obs-legacy --notifier restart.");
+            cli::warn(tr!("Фонова перевірка зараз не працює.", "The background check isn't running now."));
+            cli::hint(tr!(
+                "Вона запуститься після наступного входу в систему; одразу — obs-legacy --notifier restart.",
+                "It starts after the next login; right now — obs-legacy --notifier restart."
+            ));
         }
         None => {}
     }
     if let Some(line) = s.last_line() {
         cli::info(&line);
     }
-    cli::info(&format!("Журнал: {}", crate::app::short_path(&updates::log_path())));
+    cli::info(&trf!("Журнал: {}", "Log: {}", crate::app::short_path(&updates::log_path())));
     ExitCode::SUCCESS
 }
 
 fn send_test() -> Result<String, String> {
-    let session = notify::find_session().ok_or("графічної сесії не знайдено (немає WAYLAND_DISPLAY чи DISPLAY)")?;
+    let session = notify::find_session().ok_or(tr!(
+        "графічної сесії не знайдено (немає WAYLAND_DISPLAY чи DISPLAY)",
+        "no graphical session found (no WAYLAND_DISPLAY or DISPLAY)"
+    ))?;
     notify::send(
         &session,
         &notify::Message {
-            title: "OBS-Legacy: сповіщення працюють",
-            body: "Так виглядатимуть новини про нові версії OBS, плагінів і самого OBS-Legacy.",
+            title: tr!("OBS-Legacy: сповіщення працюють", "OBS-Legacy: notifications work"),
+            body: tr!(
+                "Так виглядатимуть новини про нові версії OBS, плагінів і самого OBS-Legacy.",
+                "This is how news about new versions of OBS, plugins and OBS-Legacy itself will look."
+            ),
             urgent: false,
             open: None,
         },
@@ -725,18 +781,23 @@ fn send_test() -> Result<String, String> {
 }
 
 fn test_cmd() -> ExitCode {
-    cli::say("Пробне сповіщення");
+    cli::say(tr!("Пробне сповіщення", "Test notification"));
     match send_test() {
         Ok(desc) => {
-            cli::ok(&format!("Надіслано ({desc}). Воно має з'явитися на робочому столі."));
+            cli::ok(&trf!(
+                "Надіслано ({desc}). Воно має з'явитися на робочому столі.",
+                "Sent ({desc}). It should appear on the desktop."
+            ));
             ExitCode::SUCCESS
         }
         Err(e) => {
-            cli::fail(&format!("Не вдалося показати сповіщення: {e}."));
-            cli::hint(
+            cli::fail(&trf!("Не вдалося показати сповіщення: {e}.", "Couldn't show the notification: {e}."));
+            cli::hint(tr!(
                 "Потрібна служба сповіщень робочого столу (у GNOME, KDE, Xfce вона вбудована; у sway, Hyprland — \
                  mako, dunst чи swaync) і notify-send з пакета libnotify: sudo pacman -S --needed libnotify.",
-            );
+                "You need a desktop notification service (GNOME, KDE and Xfce have one built in; on sway or Hyprland \
+                 — mako, dunst or swaync) and notify-send from the libnotify package: sudo pacman -S --needed libnotify."
+            ));
             ExitCode::FAILURE
         }
     }
@@ -745,8 +806,14 @@ fn test_cmd() -> ExitCode {
 fn enable_cmd(choice: Option<Backend>, again_only: bool) -> ExitCode {
     // SAFETY: geteuid не має передумов.
     if unsafe { libc::geteuid() } == 0 {
-        cli::fail("Сповіщення вмикаються для звичайного користувача, а не для root.");
-        cli::hint("Запусти без sudo: obs-legacy --notifier enable");
+        cli::fail(tr!(
+            "Сповіщення вмикаються для звичайного користувача, а не для root.",
+            "Notifications are turned on for a regular user, not for root."
+        ));
+        cli::hint(tr!(
+            "Запусти без sudo: obs-legacy --notifier enable",
+            "Run it without sudo: obs-legacy --notifier enable"
+        ));
         return ExitCode::FAILURE;
     }
     let exe = exe_path();
@@ -756,25 +823,38 @@ fn enable_cmd(choice: Option<Backend>, again_only: bool) -> ExitCode {
         let Some(place) = installed.first() else { return ExitCode::SUCCESS };
         return match activate(place, &exe, true) {
             Ok(()) => {
-                cli::ok(&format!("Фонову перевірку оновлень перезапущено ({}).", place.backend.label()));
+                cli::ok(&trf!(
+                    "Фонову перевірку оновлень перезапущено ({}).",
+                    "The background update check was restarted ({}).",
+                    place.backend.label()
+                ));
                 ExitCode::SUCCESS
             }
             Err(e) => {
-                cli::warn(&format!("Не вдалося перезапустити фонову перевірку ({}): {e}", place.backend.label()));
+                cli::warn(&trf!(
+                    "Не вдалося перезапустити фонову перевірку ({}): {e}",
+                    "Couldn't restart the background check ({}): {e}",
+                    place.backend.label()
+                ));
                 ExitCode::SUCCESS
             }
         };
     }
-    cli::say("Вмикаю сповіщення про оновлення");
+    cli::say(tr!("Вмикаю сповіщення про оновлення", "Turning on update notifications"));
     let avail = available();
     let target = match choice {
         Some(b) => match avail.iter().find(|p| p.backend == b) {
             Some(p) => p.clone(),
             None => {
-                cli::fail(&format!("{} для користувача тут не працює.", upper_first(b.label())));
+                cli::fail(&trf!(
+                    "{} для користувача тут не працює.",
+                    "{} isn't available to the user here.",
+                    upper_first(b.label())
+                ));
                 let names: Vec<&str> = avail.iter().map(|p| p.backend.name()).collect();
-                cli::hint(&format!(
+                cli::hint(&trf!(
                     "Що працює на цій системі: {}. Без назви програма вибере сама: obs-legacy --notifier enable",
+                    "What works on this system: {}. Without a name the program picks one itself: obs-legacy --notifier enable",
                     names.join(", ")
                 ));
                 return ExitCode::FAILURE;
@@ -783,15 +863,27 @@ fn enable_cmd(choice: Option<Backend>, again_only: bool) -> ExitCode {
         None => avail[0].clone(),
     };
     if foreign(&target) {
-        cli::fail(&format!("{} уже існує і створений не OBS-Legacy — не чіпаю.", target.shown()));
-        cli::hint("Перейменуй або прибери цей файл і спробуй ще раз.");
+        cli::fail(&trf!(
+            "{} уже існує і створений не OBS-Legacy — не чіпаю.",
+            "{} already exists and wasn't created by OBS-Legacy — leaving it alone.",
+            target.shown()
+        ));
+        cli::hint(tr!(
+            "Перейменуй або прибери цей файл і спробуй ще раз.",
+            "Rename or remove this file and try again."
+        ));
         return ExitCode::FAILURE;
     }
     // Одна служба: інші, якщо були, прибрати (наприклад, після зміни init-системи).
     for p in installed.iter().filter(|p| **p != target) {
         match deactivate(p) {
-            Ok(()) => cli::ok(&format!("Прибрано попередню: {} ({}).", p.backend.label(), p.shown())),
-            Err(e) => cli::warn(&format!("Не вдалося прибрати {}: {e}", p.shown())),
+            Ok(()) => cli::ok(&trf!(
+                "Прибрано попередню: {} ({}).",
+                "Removed the previous one: {} ({}).",
+                p.backend.label(),
+                p.shown()
+            )),
+            Err(e) => cli::warn(&trf!("Не вдалося прибрати {}: {e}", "Couldn't remove {}: {e}", p.shown())),
         }
     }
     let again = installed.contains(&target);
@@ -800,47 +892,69 @@ fn enable_cmd(choice: Option<Backend>, again_only: bool) -> ExitCode {
         if !again && target.ours() {
             let _ = deactivate(&target);
         }
-        cli::fail(&format!("Не вдалося ввімкнути {}: {e}", target.backend.label()));
+        cli::fail(&trf!("Не вдалося ввімкнути {}: {e}", "Couldn't turn on the {}: {e}", target.backend.label()));
         if target.backend != Backend::Autostart {
-            cli::hint("Спробуй автозапуск сесії замість служби: obs-legacy --notifier enable autostart");
+            cli::hint(tr!(
+                "Спробуй автозапуск сесії замість служби: obs-legacy --notifier enable autostart",
+                "Try the session autostart instead of a service: obs-legacy --notifier enable autostart"
+            ));
         }
         return ExitCode::FAILURE;
     }
     cli::ok(&format!("{}: {}", upper_first(target.backend.label()), target.shown()));
     match wait_running(10) {
-        Some(pid) => cli::ok(&format!("Фонова перевірка працює (PID {pid}): нові версії — раз на 12 годин.")),
-        None => cli::warn("Служба ввімкнена, але фонова перевірка ще не відповіла."),
+        Some(pid) => cli::ok(&trf!(
+            "Фонова перевірка працює (PID {pid}): нові версії — раз на 12 годин.",
+            "The background check is running (PID {pid}): new versions — every 12 hours."
+        )),
+        None => cli::warn(tr!(
+            "Служба ввімкнена, але фонова перевірка ще не відповіла.",
+            "The service is on, but the background check hasn't answered yet."
+        )),
     }
     match send_test() {
-        Ok(_) => cli::ok("Надіслав пробне сповіщення — воно має з'явитися на робочому столі."),
+        Ok(_) => cli::ok(tr!(
+            "Надіслав пробне сповіщення — воно має з'явитися на робочому столі.",
+            "Sent a test notification — it should appear on the desktop."
+        )),
         Err(e) => {
-            cli::warn(&format!("Пробне сповіщення не показано: {e}."));
-            cli::hint(
+            cli::warn(&trf!("Пробне сповіщення не показано: {e}.", "The test notification wasn't shown: {e}."));
+            cli::hint(tr!(
                 "Потрібна служба сповіщень робочого столу (у GNOME, KDE, Xfce вбудована; у sway, Hyprland — mako, \
                  dunst чи swaync) і пакет libnotify.",
-            );
+                "You need a desktop notification service (built into GNOME, KDE and Xfce; on sway or Hyprland — mako, \
+                 dunst or swaync) and the libnotify package."
+            ));
         }
     }
     if target.backend == Backend::Autostart {
-        cli::warn("Служб користувача init-система тут не запускає, тож перевірку запускає автозапуск сесії.");
-        cli::hint(
+        cli::warn(tr!(
+            "Служб користувача init-система тут не запускає, тож перевірку запускає автозапуск сесії.",
+            "The init system here doesn't run user services, so the session autostart runs the check."
+        ));
+        cli::hint(tr!(
             "Якщо твій віконний менеджер не виконує ~/.config/autostart (i3, sway, Hyprland…), додай у його \
              конфіг запуск: obs-legacy --watch",
-        );
+            "If your window manager doesn't run ~/.config/autostart (i3, sway, Hyprland…), add this to its \
+             config: obs-legacy --watch"
+        ));
     }
-    cli::info("Вимкнути: obs-legacy → Додатково → «Сповіщення про оновлення» або obs-legacy --notifier disable.");
+    cli::info(tr!(
+        "Вимкнути: obs-legacy → Додатково → «Сповіщення про оновлення» або obs-legacy --notifier disable.",
+        "To turn off: obs-legacy → More → “Update notifications” or obs-legacy --notifier disable."
+    ));
     ExitCode::SUCCESS
 }
 
 fn disable_cmd() -> ExitCode {
-    cli::say("Вимикаю сповіщення про оновлення");
+    cli::say(tr!("Вимикаю сповіщення про оновлення", "Turning off update notifications"));
     let installed = installed();
     let mut code = ExitCode::SUCCESS;
     for p in &installed {
         match deactivate(p) {
-            Ok(()) => cli::ok(&format!("Прибрано: {} ({}).", p.backend.label(), p.shown())),
+            Ok(()) => cli::ok(&trf!("Прибрано: {} ({}).", "Removed: {} ({}).", p.backend.label(), p.shown())),
             Err(e) => {
-                cli::fail(&format!("Не вдалося прибрати {}: {e}", p.shown()));
+                cli::fail(&trf!("Не вдалося прибрати {}: {e}", "Couldn't remove {}: {e}", p.shown()));
                 code = ExitCode::FAILURE;
             }
         }
@@ -848,9 +962,9 @@ fn disable_cmd() -> ExitCode {
     // Фонова перевірка без служби (запущена вручну чи автозапуском) — теж зупинити.
     stop_running();
     if installed.is_empty() {
-        cli::ok("Сповіщення й так вимкнено.");
+        cli::ok(tr!("Сповіщення й так вимкнено.", "Notifications are already off."));
     } else {
-        cli::ok("Сповіщень про оновлення більше не буде.");
+        cli::ok(tr!("Сповіщень про оновлення більше не буде.", "No more update notifications."));
     }
     code
 }
@@ -874,11 +988,18 @@ pub fn main(args: &[String]) -> ExitCode {
         }
         (Some("test"), None) => test_cmd(),
         (Some("enable"), Some((name, None))) => {
-            eprintln!("obs-legacy: невідома служба «{name}». Можна: {}.", Backend::ALL.map(Backend::name).join(", "));
+            let all = Backend::ALL.map(Backend::name).join(", ");
+            eprintln!(
+                "obs-legacy: {}",
+                trf!("невідома служба «{name}». Можна: {all}.", "unknown service \"{name}\". Possible: {all}.")
+            );
             ExitCode::from(2)
         }
         _ => {
-            eprintln!("obs-legacy: --notifier status | enable [служба] | disable | restart | test | is-enabled");
+            eprintln!(
+                "obs-legacy: --notifier status | enable [{}] | disable | restart | test | is-enabled",
+                tr!("служба", "service")
+            );
             ExitCode::from(2)
         }
     }

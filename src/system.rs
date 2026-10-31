@@ -294,7 +294,7 @@ fn os_name() -> String {
     fs::read_to_string("/etc/os-release")
         .ok()
         .and_then(|t| t.lines().find_map(|l| l.strip_prefix("PRETTY_NAME=")).map(|v| v.trim_matches('"').to_string()))
-        .unwrap_or_else(|| "невідома ОС".into())
+        .unwrap_or_else(|| tr!("невідома ОС", "unknown OS").into())
 }
 
 fn meminfo() -> (f64, f64) {

@@ -102,10 +102,12 @@ fn wants_deps(r: &ReportInfo) -> bool {
 
 fn missing_packages_advice(stage: Stage, missing: &[String]) -> Advice {
     let n = missing.len();
-    Advice::new(Tone::Warn, stage, format!("Бракує пакетів для збірки: {n}"))
-        .detail(format!(
+    Advice::new(Tone::Warn, stage, trf!("Бракує пакетів для збірки: {n}", "Missing build dependencies: {n}"))
+        .detail(trf!(
             "{}. Програма поставить лише їх через pacman (залежності pacman додасть сам), без оновлення \
              системи. Потім перевір систему ще раз — усе має бути ✓.",
+            "{}. The program installs only them with pacman (pacman adds the dependencies itself), without a \
+             system update. Then check the system again — everything should get a ✓.",
             missing.join(", ")
         ))
         .action(Action::Deps)
@@ -132,30 +134,50 @@ pub fn advise(i: &Input) -> Advice {
     };
 
     if s.is_root {
-        return Advice::new(Tone::Err, stage, "OBS-Legacy запущено від root")
-            .detail("Збирати OBS від root небезпечно, тому скрипт відмовиться працювати.")
-            .todo(
+        return Advice::new(Tone::Err, stage, tr!("OBS-Legacy запущено від root", "OBS-Legacy is running as root"))
+            .detail(tr!(
+                "Збирати OBS від root небезпечно, тому скрипт відмовиться працювати.",
+                "Building OBS as root is dangerous, so the script refuses to work."
+            ))
+            .todo(tr!(
                 "Закрий програму і запусти obs-legacy від свого користувача, без sudo — пароль вона попросить сама.",
-            );
+                "Close the program and start obs-legacy as your own user, without sudo — it asks for the password itself."
+            ));
     }
     if !s.has_pacman {
-        return Advice::new(Tone::Err, stage, "Потрібен Artix або Arch Linux")
-            .detail("OBS-Legacy ставить пакети через pacman, а його в цій системі немає.");
+        return Advice::new(Tone::Err, stage, tr!("Потрібен Artix або Arch Linux", "Artix or Arch Linux is required"))
+            .detail(tr!(
+                "OBS-Legacy ставить пакети через pacman, а його в цій системі немає.",
+                "OBS-Legacy installs packages with pacman, and this system doesn't have it."
+            ));
     }
     if s.gpus.is_empty() && s.driver.is_none() {
-        return Advice::new(Tone::Err, stage, "Не бачу відеокарти NVIDIA")
-            .detail("Драйвер NVIDIA не встановлено або його модуль не завантажився.")
-            .todo(
+        return Advice::new(Tone::Err, stage, tr!("Не бачу відеокарти NVIDIA", "No NVIDIA card found"))
+            .detail(tr!(
+                "Драйвер NVIDIA не встановлено або його модуль не завантажився.",
+                "The NVIDIA driver isn't installed or its module didn't load."
+            ))
+            .todo(tr!(
                 "Для GTX 900/1000 встанови драйвер гілки 580xx (nvidia-580xx-dkms і nvidia-580xx-utils з AUR) \
                  і перезавантаж комп'ютер.",
-            )
+                "For GTX 900/1000, install the 580xx driver branch (nvidia-580xx-dkms and nvidia-580xx-utils from the \
+                 AUR) and reboot."
+            ))
             .action(Action::Check);
     }
     if s.nvenc_compatible() == Some(false) {
         let need = s.headers_api.clone().unwrap_or_default();
-        return Advice::new(Tone::Err, stage, format!("Драйвер не підтримує NVENC API {need}"))
-            .detail(format!("Драйвер знає NVENC API лише до {}.", s.nvenc_api.clone().unwrap_or_default()))
-            .todo("Онови драйвер до гілки 580xx і перезавантаж комп'ютер.");
+        let have = s.nvenc_api.clone().unwrap_or_default();
+        return Advice::new(
+            Tone::Err,
+            stage,
+            trf!("Драйвер не підтримує NVENC API {need}", "The driver doesn't support NVENC API {need}"),
+        )
+        .detail(trf!("Драйвер знає NVENC API лише до {have}.", "The driver knows NVENC API only up to {have}."))
+        .todo(tr!(
+            "Онови драйвер до гілки 580xx і перезавантаж комп'ютер.",
+            "Update the driver to the 580xx branch and reboot."
+        ));
     }
 
     // Збирання обірвалося: звіт без «Результат:», а скрипт уже не працює (вимкнулося світло,
@@ -165,13 +187,21 @@ pub fn advise(i: &Input) -> Advice {
         && active.is_none_or(|b| r.stamp.as_str() > build_stamp(&b.label))
     {
         let now = active.map_or_else(
-            || "Нічого не встановлено й не змінено.".to_string(),
-            |b| format!("Працює попередній OBS {} — його не зачеплено.", b.obs_version()),
+            || tr!("Нічого не встановлено й не змінено.", "Nothing was installed or changed.").to_string(),
+            |b| {
+                trf!(
+                    "Працює попередній OBS {} — його не зачеплено.",
+                    "The previous OBS {} runs — it wasn't touched.",
+                    b.obs_version()
+                )
+            },
         );
-        let mut a = Advice::new(Tone::Warn, stage, "Минуле збирання обірвалося")
-            .detail(format!(
+        let mut a = Advice::new(Tone::Warn, stage, tr!("Минуле збирання обірвалося", "The last build was cut off"))
+            .detail(trf!(
                 "Мабуть, вимкнулося світло чи закрилося вікно програми. {now} Перезбери начисто — це надійніше, \
-                 ніж продовжувати з половини."
+                 ніж продовжувати з половини.",
+                "Probably a power outage or the program window was closed. {now} Rebuild from scratch — that is more \
+                 reliable than continuing from the middle."
             ))
             .action(Action::Rebuild)
             .alt(Action::Install);
@@ -185,10 +215,14 @@ pub fn advise(i: &Input) -> Advice {
         if let Some(r) =
             last_install.filter(|r| r.outcome == Outcome::Failed && r.stamp.as_str() > build_stamp(&b.label))
         {
-            return Advice::new(Tone::Warn, stage, format!("Оновлення не вдалося — працює OBS {version}"))
-                .report(r)
-                .action(Action::Install)
-                .alt(Action::Rebuild);
+            return Advice::new(
+                Tone::Warn,
+                stage,
+                trf!("Оновлення не вдалося — працює OBS {version}", "The update failed — OBS {version} still runs"),
+            )
+            .report(r)
+            .action(Action::Install)
+            .alt(Action::Rebuild);
         }
         // Набір зібрали, але встановлення скасували на запитанні: «Оновити» поставить його
         // без перезбирання (у скрипті — pending_set).
@@ -199,27 +233,50 @@ pub fn advise(i: &Input) -> Advice {
                 .filter(|x| x.complete && !x.legacy && x.label > b.label)
                 .max_by(|x, y| x.label.cmp(&y.label))
         {
-            return Advice::new(Tone::Warn, stage, "Пакети зібрано, але не встановлено")
-                .detail(format!(
-                    "Набір {} готовий: встановлення скасували на запитанні. «Встановити / оновити OBS» поставить \
+            return Advice::new(
+                Tone::Warn,
+                stage,
+                tr!("Пакети зібрано, але не встановлено", "Packages are built but not installed"),
+            )
+            .detail(trf!(
+                "Набір {} готовий: встановлення скасували на запитанні. «Встановити / оновити OBS» поставить \
                      його без перезбирання — на запитання відповідай y латиницею.",
-                    ready.label
-                ))
-                .action(Action::Install);
+                "Set {} is ready: the installation was cancelled at the question. “Install / update OBS” installs \
+                     it without rebuilding — answer the question with a Latin y.",
+                ready.label
+            ))
+            .action(Action::Install);
         }
         if let Some(cpu) = s.built_for_other_cpu() {
-            return Advice::new(Tone::Warn, stage, "OBS зібрано під інший процесор")
-                .detail(format!(
-                    "Встановлені пакети оптимізовано під {cpu}. На цьому процесорі OBS може аварійно \
-                     завершуватися — перезбери його під цей комп'ютер."
-                ))
-                .action(Action::Install);
+            return Advice::new(
+                Tone::Warn,
+                stage,
+                tr!("OBS зібрано під інший процесор", "OBS was built for another processor"),
+            )
+            .detail(trf!(
+                "Встановлені пакети оптимізовано під {cpu}. На цьому процесорі OBS може аварійно \
+                     завершуватися — перезбери його під цей комп'ютер.",
+                "The installed packages are tuned for {cpu}. On this processor OBS may crash — rebuild it for \
+                     this computer."
+            ))
+            .action(Action::Install);
         }
         if !failed.is_empty() {
-            return Advice::new(Tone::Warn, stage, format!("Не зібралися плагіни: {}", failed.join(", ")))
-                .detail("OBS працює без них, а попередня збірка з ними доступна в «Відкат на іншу збірку».")
-                .todo("Спробуй «Встановити / оновити OBS» пізніше: автор плагіна, можливо, ще не підтримав цю версію OBS.")
-                .action(Action::Install);
+            let list = failed.join(", ");
+            return Advice::new(
+                Tone::Warn,
+                stage,
+                trf!("Не зібралися плагіни: {list}", "Plugins failed to build: {list}"),
+            )
+            .detail(tr!(
+                "OBS працює без них, а попередня збірка з ними доступна в «Відкат на іншу збірку».",
+                "OBS works without them, and the previous build with them is in “Roll back to another build”."
+            ))
+            .todo(tr!(
+                "Спробуй «Встановити / оновити OBS» пізніше: автор плагіна, можливо, ще не підтримав цю версію OBS.",
+                "Try “Install / update OBS” later: the plugin's author may not support this OBS version yet."
+            ))
+            .action(Action::Install);
         }
         let facts = i.facts;
         if let Some(f) = facts
@@ -228,77 +285,111 @@ pub fn advise(i: &Input) -> Advice {
             let plugins = if f.plugin_updates.is_empty() {
                 String::new()
             } else {
-                format!(" і свіжі плагіни ({})", updates::plugin_list(&f.plugin_updates))
+                trf!(" і свіжі плагіни ({})", " and fresh plugins ({})", updates::plugin_list(&f.plugin_updates))
             };
-            return Advice::new(Tone::Info, stage, format!("Вийшов OBS {latest}"))
-                .detail(format!(
-                    "У тебе OBS {version}. Оновлення збере нову версію з NVENC{plugins}, а поточна лишиться для відкату."
+            return Advice::new(Tone::Info, stage, trf!("Вийшов OBS {latest}", "OBS {latest} is out"))
+                .detail(trf!(
+                    "У тебе OBS {version}. Оновлення збере нову версію з NVENC{plugins}, а поточна лишиться для відкату.",
+                    "You have OBS {version}. The update builds the new version with NVENC{plugins}, and the current one \
+                     stays for rollback."
                 ))
                 .action(Action::Install);
         }
         if let Some(f) = facts.filter(|f| !f.plugin_updates.is_empty()) {
-            return Advice::new(Tone::Info, stage, "Вийшли нові версії плагінів")
-                .detail(format!(
+            return Advice::new(Tone::Info, stage, tr!("Вийшли нові версії плагінів", "New plugin versions are out"))
+                .detail(trf!(
                     "{}. Плагіни оновлюються разом з OBS: «Встановити / оновити OBS» збере їх, а поточна збірка \
                      лишиться для відкату.",
+                    "{}. Plugins are updated together with OBS: “Install / update OBS” builds them, and the current \
+                     build stays for rollback.",
                     updates::plugin_list(&f.plugin_updates)
                 ))
                 .action(Action::Install);
         }
         if b.legacy {
-            return Advice::new(Tone::Info, stage, "OBS-Legacy тепер ставиться пакетами pacman")
-                .detail(
+            return Advice::new(Tone::Info, stage, tr!("OBS-Legacy тепер ставиться пакетами pacman", "OBS-Legacy now installs as pacman packages"))
+                .detail(tr!(
                     "«Встановити / оновити OBS» збере obs-studio-legacy-580xx і плагіни під твій процесор і драйвер та \
                      поставить їх у /usr, як OBS з репозиторію: сторонні плагіни ставитимуться на нього як завжди. \
                      pacman спитає, чи замінити obs-studio-git, а стара збірка з /opt прибереться сама.",
-                )
+                    "“Install / update OBS” builds obs-studio-legacy-580xx and plugins for your processor and driver and \
+                     installs them into /usr, like the repository OBS: third-party plugins install on top of it as usual. \
+                     pacman asks whether to replace obs-studio-git, and the old build in /opt is removed by itself."
+                ))
                 .action(Action::Install);
         }
         if let Some(f) = facts
             && let Some(new) = f.ffmpeg_new.as_deref()
         {
-            return Advice::new(Tone::Info, stage, format!("У репозиторії новий ffmpeg {new}"))
-                .detail(format!(
-                    "Твій ffmpeg-legacy-580xx зібрано з {}. «Встановити / оновити OBS» перезбере його з NVENC під \
+            return Advice::new(
+                Tone::Info,
+                stage,
+                trf!("У репозиторії новий ffmpeg {new}", "New ffmpeg {new} in the repository"),
+            )
+            .detail(trf!(
+                "Твій ffmpeg-legacy-580xx зібрано з {}. «Встановити / оновити OBS» перезбере його з NVENC під \
                      твій драйвер і процесор (ffmpeg — ~15 хв); до того працює поточний.",
-                    f.ffmpeg_built.as_deref().unwrap_or("старішої версії")
-                ))
-                .action(Action::Install);
+                "Your ffmpeg-legacy-580xx was built from {}. “Install / update OBS” rebuilds it with NVENC for your \
+                     driver and processor (ffmpeg takes ~15 min); until then the current one works.",
+                f.ffmpeg_built.as_deref().unwrap_or(tr!("старішої версії", "an older version"))
+            ))
+            .action(Action::Install);
         }
         let installed: Vec<String> = b.plugins().into_iter().map(|(id, _)| id).collect();
         if i.selected_plugins.iter().any(|p| !installed.contains(p)) {
-            return Advice::new(Tone::Info, stage, "Нові плагіни ще не встановлено")
-                .detail("Обрані плагіни з'являться після «Встановити / оновити OBS».")
-                .action(Action::Install);
+            return Advice::new(
+                Tone::Info,
+                stage,
+                tr!("Нові плагіни ще не встановлено", "New plugins aren't installed yet"),
+            )
+            .detail(tr!(
+                "Обрані плагіни з'являться після «Встановити / оновити OBS».",
+                "The selected plugins appear after “Install / update OBS”."
+            ))
+            .action(Action::Install);
         }
         if i.self_update
             && let Some(f) = facts
             && let Some(latest) = f.self_update()
         {
-            return Advice::new(Tone::Info, stage, format!("Вийшов OBS-Legacy {}", latest.trim_start_matches('v')))
-                .detail(format!(
+            let latest = latest.trim_start_matches('v');
+            return Advice::new(Tone::Info, stage, trf!("Вийшов OBS-Legacy {latest}", "OBS-Legacy {latest} is out"))
+                .detail(trf!(
                     "У тебе {}. Оновлення змінить лише саму програму — твій OBS лишиться як є.",
+                    "You have {}. The update changes only the program itself — your OBS stays as it is.",
                     f.self_version
                 ))
                 .action(Action::SelfUpdate);
         }
-        let mut detail =
-            format!("OBS {version} з NVENC встановлено. Запускай його як завжди: з меню програм або командою obs.");
-        let mut a = Advice::new(Tone::Ok, stage, "Усе готово — можна стрімити").action(Action::Launch);
+        let mut detail = trf!(
+            "OBS {version} з NVENC встановлено. Запускай його як завжди: з меню програм або командою obs.",
+            "OBS {version} with NVENC is installed. Start it as usual: from the application menu or with the obs command."
+        );
+        let mut a = Advice::new(Tone::Ok, stage, tr!("Усе готово — можна стрімити", "All set — ready to stream"))
+            .action(Action::Launch);
         if i.notifier == Some(false) {
-            detail.push_str(" Щоб не пропустити нові версії OBS і плагінів, увімкни сповіщення про оновлення.");
+            detail.push_str(tr!(
+                " Щоб не пропустити нові версії OBS і плагінів, увімкни сповіщення про оновлення.",
+                " Not to miss new OBS and plugin versions, turn on update notifications."
+            ));
             a = a.alt(Action::Notify);
         }
         return a.detail(detail);
     }
 
     if s.driver_major().is_some_and(|m| m > 580) {
-        return Advice::new(Tone::Info, stage, "Тобі, мабуть, вистачить звичайного OBS")
-            .detail(
-                "Драйвер новіший за 580xx, тож NVENC працює і в OBS з репозиторію. OBS-Legacy потрібен \
+        return Advice::new(
+            Tone::Info,
+            stage,
+            tr!("Тобі, мабуть, вистачить звичайного OBS", "The regular OBS is probably enough for you"),
+        )
+        .detail(tr!(
+            "Драйвер новіший за 580xx, тож NVENC працює і в OBS з репозиторію. OBS-Legacy потрібен \
                  насамперед для старих відеокарт (GTX 900/1000) на драйвері 580xx.",
-            )
-            .action(Action::Check);
+            "The driver is newer than 580xx, so NVENC works in the repository OBS too. OBS-Legacy is mainly for \
+                 older cards (GTX 900/1000) on the 580xx driver."
+        ))
+        .action(Action::Check);
     }
     let install_is_newer = match (last_install, last_check) {
         (Some(inst), Some(chk)) => inst.stamp > chk.stamp,
@@ -306,7 +397,7 @@ pub fn advise(i: &Input) -> Advice {
         _ => false,
     };
     if let Some(r) = last_install.filter(|r| install_is_newer && r.outcome == Outcome::Failed) {
-        return Advice::new(Tone::Err, stage, "Встановлення не вдалося")
+        return Advice::new(Tone::Err, stage, tr!("Встановлення не вдалося", "The installation failed"))
             .report(r)
             .action(Action::Install)
             .alt(Action::Rebuild);
@@ -314,7 +405,9 @@ pub fn advise(i: &Input) -> Advice {
     let last_deps = last(&["deps"]);
     if let Some(r) = last_deps.filter(|r| r.outcome == Outcome::Failed && last_check.is_none_or(|c| r.stamp > c.stamp))
     {
-        return Advice::new(Tone::Err, stage, "Не вдалося встановити пакети").report(r).action(Action::Deps);
+        return Advice::new(Tone::Err, stage, tr!("Не вдалося встановити пакети", "Couldn't install the packages"))
+            .report(r)
+            .action(Action::Deps);
     }
     let missing = i.missing_packages;
     match last_check {
@@ -326,36 +419,60 @@ pub fn advise(i: &Input) -> Advice {
                 Some(a) => a,
                 None => Action::Check,
             };
-            Advice::new(Tone::Err, stage, "Перевірка знайшла проблему").report(r).action(fix)
+            Advice::new(Tone::Err, stage, tr!("Перевірка знайшла проблему", "The check found a problem"))
+                .report(r)
+                .action(fix)
         }
         Some(r) if r.outcome == Outcome::Success => match missing {
             Some(m) if !m.is_empty() => missing_packages_advice(stage, m),
             // Звіт ще каже «бракує пакетів», а їх уже поставили — перевірити ще раз.
-            Some(_) if wants_deps(r) => Advice::new(Tone::Info, stage, "Пакети на місці — перевір систему ще раз")
-                .detail("Тепер пройде й пробна конфігурація CMake, і всі етапи будуть ✓.")
-                .action(Action::Check)
-                .alt(Action::Install),
-            None if wants_deps(r) => Advice::new(Tone::Warn, stage, "Бракує пакетів для збірки")
-                .report(r)
-                .action(Action::Deps)
-                .alt(Action::Install),
+            Some(_) if wants_deps(r) => Advice::new(
+                Tone::Info,
+                stage,
+                tr!("Пакети на місці — перевір систему ще раз", "Packages are in place — check the system again"),
+            )
+            .detail(tr!(
+                "Тепер пройде й пробна конфігурація CMake, і всі етапи будуть ✓.",
+                "Now the trial CMake configuration passes too, and every step gets a ✓."
+            ))
+            .action(Action::Check)
+            .alt(Action::Install),
+            None if wants_deps(r) => {
+                Advice::new(Tone::Warn, stage, tr!("Бракує пакетів для збірки", "Build dependencies are missing"))
+                    .report(r)
+                    .action(Action::Deps)
+                    .alt(Action::Install)
+            }
             _ => {
-                let mut a = Advice::new(Tone::Ok, stage, "Систему перевірено — можна встановлювати").report(r);
+                let mut a = Advice::new(
+                    Tone::Ok,
+                    stage,
+                    tr!("Систему перевірено — можна встановлювати", "The system is checked — ready to install"),
+                )
+                .report(r);
                 if a.detail.is_none() {
-                    a = a.detail("Збирання триває 30–90 хв. Пароль sudo/doas знадобиться під час встановлення.");
+                    a = a.detail(tr!(
+                        "Збирання триває 30–90 хв. Пароль sudo/doas знадобиться під час встановлення.",
+                        "The build takes 30–90 min. The sudo/doas password is needed during installation."
+                    ));
                 }
                 a.action(Action::Install)
             }
         },
-        Some(r) => Advice::new(Tone::Info, stage, "Перевірку не завершено")
-            .detail("Запусти її ще раз — уже завантажене не завантажуватиметься знову.")
+        Some(r) => Advice::new(Tone::Info, stage, tr!("Перевірку не завершено", "The check didn't finish"))
+            .detail(tr!(
+                "Запусти її ще раз — уже завантажене не завантажуватиметься знову.",
+                "Run it again — what is already downloaded won't be downloaded again."
+            ))
             .report(r)
             .action(Action::Check),
-        None => Advice::new(Tone::Info, stage, "Почни з перевірки системи")
-            .detail(
+        None => Advice::new(Tone::Info, stage, tr!("Почни з перевірки системи", "Start with checking the system"))
+            .detail(tr!(
                 "Вона нічого не змінює і триває 5–15 хв: перевірить драйвер і пакети та завантажить \
                  вихідні коди OBS.",
-            )
+                "It changes nothing and takes 5–15 min: it checks the driver and packages and downloads the OBS \
+                 sources."
+            ))
             .action(Action::Check),
     }
 }
@@ -425,6 +542,16 @@ mod tests {
         let passed = [report("20261028-174550", "check", Outcome::Success, None), failed[0].clone()];
         let a = advise_with(&s, &passed);
         assert_eq!((a.stage, a.action, a.tone), (Stage::Install, Some(Action::Install), Tone::Ok));
+    }
+
+    #[test]
+    fn english_advice() {
+        let s = sys();
+        crate::i18n::with(crate::i18n::Lang::En, || {
+            let a = advise_with(&s, &[]);
+            assert_eq!((a.title.as_str(), a.action), ("Start with checking the system", Some(Action::Check)));
+            assert!(a.detail.unwrap().starts_with("It changes nothing"));
+        });
     }
 
     #[test]

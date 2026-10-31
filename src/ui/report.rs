@@ -9,17 +9,18 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
 
 use super::{buttons, footer, hanging, panel, panel_title, top_bar, truncate, wrap_text};
+use crate::analyzer::{Tag, tag};
 use crate::app::{App, Target, short_path};
 use crate::reports::{self, LineKind, Outcome, ReportInfo};
 use crate::theme::Theme;
 
 fn outcome_mark(t: &Theme, r: &ReportInfo) -> (&'static str, Style, String) {
     match r.outcome {
-        Outcome::Success if r.warnings > 0 => ("✓", t.ok(), format!("зауважень: {}", r.warnings)),
-        Outcome::Success => ("✓", t.ok(), "готово".into()),
-        Outcome::Failed => ("✗", t.err(), "помилка".into()),
-        Outcome::Cancelled => ("■", t.warn(), "скасовано".into()),
-        Outcome::Unknown => ("•", t.muted(), "не завершено".into()),
+        Outcome::Success if r.warnings > 0 => ("✓", t.ok(), trf!("зауважень: {}", "notes: {}", r.warnings)),
+        Outcome::Success => ("✓", t.ok(), tr!("готово", "done").into()),
+        Outcome::Failed => ("✗", t.err(), tr!("помилка", "error").into()),
+        Outcome::Cancelled => ("■", t.warn(), tr!("скасовано", "cancelled").into()),
+        Outcome::Unknown => ("•", t.muted(), tr!("не завершено", "unfinished").into()),
     }
 }
 
@@ -28,7 +29,7 @@ pub fn list(f: &mut Frame, app: &mut App, area: Rect) {
     let [bar, _, body, foot] =
         Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Min(5), Constraint::Length(1)])
             .areas(area);
-    top_bar(f, app, bar, &["Звіти"], &short_path(&reports::dir()));
+    top_bar(f, app, bar, &[tr!("Звіти", "Reports")], &short_path(&reports::dir()));
     let body = body.inner(ratatui::layout::Margin::new(1, 0));
     let wide = body.width >= 100;
     let (list_r, details_r) = if wide {
@@ -38,22 +39,25 @@ pub fn list(f: &mut Frame, app: &mut App, area: Rect) {
         let [l, r] = Layout::vertical([Constraint::Min(5), Constraint::Length(11)]).areas(body);
         (l, r)
     };
-    let block = panel(&t, panel_title(&t, format!("Запуски · {}", app.reports.len())), true);
+    let block = panel(&t, panel_title(&t, trf!("Запуски · {}", "Runs · {}", app.reports.len())), true);
     let inner = block.inner(list_r);
     f.render_widget(block, list_r);
 
     if app.reports.is_empty() {
         let msg = Paragraph::new(vec![
             Line::from(""),
-            Line::from(Span::styled(" Звітів ще немає.", t.strong())),
+            Line::from(Span::styled(tr!(" Звітів ще немає.", " No reports yet."), t.strong())),
             Line::from(Span::styled(
-                " Вони з'являються після «Перевірити систему» і «Встановити / оновити OBS».",
+                tr!(
+                    " Вони з'являються після «Перевірити систему» і «Встановити / оновити OBS».",
+                    " They appear after “Check system” and “Install / update OBS”."
+                ),
                 t.muted(),
             )),
         ])
         .wrap(Wrap { trim: false });
         f.render_widget(msg, inner);
-        footer(f, app, foot, &[("Esc", "назад")], true);
+        footer(f, app, foot, &[("Esc", tr!("назад", "back"))], true);
         return;
     }
 
@@ -91,14 +95,28 @@ pub fn list(f: &mut Frame, app: &mut App, area: Rect) {
     ])];
     if let Some(p) = &r.problem {
         lines.push(Line::from(""));
-        let label = if r.outcome == Outcome::Failed { "Що сталося  " } else { "Зверни увагу" };
+        let label = if r.outcome == Outcome::Failed {
+            tr!("Що сталося  ", "What happened")
+        } else {
+            tr!("Зверни увагу", "Note         ")
+        };
         lines.extend(hanging(Span::styled(format!("{label} "), t.muted()), &p.text, Style::new(), width));
         for h in &p.hints {
-            lines.extend(hanging(Span::styled("Що робити    ", t.muted()), h, Style::new(), width));
+            lines.extend(hanging(
+                Span::styled(tr!("Що робити    ", "What to do    "), t.muted()),
+                h,
+                Style::new(),
+                width,
+            ));
         }
     }
     lines.push(Line::from(""));
-    lines.extend(hanging(Span::styled("Файл ", t.muted()), &short_path(&r.path), Style::new().fg(t.accent2), width));
+    lines.extend(hanging(
+        Span::styled(tr!("Файл ", "File "), t.muted()),
+        &short_path(&r.path),
+        Style::new().fg(t.accent2),
+        width,
+    ));
     let text_h = inner.height.saturating_sub(2);
     let [text_r, _, buttons_r] =
         Layout::vertical([Constraint::Length(text_h), Constraint::Length(1), Constraint::Length(1)]).areas(inner);
@@ -107,7 +125,10 @@ pub fn list(f: &mut Frame, app: &mut App, area: Rect) {
         f,
         app,
         buttons_r,
-        &[("Enter", "Переглянути", true, Target::OpenReport), ("c", "Скопіювати шлях", false, Target::CopyPath)],
+        &[
+            ("Enter", tr!("Переглянути", "View"), true, Target::OpenReport),
+            ("c", tr!("Скопіювати шлях", "Copy path"), false, Target::CopyPath),
+        ],
         false,
     );
 
@@ -116,11 +137,11 @@ pub fn list(f: &mut Frame, app: &mut App, area: Rect) {
         app,
         foot,
         &[
-            ("Esc", "назад"),
-            ("Enter", "переглянути"),
-            ("c", "копіювати шлях"),
-            ("e", "відкрити в програмі"),
-            ("f", "відкрити теку"),
+            ("Esc", tr!("назад", "back")),
+            ("Enter", tr!("переглянути", "view")),
+            ("c", tr!("копіювати шлях", "copy path")),
+            ("e", tr!("відкрити в програмі", "open in an app")),
+            ("f", tr!("відкрити теку", "open folder")),
         ],
         true,
     );
@@ -134,7 +155,7 @@ fn line_style(t: &Theme, kind: LineKind, text: &str) -> Style {
         LineKind::Error => t.err().add_modifier(Modifier::BOLD),
         LineKind::Hint => Style::new().fg(t.accent2),
         LineKind::Cancel => t.warn().add_modifier(Modifier::BOLD),
-        LineKind::Plain if text.starts_with("Результат: ") || text.starts_with("Звіт: ") => t.strong(),
+        LineKind::Plain if matches!(tag(text), Some((Tag::Result | Tag::Report, _))) => t.strong(),
         LineKind::Plain => Style::new(),
     }
 }
@@ -147,22 +168,26 @@ pub fn view(f: &mut Frame, app: &mut App, area: Rect) {
     let Some(view) = app.report_view.as_ref() else { return };
     let name = view.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let full = short_path(&view.path);
-    top_bar(f, app, bar, &["Звіти", &truncate(&name, 40)], &full);
+    top_bar(f, app, bar, &[tr!("Звіти", "Reports"), &truncate(&name, 40)], &full);
 
     let body = body.inner(ratatui::layout::Margin::new(1, 0));
     let Some(view) = app.report_view.as_mut() else { return };
-    let block_title =
-        |extra: String| Line::from(vec![Span::styled(" Звіт ", t.title()), Span::styled(extra, t.muted())]);
+    let block_title = |extra: String| {
+        Line::from(vec![Span::styled(tr!(" Звіт ", " Report "), t.title()), Span::styled(extra, t.muted())])
+    };
     if let Some(e) = &view.error {
         let block = panel(&t, block_title(String::new()), true);
         let msg = Paragraph::new(vec![
-            Line::from(Span::styled(format!(" ✗ Не вдалося відкрити звіт: {e}"), t.err())),
+            Line::from(Span::styled(
+                trf!(" ✗ Не вдалося відкрити звіт: {e}", " ✗ Couldn't open the report: {e}"),
+                t.err(),
+            )),
             Line::from(Span::styled(format!("   {}", view.path.display()), t.muted())),
         ])
         .wrap(Wrap { trim: false })
         .block(block);
         f.render_widget(msg, body);
-        footer(f, app, foot, &[("Esc", "назад")], true);
+        footer(f, app, foot, &[("Esc", tr!("назад", "back"))], true);
         return;
     }
 
@@ -198,9 +223,9 @@ pub fn view(f: &mut Frame, app: &mut App, area: Rect) {
         })
         .collect();
     let pos = if total <= view.page {
-        String::from("· увесь звіт ")
+        String::from(tr!("· увесь звіт ", "· whole report "))
     } else {
-        format!("· рядки {}–{} з {} ", first + 1, (first + view.page).min(total), total)
+        trf!("· рядки {}–{} з {} ", "· lines {}–{} of {} ", first + 1, (first + view.page).min(total), total)
     };
     let block = panel(&t, block_title(pos), true).padding(ratatui::widgets::Padding::horizontal(1));
     f.render_widget(Paragraph::new(visible).block(block), body);
@@ -210,11 +235,11 @@ pub fn view(f: &mut Frame, app: &mut App, area: Rect) {
         app,
         foot,
         &[
-            ("Esc", "назад"),
-            ("↑↓ PgUp PgDn", "прокрутка"),
-            ("n/p", "наступна/попередня проблема"),
-            ("c", "копіювати шлях"),
-            ("e", "відкрити в програмі"),
+            ("Esc", tr!("назад", "back")),
+            ("↑↓ PgUp PgDn", tr!("прокрутка", "scroll")),
+            ("n/p", tr!("наступна/попередня проблема", "next/previous problem")),
+            ("c", tr!("копіювати шлях", "copy path")),
+            ("e", tr!("відкрити в програмі", "open in an app")),
         ],
         true,
     );

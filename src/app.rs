@@ -65,188 +65,267 @@ pub enum Action {
 pub struct MenuItem {
     pub action: Action,
     pub icon: &'static str,
-    pub label: &'static str,
-    pub about: &'static str,
+    /// Назва, опис і тривалість: українською, англійською (див. `label()`, `about()`, `duration()`).
+    pub label: (&'static str, &'static str),
+    pub about: (&'static str, &'static str),
     pub sudo: bool,
     pub changes_system: bool,
-    pub duration: &'static str,
+    pub duration: (&'static str, &'static str),
     /// У розділі «Додатково» (згорнутий, поки його не відкрити).
     pub advanced: bool,
+}
+
+impl MenuItem {
+    pub fn label(&self) -> &'static str {
+        tr!(self.label.0, self.label.1)
+    }
+
+    pub fn about(&self) -> &'static str {
+        tr!(self.about.0, self.about.1)
+    }
+
+    pub fn duration(&self) -> &'static str {
+        tr!(self.duration.0, self.duration.1)
+    }
 }
 
 pub const MENU: &[MenuItem] = &[
     MenuItem {
         action: Action::Check,
         icon: "◎",
-        label: "Перевірити систему",
-        about: "Перевіряє драйвер, NVENC і пакети, завантажує вихідні коди OBS і CEF. Нічого не встановлює \
-                і не змінює.",
+        label: ("Перевірити систему", "Check system"),
+        about: (
+            "Перевіряє драйвер, NVENC і пакети, завантажує вихідні коди OBS і CEF. Нічого не встановлює \
+             і не змінює.",
+            "Checks the driver, NVENC and packages, downloads the OBS and CEF sources. Installs and changes \
+             nothing.",
+        ),
         sudo: false,
         changes_system: false,
-        duration: "5–15 хв (уперше довше)",
+        duration: ("5–15 хв (уперше довше)", "5–15 min (longer the first time)"),
         advanced: false,
     },
     MenuItem {
         action: Action::Install,
         icon: "▼",
-        label: "Встановити / оновити OBS",
-        about: "Збирає найновіший OBS з NVENC, Browser Source, вибраними плагінами й ffmpeg саме під цей \
-                комп'ютер, перевіряє NVENC і ставить пакети pacman (-legacy-580xx) у /usr. Попередній набір \
-                лишається для відкату.",
+        label: ("Встановити / оновити OBS", "Install / update OBS"),
+        about: (
+            "Збирає найновіший OBS з NVENC, Browser Source, вибраними плагінами й ffmpeg саме під цей \
+             комп'ютер, перевіряє NVENC і ставить пакети pacman (-legacy-580xx) у /usr. Попередній набір \
+             лишається для відкату.",
+            "Builds the latest OBS with NVENC, Browser Source, the selected plugins and ffmpeg for exactly \
+             this computer, checks NVENC and installs pacman packages (-legacy-580xx) into /usr. The previous \
+             set stays for rollback.",
+        ),
         sudo: true,
         changes_system: true,
-        duration: "30–90 хв, повторне — швидше",
+        duration: ("30–90 хв, повторне — швидше", "30–90 min, faster next time"),
         advanced: false,
     },
     MenuItem {
         action: Action::Launch,
         icon: "▶",
-        label: "Запустити OBS",
-        about: "Відкриває OBS з NVENC — те саме, що ярлик OBS у меню програм або команда obs.",
+        label: ("Запустити OBS", "Launch OBS"),
+        about: (
+            "Відкриває OBS з NVENC — те саме, що ярлик OBS у меню програм або команда obs.",
+            "Opens OBS with NVENC — the same as the OBS entry in the application menu or the obs command.",
+        ),
         sudo: false,
         changes_system: false,
-        duration: "",
+        duration: ("", ""),
         advanced: false,
     },
     MenuItem {
         action: Action::Plugins,
         icon: "⊕",
-        label: "Плагіни",
-        about: "Галочками обери, що зібрати разом з OBS. obs-multi-rtmp (стрім на кілька платформ) увімкнено \
-                типово. Плагіни оновлюються разом з OBS.",
+        label: ("Плагіни", "Plugins"),
+        about: (
+            "Галочками обери, що зібрати разом з OBS. obs-multi-rtmp (стрім на кілька платформ) увімкнено \
+             типово. Плагіни оновлюються разом з OBS.",
+            "Tick what to build together with OBS. obs-multi-rtmp (streaming to several platforms) is on by \
+             default. Plugins are updated together with OBS.",
+        ),
         sudo: false,
         changes_system: false,
-        duration: "",
+        duration: ("", ""),
         advanced: false,
     },
     MenuItem {
         action: Action::Status,
         icon: "≡",
-        label: "Стан і оновлення",
-        about: "Докладний звіт: активна збірка, плагіни, бібліотеки, нові версії OBS і плагінів.",
+        label: ("Стан і оновлення", "Status and updates"),
+        about: (
+            "Докладний звіт: активна збірка, плагіни, бібліотеки, нові версії OBS і плагінів.",
+            "A detailed report: the active build, plugins, libraries, new versions of OBS and plugins.",
+        ),
         sudo: false,
         changes_system: false,
-        duration: "до хвилини",
+        duration: ("до хвилини", "up to a minute"),
         advanced: true,
     },
     MenuItem {
         action: Action::Notify,
         icon: "◷",
-        label: "Сповіщення про оновлення",
-        about: "Раз на 12 годин у фоні перевіряє нові версії OBS, плагінів і самого OBS-Legacy, а після оновлень \
-                системи — чи власному OBS не бракує бібліотек. Про новини — сповіщення на робочому столі.",
+        label: ("Сповіщення про оновлення", "Update notifications"),
+        about: (
+            "Раз на 12 годин у фоні перевіряє нові версії OBS, плагінів і самого OBS-Legacy, а після оновлень \
+             системи — чи власному OBS не бракує бібліотек. Про новини — сповіщення на робочому столі.",
+            "Every 12 hours checks in the background for new versions of OBS, plugins and OBS-Legacy itself, \
+             and after system updates — whether your OBS is missing libraries. News arrive as desktop \
+             notifications.",
+        ),
         sudo: false,
         changes_system: false,
-        duration: "секунди",
+        duration: ("секунди", "seconds"),
         advanced: true,
     },
     MenuItem {
         action: Action::Reports,
         icon: "◫",
-        label: "Звіти",
-        about: "Усі попередні запуски: що вийшло, що пішло не так і що з цим робити. Звіт можна відкрити тут, \
-                у програмі для тексту або скопіювати шлях.",
+        label: ("Звіти", "Reports"),
+        about: (
+            "Усі попередні запуски: що вийшло, що пішло не так і що з цим робити. Звіт можна відкрити тут, \
+             у програмі для тексту або скопіювати шлях.",
+            "All previous runs: what worked, what went wrong and what to do about it. Open a report here, in a \
+             text app, or copy its path.",
+        ),
         sudo: false,
         changes_system: false,
-        duration: "",
+        duration: ("", ""),
         advanced: true,
     },
     MenuItem {
         action: Action::Rebuild,
         icon: "⊚",
-        label: "Перезібрати OBS",
-        about: "Збирає OBS і плагіни начисто (кеш збірки очищується) і ставить знову — навіть якщо нового \
-                немає. Коли потрібно: збирання обірвалося (вимкнулося світло, закрилося вікно), OBS \
-                поводиться дивно чи падає.",
+        label: ("Перезібрати OBS", "Rebuild OBS"),
+        about: (
+            "Збирає OBS і плагіни начисто (кеш збірки очищується) і ставить знову — навіть якщо нового \
+             немає. Коли потрібно: збирання обірвалося (вимкнулося світло, закрилося вікно), OBS \
+             поводиться дивно чи падає.",
+            "Builds OBS and plugins from scratch (the build cache is cleared) and installs them again — even \
+             if nothing is new. When needed: a build was cut off (power outage, closed window), or OBS behaves \
+             oddly or crashes.",
+        ),
         sudo: true,
         changes_system: true,
-        duration: "30–90 хв",
+        duration: ("30–90 хв", "30–90 min"),
         advanced: true,
     },
     MenuItem {
         action: Action::Rollback,
         icon: "↩",
-        label: "Відкат на іншу збірку",
-        about: "Ставить попередній набір пакетів OBS-Legacy через pacman, якщо нова версія поводиться гірше. \
-                Без перезбирання.",
+        label: ("Відкат на іншу збірку", "Roll back to another build"),
+        about: (
+            "Ставить попередній набір пакетів OBS-Legacy через pacman, якщо нова версія поводиться гірше. \
+             Без перезбирання.",
+            "Installs a previous set of OBS-Legacy packages with pacman if the new version behaves worse. \
+             No rebuild.",
+        ),
         sudo: true,
         changes_system: true,
-        duration: "до хвилини",
+        duration: ("до хвилини", "up to a minute"),
         advanced: true,
     },
     MenuItem {
         action: Action::Settings,
         icon: "◈",
-        label: "Налаштування",
-        about: "Версія OBS, під який процесор збирати, чи збирати ffmpeg, скільки наборів тримати, фон \
-                інтерфейсу та параметри для досвідчених. Діють і для скрипта без TUI.",
+        label: ("Налаштування", "Settings"),
+        about: (
+            "Версія OBS, під який процесор збирати, чи збирати ffmpeg, скільки наборів тримати, мова й фон \
+             інтерфейсу та параметри для досвідчених. Діють і для скрипта без TUI.",
+            "The OBS version, which CPU to tune for, whether to build ffmpeg, how many sets to keep, the \
+             interface language and background, and options for advanced users. They apply to the script \
+             without the TUI too.",
+        ),
         sudo: false,
         changes_system: false,
-        duration: "",
+        duration: ("", ""),
         advanced: true,
     },
     MenuItem {
         action: Action::SelfUpdate,
         icon: "↪",
-        label: "Оновити OBS-Legacy",
-        about: "Завантажує нову версію самої програми з GitHub (git pull) і перевстановлює її. Твій OBS \
-                не зміниться. Після оновлення перезапусти програму.",
+        label: ("Оновити OBS-Legacy", "Update OBS-Legacy"),
+        about: (
+            "Завантажує нову версію самої програми з GitHub (git pull) і перевстановлює її. Твій OBS \
+             не зміниться. Після оновлення перезапусти програму.",
+            "Downloads the new version of the program itself from GitHub (git pull) and reinstalls it. Your \
+             OBS stays as it is. Restart the program afterwards.",
+        ),
         sudo: false,
         changes_system: false,
-        duration: "1–3 хв",
+        duration: ("1–3 хв", "1–3 min"),
         advanced: true,
     },
     MenuItem {
         action: Action::Deps,
         icon: "⊞",
-        label: "Встановити пакети",
-        about: "Ставить через pacman лише пакети, потрібні для збірки OBS і вибраних плагінів (pacman сам \
-                додасть їхні залежності). Повне оновлення системи не запускається.",
+        label: ("Встановити пакети", "Install packages"),
+        about: (
+            "Ставить через pacman лише пакети, потрібні для збірки OBS і вибраних плагінів (pacman сам \
+             додасть їхні залежності). Повне оновлення системи не запускається.",
+            "Installs with pacman only the packages needed to build OBS and the selected plugins (pacman adds \
+             their dependencies itself). No full system update is run.",
+        ),
         sudo: true,
         changes_system: true,
-        duration: "1–5 хв",
+        duration: ("1–5 хв", "1–5 min"),
         advanced: true,
     },
     MenuItem {
         action: Action::Clean,
         icon: "⌫",
-        label: "Очистити кеш збірки",
-        about: "Видаляє проміжні файли збірки (кілька ГБ). Завантажені вихідні коди, архів CEF і набори \
-                пакетів для відкату лишаються.",
+        label: ("Очистити кеш збірки", "Clean the build cache"),
+        about: (
+            "Видаляє проміжні файли збірки (кілька ГБ). Завантажені вихідні коди, архів CEF і набори \
+             пакетів для відкату лишаються.",
+            "Deletes intermediate build files (several GB). The downloaded sources, the CEF archive and the \
+             package sets for rollback stay.",
+        ),
         sudo: false,
         changes_system: false,
-        duration: "секунди",
+        duration: ("секунди", "seconds"),
         advanced: true,
     },
     MenuItem {
         action: Action::Uninstall,
         icon: "✗",
-        label: "Видалити OBS-Legacy",
-        about: "Прибирає пакети OBS-Legacy (pacman -R; ffmpeg замінює системним з репозиторію) і залишки \
-                старої схеми в /opt. Налаштування OBS і кеш збірки не чіпає.",
+        label: ("Видалити OBS-Legacy", "Remove OBS-Legacy"),
+        about: (
+            "Прибирає пакети OBS-Legacy (pacman -R; ffmpeg замінює системним з репозиторію) і залишки \
+             старої схеми в /opt. Налаштування OBS і кеш збірки не чіпає.",
+            "Removes the OBS-Legacy packages (pacman -R; ffmpeg is replaced with the repository one) and \
+             leftovers of the old /opt scheme. OBS settings and the build cache are left alone.",
+        ),
         sudo: true,
         changes_system: true,
-        duration: "секунди",
+        duration: ("секунди", "seconds"),
         advanced: true,
     },
     MenuItem {
         action: Action::Help,
         icon: "?",
-        label: "Довідка",
-        about: "Як усе працює, клавіші, де лежать файли, що робити, якщо щось пішло не так, і хто це зробив.",
+        label: ("Довідка", "Help"),
+        about: (
+            "Як усе працює, клавіші, де лежать файли, що робити, якщо щось пішло не так, і хто це зробив.",
+            "How it all works, keys, where the files are, what to do if something goes wrong, and who made it.",
+        ),
         sudo: false,
         changes_system: false,
-        duration: "",
+        duration: ("", ""),
         advanced: false,
     },
     MenuItem {
         action: Action::Quit,
         icon: "×",
-        label: "Вихід",
-        about: "Закрити OBS-Legacy. Зібраний OBS лишається встановленим і запускається як завжди.",
+        label: ("Вихід", "Quit"),
+        about: (
+            "Закрити OBS-Legacy. Зібраний OBS лишається встановленим і запускається як завжди.",
+            "Close OBS-Legacy. The built OBS stays installed and starts as usual.",
+        ),
         sudo: false,
         changes_system: false,
-        duration: "",
+        duration: ("", ""),
         advanced: false,
     },
 ];
@@ -339,9 +418,9 @@ impl BuildMode {
 
     pub fn title(self) -> &'static str {
         match self {
-            BuildMode::Install => "Встановити OBS",
-            BuildMode::Update => "Оновити OBS",
-            BuildMode::Rebuild => "Перезібрати OBS",
+            BuildMode::Install => tr!("Встановити OBS", "Install OBS"),
+            BuildMode::Update => tr!("Оновити OBS", "Update OBS"),
+            BuildMode::Rebuild => tr!("Перезібрати OBS", "Rebuild OBS"),
         }
     }
 
@@ -928,11 +1007,17 @@ impl App {
         if let Some((success, cancelled, elapsed, action)) = finished {
             if elapsed > Duration::from_secs(60) {
                 bell();
-                let label = menu_item(action).label;
+                let label = menu_item(action).label();
                 if success {
-                    notify_desktop("OBS-Legacy", &format!("{label}: готово ✓"));
+                    notify_desktop("OBS-Legacy", &trf!("{label}: готово ✓", "{label}: done ✓"));
                 } else if !cancelled {
-                    notify_desktop("OBS-Legacy", &format!("{label}: помилка — що робити, підкаже OBS-Legacy"));
+                    notify_desktop(
+                        "OBS-Legacy",
+                        &trf!(
+                            "{label}: помилка — що робити, підкаже OBS-Legacy",
+                            "{label}: error — OBS-Legacy will tell you what to do"
+                        ),
+                    );
                 }
             }
             // Після завершення курсор у меню знову ставиться на пораду.
@@ -979,21 +1064,34 @@ impl App {
             Action::Deps => {
                 let missing = self.missing_packages.clone().unwrap_or_default();
                 let what = if missing.is_empty() {
-                    "Скрипт перевірить, чи всі пакети для збірки на місці, і поставить ті, яких бракує.".to_string()
+                    tr!(
+                        "Скрипт перевірить, чи всі пакети для збірки на місці, і поставить ті, яких бракує.",
+                        "The script checks that all build dependencies are in place and installs the missing ones."
+                    )
+                    .to_string()
                 } else {
-                    format!("Буде встановлено: {}.", missing.join(" "))
+                    let list = missing.join(" ");
+                    trf!("Буде встановлено: {list}.", "To be installed: {list}.")
                 };
                 self.dialog = Some(Dialog {
-                    title: "Встановити пакети для збірки?".into(),
+                    title: tr!("Встановити пакети для збірки?", "Install the build dependencies?").into(),
                     lines: vec![
                         what,
                         String::new(),
-                        "Лише ці пакети через pacman -S --needed (залежності pacman додасть сам), без оновлення \
-                         системи."
-                            .into(),
-                        "Скрипт ще раз спитає y/n, а пароль sudo/doas вводь прямо у вікні виводу.".into(),
+                        tr!(
+                            "Лише ці пакети через pacman -S --needed (залежності pacman додасть сам), без оновлення \
+                             системи.",
+                            "Only these packages, with pacman -S --needed (pacman adds the dependencies itself), \
+                             without a system update."
+                        )
+                        .into(),
+                        tr!(
+                            "Скрипт ще раз спитає y/n, а пароль sudo/doas вводь прямо у вікні виводу.",
+                            "The script asks y/n once more; type your sudo/doas password right in the output window."
+                        )
+                        .into(),
                     ],
-                    confirm: "Встановити",
+                    confirm: tr!("Встановити", "Install"),
                     danger: false,
                     alt: None,
                     action: DialogAction::Run(Action::Deps),
@@ -1026,19 +1124,32 @@ impl App {
             }
             Action::Uninstall => {
                 self.dialog = Some(Dialog {
-                    title: "Видалити OBS-Legacy?".into(),
+                    title: tr!("Видалити OBS-Legacy?", "Remove OBS-Legacy?").into(),
                     lines: vec![
-                        "Буде прибрано пакети *-legacy-580xx (OBS і плагіни) через pacman -R, а \
-                         ffmpeg-legacy-580xx заміниться системним ffmpeg з репозиторію. Залишки старої схеми \
-                         (/opt/obs-studio-nvenc, /usr/local/bin/obs) теж приберуться."
-                            .into(),
-                        "Налаштування OBS (~/.config/obs-studio), кеш збірки й набори пакетів лишаться. \
-                         Звичайний OBS потім: sudo pacman -S obs-studio."
-                            .into(),
+                        tr!(
+                            "Буде прибрано пакети *-legacy-580xx (OBS і плагіни) через pacman -R, а \
+                             ffmpeg-legacy-580xx заміниться системним ffmpeg з репозиторію. Залишки старої схеми \
+                             (/opt/obs-studio-nvenc, /usr/local/bin/obs) теж приберуться.",
+                            "The *-legacy-580xx packages (OBS and plugins) are removed with pacman -R, and \
+                             ffmpeg-legacy-580xx is replaced with the system ffmpeg from the repository. Leftovers of \
+                             the old layout (/opt/obs-studio-nvenc, /usr/local/bin/obs) are removed too."
+                        )
+                        .into(),
+                        tr!(
+                            "Налаштування OBS (~/.config/obs-studio), кеш збірки й набори пакетів лишаться. \
+                             Звичайний OBS потім: sudo pacman -S obs-studio.",
+                            "OBS settings (~/.config/obs-studio), the build cache and the package sets stay. The \
+                             regular OBS afterwards: sudo pacman -S obs-studio."
+                        )
+                        .into(),
                         String::new(),
-                        "Скрипт ще раз запитає підтвердження у вікні виводу.".into(),
+                        tr!(
+                            "Скрипт ще раз запитає підтвердження у вікні виводу.",
+                            "The script asks for confirmation once more in the output window."
+                        )
+                        .into(),
                     ],
-                    confirm: "Продовжити",
+                    confirm: tr!("Продовжити", "Continue"),
                     danger: true,
                     alt: None,
                     action: DialogAction::Run(Action::Uninstall),
@@ -1047,12 +1158,16 @@ impl App {
             Action::SelfUpdate => {
                 if let Some(dir) = self.self_update_src.clone() {
                     self.dialog = Some(Dialog {
-                        title: "Оновити OBS-Legacy?".into(),
+                        title: tr!("Оновити OBS-Legacy?", "Update OBS-Legacy?").into(),
                         lines: vec![
-                            format!("git pull у {}", short_path(&dir)),
-                            "і перевстановлення програми (cargo build). Твій OBS і налаштування не зміняться.".into(),
+                            trf!("git pull у {}", "git pull in {}", short_path(&dir)),
+                            tr!(
+                                "і перевстановлення програми (cargo build). Твій OBS і налаштування не зміняться.",
+                                "and reinstalling the program (cargo build). Your OBS and settings stay as they are."
+                            )
+                            .into(),
                         ],
-                        confirm: "Оновити",
+                        confirm: tr!("Оновити", "Update"),
                         danger: false,
                         alt: None,
                         action: DialogAction::Run(Action::SelfUpdate),
@@ -1099,9 +1214,11 @@ impl App {
                 if let Some(dir) = self.self_update_src.clone() {
                     let args = vec![
                         "-c".to_string(),
-                        "set -e; cd \"$1\"; echo \"==> git pull ($1)\"; git pull --ff-only; \
-                         echo '==> Перевстановлення OBS-Legacy'; exec ./install.sh --update"
-                            .to_string(),
+                        format!(
+                            "set -e; cd \"$1\"; echo \"==> git pull ($1)\"; git pull --ff-only; \
+                             echo '==> {}'; exec ./install.sh --update",
+                            tr!("Перевстановлення OBS-Legacy", "Reinstalling OBS-Legacy")
+                        ),
                         "obs-legacy-update".to_string(),
                         dir.display().to_string(),
                     ];
@@ -1117,17 +1234,24 @@ impl App {
                     && let Some(run) = self.run.as_mut()
                 {
                     run.title = if enable {
-                        "Увімкнути сповіщення"
+                        tr!("Увімкнути сповіщення", "Turn on notifications")
                     } else {
-                        "Вимкнути сповіщення"
+                        tr!("Вимкнути сповіщення", "Turn off notifications")
                     }
                     .into();
                     run.next = Some(
                         if enable {
-                            "Перевірка працює у фоні — OBS-Legacy можна закрити. Про нові версії OBS і плагінів \
-                             прийде сповіщення."
+                            tr!(
+                                "Перевірка працює у фоні — OBS-Legacy можна закрити. Про нові версії OBS і плагінів \
+                                 прийде сповіщення.",
+                                "The check runs in the background — you can close OBS-Legacy. New versions of OBS \
+                                 and plugins arrive as notifications."
+                            )
                         } else {
-                            "Сповіщень більше не буде. Увімкнути знову: «Додатково → Сповіщення про оновлення»."
+                            tr!(
+                                "Сповіщень більше не буде. Увімкнути знову: «Додатково → Сповіщення про оновлення».",
+                                "No more notifications. To turn them back on: “More → Update notifications”."
+                            )
                         }
                         .into(),
                     );
@@ -1164,39 +1288,67 @@ impl App {
     fn install_dialog(&mut self) {
         let plugins = self.settings.plugins();
         let obs_ref = self.settings.get("OBS_REF");
-        let plugins_line =
-            format!("Плагіни: {}", if plugins.is_empty() { "без плагінів".to_string() } else { plugins.join(", ") });
-        let ffmpeg_line = if self.settings.get("BUILD_FFMPEG") == "0" {
-            "ffmpeg: системний (збирання вимкнено в Налаштуваннях)".to_string()
+        let list = if plugins.is_empty() {
+            tr!("без плагінів", "no plugins").to_string()
         } else {
-            "ffmpeg: власний ffmpeg-legacy-580xx з NVENC (перезбирається, лише коли в репозиторії вийшов новий \
-             ffmpeg)"
-                .to_string()
+            plugins.join(", ")
         };
-        let pacman_line = "Пакети *-legacy-580xx ставляться через pacman у /usr. pacman сам спитає, чи замінити \
-                           obs-studio (чи obs-studio-git), ffmpeg і ті самі плагіни з AUR, — відповідай y.";
-        let time_line = "Збирання триває від 30 хв до години й більше (уперше з ffmpeg — довше). Пароль sudo/doas \
-                         і відповіді y/n вводь прямо у вікні виводу — програма підкаже, коли.";
+        let plugins_line = trf!("Плагіни: {list}", "Plugins: {list}");
+        let ffmpeg_line = if self.settings.get("BUILD_FFMPEG") == "0" {
+            tr!(
+                "ffmpeg: системний (збирання вимкнено в Налаштуваннях)",
+                "ffmpeg: the system one (building is off in Settings)"
+            )
+            .to_string()
+        } else {
+            tr!(
+                "ffmpeg: власний ffmpeg-legacy-580xx з NVENC (перезбирається, лише коли в репозиторії вийшов новий \
+                 ffmpeg)",
+                "ffmpeg: our own ffmpeg-legacy-580xx with NVENC (rebuilt only when the repository has a new ffmpeg)"
+            )
+            .to_string()
+        };
+        let pacman_line = tr!(
+            "Пакети *-legacy-580xx ставляться через pacman у /usr. pacman сам спитає, чи замінити \
+             obs-studio (чи obs-studio-git), ffmpeg і ті самі плагіни з AUR, — відповідай y.",
+            "The *-legacy-580xx packages are installed with pacman into /usr. pacman asks itself whether to replace \
+             obs-studio (or obs-studio-git), ffmpeg and the same plugins from the AUR — answer y."
+        );
+        let time_line = tr!(
+            "Збирання триває від 30 хв до години й більше (уперше з ffmpeg — довше). Пароль sudo/doas \
+             і відповіді y/n вводь прямо у вікні виводу — програма підкаже, коли.",
+            "The build takes from 30 minutes to an hour or more (longer the first time, with ffmpeg). Type your \
+             sudo/doas password and y/n answers right in the output window — the program tells you when."
+        );
         let installed =
             self.sys.as_ref().and_then(SysInfo::active_build).map(|b| (b.obs_version().to_string(), b.built()));
         let Some((version, built)) = installed else {
-            let version =
-                if obs_ref == "stable" { "найновіша стабільна".to_string() } else { obs_ref };
+            let version = if obs_ref == "stable" {
+                tr!("найновіша стабільна", "the latest stable").to_string()
+            } else {
+                obs_ref
+            };
             // Минуле збирання обірвалося чи впало — можна одразу начисто.
-            let alt =
-                self.last_build_broken().then_some(("Перезібрати начисто", DialogAction::Build(BuildMode::Rebuild)));
+            let alt = self.last_build_broken().then_some((
+                tr!("Перезібрати начисто", "Rebuild from scratch"),
+                DialogAction::Build(BuildMode::Rebuild),
+            ));
             self.dialog = Some(Dialog {
-                title: "Зібрати і встановити OBS?".into(),
+                title: tr!("Зібрати і встановити OBS?", "Build and install OBS?").into(),
                 lines: vec![
-                    format!("Версія OBS: {version}"),
+                    trf!("Версія OBS: {version}", "OBS version: {version}"),
                     plugins_line,
                     ffmpeg_line,
                     String::new(),
                     pacman_line.into(),
                     time_line.into(),
-                    "Поточний OBS не зміниться, доки нова збірка не пройде всі перевірки.".into(),
+                    tr!(
+                        "Поточний OBS не зміниться, доки нова збірка не пройде всі перевірки.",
+                        "Your current OBS doesn't change until the new build passes every check."
+                    )
+                    .into(),
                 ],
-                confirm: "Почати",
+                confirm: tr!("Почати", "Start"),
                 danger: false,
                 alt,
                 action: DialogAction::Build(BuildMode::Install),
@@ -1204,48 +1356,67 @@ impl App {
             return;
         };
         let mut lines = vec![if built.is_empty() {
-            format!("Встановлено: OBS {version}")
+            trf!("Встановлено: OBS {version}", "Installed: OBS {version}")
         } else {
-            format!("Встановлено: OBS {version} (зібрано {built})")
+            trf!("Встановлено: OBS {version} (зібрано {built})", "Installed: OBS {version} (built {built})")
         }];
         let facts = self.facts();
         match facts.as_ref() {
-            Some(f) if f.obs_update().is_some() => {
-                lines.push(format!("Найновіший: OBS {} — його й буде зібрано.", f.obs_update().unwrap_or_default()))
-            }
-            Some(f) if f.obs_latest.is_some() && f.obs_pinned.is_none() => lines.push(format!(
+            Some(f) if f.obs_update().is_some() => lines.push(trf!(
+                "Найновіший: OBS {} — його й буде зібрано.",
+                "The latest: OBS {} — that is what will be built.",
+                f.obs_update().unwrap_or_default()
+            )),
+            Some(f) if f.obs_latest.is_some() && f.obs_pinned.is_none() => lines.push(trf!(
                 "OBS {version} — уже найновіший. «Оновити» перевірить плагіни й ffmpeg і збиратиме, лише якщо є що \
-                 оновлювати."
+                 оновлювати.",
+                "OBS {version} is already the latest. “Update” checks plugins and ffmpeg and builds only if there \
+                 is something to update."
             )),
             _ => lines.push(
-                "«Оновити» спершу перевірить, що нового (OBS, плагіни, ffmpeg), і збиратиме, лише якщо є що \
-                 оновлювати."
-                    .into(),
+                tr!(
+                    "«Оновити» спершу перевірить, що нового (OBS, плагіни, ffmpeg), і збиратиме, лише якщо є що \
+                     оновлювати.",
+                    "“Update” first checks what is new (OBS, plugins, ffmpeg) and builds only if there is something \
+                     to update."
+                )
+                .into(),
             ),
         }
         if obs_ref != "stable" {
-            lines.push(format!("Версію OBS зафіксовано: {obs_ref} (Налаштування → «Версія OBS»)."));
+            lines.push(trf!(
+                "Версію OBS зафіксовано: {obs_ref} (Налаштування → «Версія OBS»).",
+                "The OBS version is pinned: {obs_ref} (Settings → “OBS version”)."
+            ));
         }
         if let Some(f) = facts.as_ref()
             && !f.plugin_updates.is_empty()
         {
-            lines.push(format!("Нові версії плагінів: {}.", updates::plugin_list(&f.plugin_updates)));
+            lines.push(trf!(
+                "Нові версії плагінів: {}.",
+                "New plugin versions: {}.",
+                updates::plugin_list(&f.plugin_updates)
+            ));
         }
         lines.push(plugins_line);
         lines.push(ffmpeg_line);
         lines.push(String::new());
         lines.push(
-            "«Перезібрати» (R) — зібрати все начисто й поставити знову, навіть якщо нового немає: коли минуле \
-             збирання обірвалося (вимкнулося світло, закрилося вікно) чи OBS поводиться дивно."
-                .into(),
+            tr!(
+                "«Перезібрати» (R) — зібрати все начисто й поставити знову, навіть якщо нового немає: коли минуле \
+                 збирання обірвалося (вимкнулося світло, закрилося вікно) чи OBS поводиться дивно.",
+                "“Rebuild” (R) — build everything from scratch and install it again, even if nothing is new: when \
+                 the last build was cut off (power outage, closed window) or OBS behaves oddly."
+            )
+            .into(),
         );
         lines.push(pacman_line.into());
         self.dialog = Some(Dialog {
-            title: "Оновити OBS?".into(),
+            title: tr!("Оновити OBS?", "Update OBS?").into(),
             lines,
-            confirm: "Оновити",
+            confirm: tr!("Оновити", "Update"),
             danger: false,
-            alt: Some(("Перезібрати", DialogAction::Build(BuildMode::Rebuild))),
+            alt: Some((tr!("Перезібрати", "Rebuild"), DialogAction::Build(BuildMode::Rebuild))),
             action: DialogAction::Build(BuildMode::Update),
         });
     }
@@ -1254,28 +1425,44 @@ impl App {
     fn rebuild_dialog(&mut self) {
         let mut lines = Vec::new();
         if let Some(b) = self.sys.as_ref().and_then(SysInfo::active_build) {
-            lines.push(format!(
+            lines.push(trf!(
                 "Встановлено: OBS {}. Версії — як для оновлення: найновіші, якщо в Налаштуваннях не зафіксовано \
                  інших.",
+                "Installed: OBS {}. Versions are as for an update: the latest, unless others are pinned in \
+                 Settings.",
                 b.obs_version()
             ));
         }
         lines.push(
-            "Збере OBS і плагіни з нуля: кеш збірки OBS очищується, застарілі блокування git після обірваного \
-             збирання прибираються. Потім — ті самі перевірки NVENC і бібліотек і встановлення через pacman."
-                .into(),
+            tr!(
+                "Збере OBS і плагіни з нуля: кеш збірки OBS очищується, застарілі блокування git після обірваного \
+                 збирання прибираються. Потім — ті самі перевірки NVENC і бібліотек і встановлення через pacman.",
+                "Builds OBS and plugins from scratch: the OBS build cache is cleared, stale git locks from a cut-off \
+                 build are removed. Then the same NVENC and library checks and installation with pacman."
+            )
+            .into(),
         );
         lines.push(String::new());
         lines.push(
-            "Коли потрібно: збирання обірвалося (вимкнулося світло, закрилося вікно), OBS поводиться дивно чи \
-             падає. Для звичайного оновлення досить «Оновити»."
-                .into(),
+            tr!(
+                "Коли потрібно: збирання обірвалося (вимкнулося світло, закрилося вікно), OBS поводиться дивно чи \
+                 падає. Для звичайного оновлення досить «Оновити».",
+                "When needed: a build was cut off (power outage, closed window), or OBS behaves oddly or crashes. \
+                 For a regular update, “Update” is enough."
+            )
+            .into(),
         );
-        lines.push("Довше, ніж оновлення: 30–90 хв, бо все компілюється з нуля.".into());
+        lines.push(
+            tr!(
+                "Довше, ніж оновлення: 30–90 хв, бо все компілюється з нуля.",
+                "Takes longer than an update: 30–90 min, as everything is compiled from scratch."
+            )
+            .into(),
+        );
         self.dialog = Some(Dialog {
-            title: "Перезібрати OBS начисто?".into(),
+            title: tr!("Перезібрати OBS начисто?", "Rebuild OBS from scratch?").into(),
             lines,
-            confirm: "Перезібрати",
+            confirm: tr!("Перезібрати", "Rebuild"),
             danger: false,
             alt: None,
             action: DialogAction::Build(BuildMode::Rebuild),
@@ -1286,28 +1473,49 @@ impl App {
     fn notifier_dialog(&mut self) {
         let st = service::status();
         let mut lines = vec![
-            "Раз на 12 годин OBS-Legacy у фоні перевіряє, чи вийшли нові версії OBS, плагінів і самої \
-             програми, а після оновлень системи — чи власному OBS не бракує бібліотек. Про кожну новину — одне \
-             сповіщення на робочому столі; клацання по ньому відкриває OBS-Legacy."
-                .to_string(),
+            tr!(
+                "Раз на 12 годин OBS-Legacy у фоні перевіряє, чи вийшли нові версії OBS, плагінів і самої \
+                 програми, а після оновлень системи — чи власному OBS не бракує бібліотек. Про кожну новину — одне \
+                 сповіщення на робочому столі; клацання по ньому відкриває OBS-Legacy.",
+                "Every 12 hours OBS-Legacy checks in the background for new versions of OBS, plugins and the program \
+                 itself, and after system updates — whether your OBS is missing libraries. Each piece of news is one \
+                 desktop notification; clicking it opens OBS-Legacy."
+            )
+            .to_string(),
             String::new(),
         ];
         let (title, confirm, enable) = match st.installed.first() {
             Some(p) => {
-                let state = if st.running.is_some() { "працює" } else { "зараз не працює" };
-                lines.push(format!("Увімкнено: {} ({}), {state}.", p.backend.label(), p.shown()));
+                let state = if st.running.is_some() {
+                    tr!("працює", "running")
+                } else {
+                    tr!("зараз не працює", "not running now")
+                };
+                let (backend, shown) = (p.backend.label(), p.shown());
+                lines.push(trf!("Увімкнено: {backend} ({shown}), {state}.", "On: {backend} ({shown}), {state}."));
                 lines.extend(st.last_line().map(|l| format!("{l}.")));
-                ("Сповіщення про оновлення", "Вимкнути", false)
+                (tr!("Сповіщення про оновлення", "Update notifications"), tr!("Вимкнути", "Turn off"), false)
             }
             None => {
                 if let Some(best) = service::available().first() {
-                    lines.push(format!(
+                    lines.push(trf!(
                         "Перевірку запускатиме {} — це підходить для твоєї системи. OBS-Legacy можна закривати.",
+                        "The check will run via the {} — that suits your system. You can close OBS-Legacy.",
                         best.backend.label()
                     ));
                 }
-                lines.push("Мережа потрібна лише для коротких запитів до GitHub (git ls-remote).".into());
-                ("Увімкнути сповіщення про оновлення?", "Увімкнути", true)
+                lines.push(
+                    tr!(
+                        "Мережа потрібна лише для коротких запитів до GitHub (git ls-remote).",
+                        "The network is needed only for short requests to GitHub (git ls-remote)."
+                    )
+                    .into(),
+                );
+                (
+                    tr!("Увімкнути сповіщення про оновлення?", "Turn on update notifications?"),
+                    tr!("Увімкнути", "Turn on"),
+                    true,
+                )
             }
         };
         self.dialog = Some(Dialog {
@@ -1331,13 +1539,17 @@ impl App {
     fn start_job(&mut self, action: Action, program: &str, args: Vec<String>) -> bool {
         if self.run.as_ref().is_some_and(|r| r.job.running()) {
             self.screen = Screen::Run;
-            self.toast(ToastKind::Warn, "Спершу дочекайся завершення поточного завдання.");
+            self.toast(
+                ToastKind::Warn,
+                tr!("Спершу дочекайся завершення поточного завдання.", "Wait for the current task to finish first."),
+            );
             return false;
         }
         let (cols, rows) = ratatui::crossterm::terminal::size().unwrap_or((120, 36));
         let env = [
             ("OBS_LEGACY_TUI", "1".to_string()),
             ("OBS_LEGACY_SETTINGS", settings::settings_path().display().to_string()),
+            ("OBS_LEGACY_LANG", crate::i18n::lang().code().to_string()),
         ];
         match Job::spawn(
             program,
@@ -1352,7 +1564,7 @@ impl App {
                 self.run = Some(RunState {
                     job,
                     action,
-                    title: item.label.to_string(),
+                    title: item.label().to_string(),
                     scroll: 0,
                     output_area: Rect::default(),
                     ctrl_c_at: None,
@@ -1365,7 +1577,7 @@ impl App {
                 true
             }
             Err(e) => {
-                self.toast(ToastKind::Err, format!("Не вдалося запустити: {e:#}"));
+                self.toast(ToastKind::Err, trf!("Не вдалося запустити: {e:#}", "Couldn't start: {e:#}"));
                 false
             }
         }
@@ -1376,12 +1588,20 @@ impl App {
         let installed = self.sys.as_ref().is_some_and(|s| s.active_build().is_some());
         if !installed && !anyway {
             self.dialog = Some(Dialog {
-                title: "OBS-Legacy ще не встановлено".into(),
+                title: tr!("OBS-Legacy ще не встановлено", "OBS-Legacy isn't installed yet").into(),
                 lines: vec![
-                    "Зараз команда obs запустить системний OBS — без NVENC на драйвері 580xx.".into(),
-                    "Щоб отримати OBS з NVENC, спершу обери «Встановити / оновити OBS».".into(),
+                    tr!(
+                        "Зараз команда obs запустить системний OBS — без NVENC на драйвері 580xx.",
+                        "Right now the obs command starts the system OBS — without NVENC on the 580xx driver."
+                    )
+                    .into(),
+                    tr!(
+                        "Щоб отримати OBS з NVENC, спершу обери «Встановити / оновити OBS».",
+                        "To get OBS with NVENC, choose “Install / update OBS” first."
+                    )
+                    .into(),
                 ],
-                confirm: "Усе одно запустити",
+                confirm: tr!("Усе одно запустити", "Launch anyway"),
                 danger: false,
                 alt: None,
                 action: DialogAction::LaunchSystemObs,
@@ -1389,7 +1609,13 @@ impl App {
             return;
         }
         let Some(obs) = system::find_in_path("obs") else {
-            self.toast(ToastKind::Err, "Команду obs не знайдено — спершу «Встановити / оновити OBS».");
+            self.toast(
+                ToastKind::Err,
+                tr!(
+                    "Команду obs не знайдено — спершу «Встановити / оновити OBS».",
+                    "The obs command isn't found — choose “Install / update OBS” first."
+                ),
+            );
             return;
         };
         let mut cmd = Command::new(&obs);
@@ -1402,8 +1628,8 @@ impl App {
             });
         }
         match cmd.spawn() {
-            Ok(_) => self.toast(ToastKind::Ok, format!("OBS запускається ({})…", obs.display())),
-            Err(e) => self.toast(ToastKind::Err, format!("Не вдалося запустити OBS: {e}")),
+            Ok(_) => self.toast(ToastKind::Ok, trf!("OBS запускається ({})…", "OBS is starting ({})…", obs.display())),
+            Err(e) => self.toast(ToastKind::Err, trf!("Не вдалося запустити OBS: {e}", "Couldn't start OBS: {e}")),
         }
     }
 
@@ -1461,25 +1687,25 @@ impl App {
 
     fn copy_report_path(&mut self) {
         let Some(path) = self.current_report() else {
-            self.toast(ToastKind::Info, "Звіту ще немає.");
+            self.toast(ToastKind::Info, tr!("Звіту ще немає.", "No report yet."));
             return;
         };
         let text = path.display().to_string();
         match desktop::copy(&text) {
-            Ok(()) => self.toast(ToastKind::Ok, format!("Шлях скопійовано: {}", short_path(&path))),
-            Err(e) => self.toast(ToastKind::Err, format!("Не вдалося скопіювати: {e:#}")),
+            Ok(()) => self.toast(ToastKind::Ok, trf!("Шлях скопійовано: {}", "Path copied: {}", short_path(&path))),
+            Err(e) => self.toast(ToastKind::Err, trf!("Не вдалося скопіювати: {e:#}", "Couldn't copy: {e:#}")),
         }
     }
 
     fn open_report_externally(&mut self, folder: bool) {
         let Some(path) = self.current_report() else {
-            self.toast(ToastKind::Info, "Звіту ще немає.");
+            self.toast(ToastKind::Info, tr!("Звіту ще немає.", "No report yet."));
             return;
         };
         let target = if folder { path.parent().map(PathBuf::from).unwrap_or(path) } else { path };
         match desktop::open(&target) {
-            Ok(()) => self.toast(ToastKind::Ok, format!("Відкриваю {}…", short_path(&target))),
-            Err(e) => self.toast(ToastKind::Err, format!("Не вдалося відкрити: {e:#}")),
+            Ok(()) => self.toast(ToastKind::Ok, trf!("Відкриваю {}…", "Opening {}…", short_path(&target))),
+            Err(e) => self.toast(ToastKind::Err, trf!("Не вдалося відкрити: {e:#}", "Couldn't open: {e:#}")),
         }
     }
 
@@ -1487,7 +1713,7 @@ impl App {
     fn view_current_report(&mut self) {
         match self.current_report() {
             Some(path) => self.open_report(path, self.screen),
-            None => self.toast(ToastKind::Info, "Звіту ще немає."),
+            None => self.toast(ToastKind::Info, tr!("Звіту ще немає.", "No report yet.")),
         }
     }
 
@@ -1520,11 +1746,12 @@ impl App {
         if self.dialog.is_some() {
             match k.code {
                 KeyCode::Enter => self.confirm_dialog(),
-                KeyCode::Char('y' | 'Y' | 'т' | 'Т') => self.confirm_dialog(),
+                // Як і решта скорочень — за розташуванням клавіш: в українській розкладці на Y — «н», на N — «т».
+                KeyCode::Char('y' | 'Y' | 'н' | 'Н') => self.confirm_dialog(),
                 KeyCode::Char('r' | 'R' | 'к' | 'К') if self.dialog.as_ref().is_some_and(|d| d.alt.is_some()) => {
                     self.alt_dialog()
                 }
-                KeyCode::Esc | KeyCode::Char('n' | 'N' | 'q' | 'н' | 'Н') => self.dialog = None,
+                KeyCode::Esc | KeyCode::Char('n' | 'N' | 'q' | 'т' | 'Т' | 'й') => self.dialog = None,
                 _ => {}
             }
             return;
@@ -1576,7 +1803,7 @@ impl App {
             KeyCode::Char('?') | KeyCode::F(1) => self.activate(Action::Help),
             KeyCode::Char('r' | 'к') | KeyCode::F(5) => {
                 self.refresh();
-                self.toast(ToastKind::Info, "Оновлюю відомості…");
+                self.toast(ToastKind::Info, tr!("Оновлюю відомості…", "Refreshing…"));
                 touched = false;
             }
             // Esc спершу згортає «Додатково», а вже потім закриває програму.
@@ -1639,15 +1866,24 @@ impl App {
             if armed && run.interrupted {
                 run.job.kill();
                 run.ctrl_c_at = None;
-                self.toast(ToastKind::Warn, "Завдання примусово зупинено.");
+                self.toast(ToastKind::Warn, tr!("Завдання примусово зупинено.", "The task was killed."));
             } else if armed {
                 run.job.interrupt();
                 run.interrupted = true;
                 run.ctrl_c_at = Some(now);
-                self.toast(ToastKind::Warn, "Надіслано Ctrl+C. Якщо скрипт не зупиниться — ще двічі Ctrl+C.");
+                self.toast(
+                    ToastKind::Warn,
+                    tr!(
+                        "Надіслано Ctrl+C. Якщо скрипт не зупиниться — ще двічі Ctrl+C.",
+                        "Ctrl+C sent. If the script doesn't stop — press Ctrl+C twice more."
+                    ),
+                );
             } else {
                 run.ctrl_c_at = Some(now);
-                self.toast(ToastKind::Warn, "Натисни Ctrl+C ще раз, щоб перервати завдання.");
+                self.toast(
+                    ToastKind::Warn,
+                    tr!("Натисни Ctrl+C ще раз, щоб перервати завдання.", "Press Ctrl+C again to interrupt the task."),
+                );
             }
             return;
         }
@@ -1658,7 +1894,10 @@ impl App {
             KeyCode::Down => run.scroll = run.scroll.saturating_sub(1),
             KeyCode::Home => run.scroll = usize::MAX / 2,
             KeyCode::End => run.scroll = 0,
-            KeyCode::Esc => self.toast(ToastKind::Info, "Завдання ще працює. Перервати — Ctrl+C."),
+            KeyCode::Esc => self.toast(
+                ToastKind::Info,
+                tr!("Завдання ще працює. Перервати — Ctrl+C.", "The task is still running. To interrupt — Ctrl+C."),
+            ),
             KeyCode::Left | KeyCode::Right | KeyCode::Delete | KeyCode::Insert | KeyCode::BackTab => {}
             _ => {
                 if let Some(bytes) = key_to_bytes(&k) {
@@ -1713,8 +1952,17 @@ impl App {
         };
         self.settings.set_plugins(&ordered);
         match self.settings.save() {
-            Ok(()) => self.toast(ToastKind::Ok, "Збережено — застосується при наступному «Встановити / оновити OBS»."),
-            Err(e) => self.toast(ToastKind::Err, format!("Не вдалося зберегти налаштування: {e}")),
+            Ok(()) => self.toast(
+                ToastKind::Ok,
+                tr!(
+                    "Збережено — застосується при наступному «Встановити / оновити OBS».",
+                    "Saved — takes effect with the next “Install / update OBS”."
+                ),
+            ),
+            Err(e) => self.toast(
+                ToastKind::Err,
+                trf!("Не вдалося зберегти налаштування: {e}", "Couldn't save the settings: {e}"),
+            ),
         }
     }
 
@@ -1732,9 +1980,15 @@ impl App {
     fn rollback_to(&mut self, i: usize) {
         let Some(b) = self.builds.get(i) else { return };
         if b.active {
-            self.toast(ToastKind::Info, "Ця збірка вже активна.");
+            self.toast(ToastKind::Info, tr!("Ця збірка вже активна.", "This build is already active."));
         } else if !b.complete {
-            self.toast(ToastKind::Warn, "Ця збірка неповна — на неї не можна перемкнутися.");
+            self.toast(
+                ToastKind::Warn,
+                tr!(
+                    "Ця збірка неповна — на неї не можна перемкнутися.",
+                    "This build is incomplete — you can't switch to it."
+                ),
+            );
         } else {
             let label = b.label.clone();
             self.start_script(Action::Rollback, &["rollback", &label]);
@@ -1794,14 +2048,21 @@ impl App {
             Ok(()) => {
                 self.editor = None;
                 self.settings_error = None;
-                self.toast(ToastKind::Ok, format!("{}: збережено", f.label));
+                // Мова — одразу, щоб і підтвердження вже було нею.
+                if f.key == "UI_LANG" {
+                    crate::i18n::set(self.settings.ui_lang());
+                }
+                let label = f.label();
+                self.toast(ToastKind::Ok, trf!("{label}: збережено", "{label}: saved"));
                 match f.key {
                     "NV_HEADERS_TAG" => self.refresh(),
                     "UI_BACKGROUND" => self.theme = Theme::detect(self.settings.solid_background()),
+                    // Описи плагінів дає скрипт — тією мовою, яку йому передали.
+                    "UI_LANG" => self.spawn_catalog(),
                     _ => {}
                 }
             }
-            Err(e) => self.settings_error = Some(format!("не вдалося зберегти: {e}")),
+            Err(e) => self.settings_error = Some(trf!("не вдалося зберегти: {e}", "couldn't save: {e}")),
         }
     }
 
@@ -1847,7 +2108,13 @@ impl App {
             KeyCode::End | KeyCode::Char('G') => view.scroll = view.max_scroll(),
             KeyCode::Char(c @ ('n' | 'p' | 'т' | 'з')) => {
                 if !view.jump_problem(matches!(c, 'n' | 'т')) {
-                    self.toast(ToastKind::Info, "Більше попереджень і помилок у цьому напрямку немає.");
+                    self.toast(
+                        ToastKind::Info,
+                        tr!(
+                            "Більше попереджень і помилок у цьому напрямку немає.",
+                            "No more warnings or errors in this direction."
+                        ),
+                    );
                 }
             }
             KeyCode::Char('c' | 'с') => self.copy_report_path(),

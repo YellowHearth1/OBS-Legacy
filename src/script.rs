@@ -73,18 +73,19 @@ pub fn ensure_extracted() -> Result<PathBuf> {
         return Ok(PathBuf::from(custom));
     }
     let dir = data_dir();
-    fs::create_dir_all(&dir).with_context(|| format!("не вдалося створити {}", dir.display()))?;
+    fs::create_dir_all(&dir).with_context(|| trf!("не вдалося створити {}", "couldn't create {}", dir.display()))?;
     let path = dir.join(SCRIPT_NAME);
     let current = fs::read(&path).ok();
     if current.as_deref() != Some(SCRIPT.as_bytes()) {
         let tmp = dir.join(format!(".{SCRIPT_NAME}.{}", std::process::id()));
         {
-            let mut f = fs::File::create(&tmp).with_context(|| format!("не вдалося записати {}", tmp.display()))?;
+            let mut f = fs::File::create(&tmp)
+                .with_context(|| trf!("не вдалося записати {}", "couldn't write {}", tmp.display()))?;
             f.write_all(SCRIPT.as_bytes())?;
             f.sync_all()?;
         }
         fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755))?;
-        fs::rename(&tmp, &path).with_context(|| format!("не вдалося оновити {}", path.display()))?;
+        fs::rename(&tmp, &path).with_context(|| trf!("не вдалося оновити {}", "couldn't update {}", path.display()))?;
     } else {
         let mode = fs::metadata(&path)?.permissions().mode();
         if mode & 0o111 == 0 {
