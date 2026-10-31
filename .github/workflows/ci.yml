@@ -37,3 +37,23 @@ jobs:
       - uses: actions/checkout@v4
       - run: shellcheck -S warning scripts/build-obs-nvenc-legacy-artix.sh install.sh dev/fake-build.sh
       - run: bash scripts/build-obs-nvenc-legacy-artix.sh plugins --tsv
+      # Обидві мови: довідка, каталог, установник і імітатор доходять до кінця й говорять своєю мовою.
+      # Вивід — спершу в змінну: «… | grep -q» з pipefail дає хибну помилку (SIGPIPE).
+      - name: Both languages
+        run: |
+          set -euo pipefail
+          expect() { grep -qF -- "$2" <<<"$1" || { echo "::error::$3 ($lang): немає «$2»"; exit 1; }; }
+          for lang in uk en; do
+            if [ "$lang" = uk ]; then
+              usage='Використання:' catalog='Плагіни, які збираються' done_='ПЕРЕВІРКУ ЗАВЕРШЕНО' tag='[ПОРАДА]'
+            else
+              usage='Usage:' catalog='Plugins built together' done_='CHECK FINISHED' tag='[HINT]'
+            fi
+            export OBS_LEGACY_LANG=$lang XDG_CACHE_HOME="$RUNNER_TEMP/$lang" FAKE_FAST=1
+            expect "$(bash scripts/build-obs-nvenc-legacy-artix.sh help)" "$usage" 'script help'
+            expect "$(bash scripts/build-obs-nvenc-legacy-artix.sh plugins)" "$catalog" 'script plugins'
+            expect "$(bash install.sh --help)" "$usage" 'install.sh --help'
+            out=$(bash dev/fake-build.sh check 2>&1)
+            expect "$out" "$done_" 'fake-build check'
+            expect "$out" "$tag" 'fake-build check'
+          done

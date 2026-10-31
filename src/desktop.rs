@@ -4,7 +4,7 @@
 use std::io::Write;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 
@@ -24,8 +24,16 @@ pub fn open(path: &Path) -> Result<()> {
             Ok(())
         });
     }
-    cmd.spawn().context(tr!("не вдалося запустити xdg-open", "couldn't start xdg-open"))?;
+    reap(cmd.spawn().context(tr!("не вдалося запустити xdg-open", "couldn't start xdg-open"))?);
     Ok(())
+}
+
+/// Дочекатися фонової програми в окремому потоці: інакше, завершившись, вона лишається
+/// «зомбі», доки працює TUI.
+pub fn reap(mut child: Child) {
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
 }
 
 /// Копіює текст у буфер обміну: wl-copy (Wayland), xclip чи xsel (X11).

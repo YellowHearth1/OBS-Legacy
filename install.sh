@@ -139,12 +139,13 @@ put() {   # $1 = джерело, $2 = призначення, $3 = права
   mv -f -- "$tmp" "$2"
 }
 
-# Завантажити файл: curl (є всюди, де є pacman) або wget.
+# Завантажити файл: curl (є всюди, де є pacman) або wget. З'єднання, що дві хвилини не передає
+# жодного байта (зник інтернет), обривається, і завантаження пробує ще раз, а не висить.
 fetch() {   # $1 = URL, $2 = куди
   if have curl; then
-    curl -fsSL --retry 3 --connect-timeout 20 -o "$2" "$1"
+    curl -fsSL --retry 3 --connect-timeout 20 --speed-limit 1 --speed-time 120 -o "$2" "$1"
   elif have wget; then
-    wget -q -O "$2" "$1"
+    wget -q --tries=3 --timeout=120 -O "$2" "$1"
   else
     die "$(t "Потрібен curl або wget." "curl or wget is needed.")"
   fi
