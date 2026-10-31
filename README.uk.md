@@ -28,7 +28,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Ліцензія Apache-2.0"></a>
   <img src="https://img.shields.io/badge/Artix%20%7C%20Arch-Linux-1793d1" alt="Artix | Arch Linux">
   <img src="https://img.shields.io/badge/NVIDIA-580xx-76b900" alt="NVIDIA 580xx">
-  <img src="https://img.shields.io/badge/version-0.0.2-555" alt="Версія 0.0.2">
+  <img src="https://img.shields.io/badge/version-0.0.3-555" alt="Версія 0.0.3">
 </p>
 
 > [!WARNING]
@@ -134,7 +134,7 @@ OBS-Legacy збирає **офіційний OBS Studio** з приватною 
 ([`packaging/PKGBUILD`](packaging/PKGBUILD)). Rust не потрібен: завантаж пакет і постав його pacman-ом.
 
 ```bash
-sudo pacman -U obs-legacy-0.0.2-1-x86_64.pkg.tar.zst
+sudo pacman -U obs-legacy-0.0.3-1-x86_64.pkg.tar.zst
 ```
 
 Програма ляже в `/usr/bin/obs-legacy`, а в меню програм з'явиться ярлик **OBS-Legacy**. Щоб дізнаватися про
@@ -473,9 +473,10 @@ curl, звіт), нічого не змінюючи. `FAKE_FAIL=1` імітує 
 
 ## Версії
 
-Поточна версія — **0.0.2**, перший публічний випуск: пакети pacman (`obs-studio-legacy-580xx` і решта),
-збирання під твоє залізо, ffmpeg з NVENC, сповіщення про оновлення, «Оновити» і «Перезібрати». Список
-змін — у [Releases](https://github.com/YellowHearth1/OBS-Legacy/releases). Версія програми —
+Поточна версія — **0.0.3**: інтерфейс не лише українською, а й англійською, і готовий пакет pacman самої
+програми в кожному релізі. **0.0.2** — перший публічний випуск: пакети pacman (`obs-studio-legacy-580xx` і
+решта), збирання під твоє залізо, ffmpeg з NVENC, сповіщення про оновлення, «Оновити» і «Перезібрати».
+Список змін — у [Releases](https://github.com/YellowHearth1/OBS-Legacy/releases). Версія програми —
 `obs-legacy --version`, версія скрипта збирання — дата (`2026.10.31.1`).
 
 ## Використане ПЗ і подяки

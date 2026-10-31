@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Тег релізу, напр. v0.0.2'
+        description: 'Тег релізу, напр. v0.0.3'
         required: true
   pull_request:
     paths:

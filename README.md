@@ -28,7 +28,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
   <img src="https://img.shields.io/badge/Artix%20%7C%20Arch-Linux-1793d1" alt="Artix | Arch Linux">
   <img src="https://img.shields.io/badge/NVIDIA-580xx-76b900" alt="NVIDIA 580xx">
-  <img src="https://img.shields.io/badge/version-0.0.2-555" alt="Version 0.0.2">
+  <img src="https://img.shields.io/badge/version-0.0.3-555" alt="Version 0.0.3">
 </p>
 
 > [!WARNING]
@@ -136,7 +136,7 @@ You need Artix or Arch and the NVIDIA 580xx driver. Pick one of two ways.
 ([`packaging/PKGBUILD`](packaging/PKGBUILD)). No Rust needed: download it and install it with pacman.
 
 ```bash
-sudo pacman -U obs-legacy-0.0.2-1-x86_64.pkg.tar.zst
+sudo pacman -U obs-legacy-0.0.3-1-x86_64.pkg.tar.zst
 ```
 
 The program lands in `/usr/bin/obs-legacy` with an **OBS-Legacy** entry in the application menu. Turn on
@@ -481,9 +481,10 @@ plan — [`docs/TESTING.md`](docs/TESTING.md).
 
 ## Versions
 
-The current version is **0.0.2**, the first public release: pacman packages (`obs-studio-legacy-580xx` and
-the rest), builds tuned to your hardware, ffmpeg with NVENC, update notifications, **Update** and
-**Rebuild**. The changelog is in [Releases](https://github.com/YellowHearth1/OBS-Legacy/releases). Program
+The current version is **0.0.3**: the interface in English as well as Ukrainian, and a ready pacman package of
+the program in every release. **0.0.2** was the first public release: pacman packages
+(`obs-studio-legacy-580xx` and the rest), builds tuned to your hardware, ffmpeg with NVENC, update
+notifications, **Update** and **Rebuild**. The changelog is in [Releases](https://github.com/YellowHearth1/OBS-Legacy/releases). Program
 version: `obs-legacy --version`; the build script is versioned by date (`2026.10.31.1`).
 
 ## Credits
