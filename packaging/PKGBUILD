@@ -9,7 +9,7 @@
 # з'явився на GitHub.
 
 pkgname=obs-legacy
-pkgver=0.0.4
+pkgver=0.0.5
 pkgrel=1
 pkgdesc='Terminal menu that builds and installs OBS Studio with working NVENC for NVIDIA 580xx legacy drivers'
 arch=('x86_64')
@@ -27,7 +27,7 @@ optdepends=(
 )
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
         'obs-legacy.desktop')
-sha256sums=('74009456a5da035420ebfd2a7b622b3abdcee213a94f728ef68b405bcc4e2ffb'
+sha256sums=('2206d50d9a4e42f575bd81ce5cc1b1dfa33e87cce25ceca7dc65b0cbea0470c9'
             'd1abd90d7d040e5f73286aa3bf864d66e128271d3bf2aa1c5a2642767f1e0bff')
 
 _srcdir="OBS-Legacy-$pkgver"
