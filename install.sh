@@ -43,10 +43,33 @@ if [[ -t 2 ]]; then
 else
   C_RED='' C_GRN='' C_YEL='' C_BLU='' C_BLD='' C_RST=''
 fi
+# Мова повідомлень — як у програми: OBS_LEGACY_LANG (його передає obs-legacy) → UI_LANG (змінна
+# або налаштування) → локаль системи: uk… — українська, інакше англійська.
+resolve_lang() {
+  local v=${OBS_LEGACY_LANG:-} file=${OBS_LEGACY_SETTINGS:-${XDG_CONFIG_HOME:-$HOME/.config}/obs-legacy/settings.env} loc
+  if [[ "$v" != uk && "$v" != en ]]; then
+    v=${UI_LANG:-}
+    if [[ -z "$v" && -r "$file" ]]; then
+      v=$(sed -n 's/^[[:space:]]*UI_LANG=//p' "$file" 2>/dev/null | tail -n1 | tr -d "\"' " || true)
+    fi
+  fi
+  if [[ "$v" != uk && "$v" != en ]]; then
+    loc=${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}
+    if [[ -z "$loc" && -r /etc/locale.conf ]]; then
+      loc=$(sed -n 's/^LANG=//p' /etc/locale.conf 2>/dev/null | tr -d "\"'" | head -n1 || true)
+    fi
+    if [[ "$loc" == uk* ]]; then v=uk; else v=en; fi
+  fi
+  if [[ "$v" == en ]]; then LANG_EN=1; else LANG_EN=0; fi
+}
+resolve_lang
+# Текст мовою повідомлень: t "українською" "in English".
+t() { if ((LANG_EN)); then printf '%s' "$2"; else printf '%s' "$1"; fi; }
+
 say()  { printf '%s==>%s %s\n' "$C_BLU$C_BLD" "$C_RST" "$*" >&2; }
 ok()   { printf '%s[OK]%s %s\n' "$C_GRN" "$C_RST" "$*" >&2; }
-warn() { printf '%s[УВАГА]%s %s\n' "$C_YEL" "$C_RST" "$*" >&2; }
-die()  { printf '%s[ПОМИЛКА]%s %s\n' "$C_RED" "$C_RST" "$*" >&2; exit 1; }
+warn() { printf '%s[%s]%s %s\n' "$C_YEL" "$(t УВАГА WARNING)" "$C_RST" "$*" >&2; }
+die()  { printf '%s[%s]%s %s\n' "$C_RED" "$(t ПОМИЛКА ERROR)" "$C_RST" "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
 INTERACTIVE=1
@@ -73,8 +96,10 @@ ask_yes_no() {   # $1 = питання, $2 = «[y/N]» чи «[Y/n]», $3 = ві
       [yY]|[yY][eE][sS]|так|Так|ТАК) return 0 ;;
       [nN]|[nN][oO]|ні|Ні|НІ) return 1 ;;
       т|Т|н|Н)
-        printf '  «%s» — схоже, увімкнена українська розкладка (клавіша Y дає «н», N — «т»). Введи y чи n латиницею або напиши «так» / «ні».\n' "$a" >&2 ;;
-      *) printf '  Не зрозумів відповідь «%s». Введи y (так) або n (ні).\n' "$a" >&2 ;;
+        printf "$(t '  «%s» — схоже, увімкнена українська розкладка (клавіша Y дає «н», N — «т»). Введи y чи n латиницею або напиши «так» / «ні».\n' \
+                    '  “%s” — looks like the Ukrainian keyboard layout is on (the Y key gives “н”, N gives “т”). Type y or n in the Latin layout, or write “yes” / “no”.\n')" "$a" >&2 ;;
+      *) printf "$(t '  Не зрозумів відповідь «%s». Введи y (так) або n (ні).\n' \
+                     '  Did not understand the answer “%s”. Type y (yes) or n (no).\n')" "$a" >&2 ;;
     esac
   done
 }
@@ -107,10 +132,10 @@ write_desktop_entry() {   # $1 = файл
 # $MARKER
 Type=Application
 Name=OBS-Legacy
-GenericName=OBS Studio з NVENC для NVIDIA 580xx
-GenericName[en]=OBS Studio with NVENC for NVIDIA 580xx
-Comment=Збирання, встановлення й оновлення OBS Studio з NVENC під драйвери NVIDIA 580xx
-Comment[en]=Build, install and update OBS Studio with NVENC for NVIDIA 580xx legacy drivers
+GenericName=OBS Studio with NVENC for NVIDIA 580xx
+GenericName[uk]=OBS Studio з NVENC для NVIDIA 580xx
+Comment=Build, install and update OBS Studio with NVENC for NVIDIA 580xx legacy drivers
+Comment[uk]=Збирання, встановлення й оновлення OBS Studio з NVENC під драйвери NVIDIA 580xx
 Exec=$exec_path
 Icon=obs-legacy
 Terminal=false
@@ -130,37 +155,50 @@ setup_notifier() {   # $1 = update|ask
   fi
   [[ "$1" == ask ]] || return 0
   printf '\n' >&2
-  say "Сповіщення про оновлення"
-  printf '  Раз на 12 годин OBS-Legacy у фоні перевірятиме, чи вийшли нові OBS, плагіни чи сама програма,\n' >&2
-  printf '  а після оновлень системи — чи власному OBS не бракує бібліотек. Без sudo; вимкнути можна в меню.\n' >&2
-  if confirm_yes "Увімкнути сповіщення?"; then
-    "$bin" --notifier enable || warn "Не вдалося ввімкнути сповіщення — спробуй пізніше: obs-legacy → Додатково → «Сповіщення про оновлення»."
+  say "$(t "Сповіщення про оновлення" "Update notifications")"
+  printf "$(t '  Раз на 12 годин OBS-Legacy у фоні перевірятиме, чи вийшли нові OBS, плагіни чи сама програма,\n' \
+              '  Every 12 hours OBS-Legacy will check in the background whether a new OBS, plugins or the program itself are out,\n')" >&2
+  printf "$(t '  а після оновлень системи — чи власному OBS не бракує бібліотек. Без sudo; вимкнути можна в меню.\n' \
+              '  and after system upgrades — whether your own OBS is missing libraries. No sudo; you can turn it off in the menu.\n')" >&2
+  if confirm_yes "$(t "Увімкнути сповіщення?" "Turn on notifications?")"; then
+    "$bin" --notifier enable || warn "$(t "Не вдалося ввімкнути сповіщення — спробуй пізніше: obs-legacy → Додатково → «Сповіщення про оновлення»." \
+                                          "Could not turn on notifications — try later: obs-legacy → More → “Update notifications”.")"
   else
-    printf '  Добре. Увімкнути пізніше: obs-legacy → Додатково → «Сповіщення про оновлення».\n' >&2
+    printf "$(t '  Добре. Увімкнути пізніше: obs-legacy → Додатково → «Сповіщення про оновлення».\n' \
+                '  OK. To turn them on later: obs-legacy → More → “Update notifications”.\n')" >&2
   fi
 }
 
 banner() {
-  printf '\n%sOBS-Legacy%s — OBS Studio з NVENC для NVIDIA 580xx (Artix / Arch)\n' "$C_GRN$C_BLD" "$C_RST" >&2
-  printf '%sСкрипт зроблений за допомогою Claude Code (Anthropic).%s\n' "$C_YEL$C_BLD" "$C_RST" >&2
-  printf 'Натхнення: https://github.com/sl5net/build-obs-nvenc-legacy — дякуємо!\n\n' >&2
+  printf "$(t '\n%sOBS-Legacy%s — OBS Studio з NVENC для NVIDIA 580xx (Artix / Arch)\n' \
+              '\n%sOBS-Legacy%s — OBS Studio with NVENC for NVIDIA 580xx (Artix / Arch)\n')" "$C_GRN$C_BLD" "$C_RST" >&2
+  printf "$(t '%sСкрипт зроблений за допомогою Claude Code (Anthropic).%s\n' \
+              '%sThis script was made with Claude Code (Anthropic).%s\n')" "$C_YEL$C_BLD" "$C_RST" >&2
+  printf "$(t 'Натхнення: https://github.com/sl5net/build-obs-nvenc-legacy — дякуємо!\n\n' \
+              'Inspired by: https://github.com/sl5net/build-obs-nvenc-legacy — thank you!\n\n')" >&2
 }
 
 ensure_rust() {
   local priv=''
   if have cargo; then return 0; fi
   if have rustup; then
-    say "Є rustup, але без тулчейна — ставлю stable (rustup default stable)"
+    say "$(t "Є rustup, але без тулчейна — ставлю stable (rustup default stable)" \
+             "rustup is there but without a toolchain — installing stable (rustup default stable)")"
     rustup default stable
     if have cargo; then return 0; fi
   fi
-  warn "Для збирання TUI потрібен Rust (cargo)."
-  have pacman || die "pacman не знайдено. Встанови Rust вручну (https://rustup.rs) і повтори."
-  if have sudo; then priv=sudo; elif have doas; then priv=doas; else die "Немає ні sudo, ні doas — встанови пакет rust вручну."; fi
-  confirm "Встановити пакет rust з репозиторію ($priv pacman -S --needed rust)?" \
-    || die "Скасовано. Без Rust зібрати OBS-Legacy не вийде."
+  warn "$(t "Для збирання TUI потрібен Rust (cargo)." "Rust (cargo) is needed to build the TUI.")"
+  have pacman || die "$(t "pacman не знайдено. Встанови Rust вручну (https://rustup.rs) і повтори." \
+                          "pacman was not found. Install Rust manually (https://rustup.rs) and try again.")"
+  if have sudo; then priv=sudo; elif have doas; then priv=doas; else die "$(t "Немає ні sudo, ні doas — встанови пакет rust вручну." \
+                                                                              "Neither sudo nor doas is available — install the rust package manually.")"; fi
+  confirm "$(t "Встановити пакет rust з репозиторію ($priv pacman -S --needed rust)?" \
+               "Install the rust package from the repository ($priv pacman -S --needed rust)?")" \
+    || die "$(t "Скасовано. Без Rust зібрати OBS-Legacy не вийде." \
+                "Cancelled. OBS-Legacy cannot be built without Rust.")"
   "$priv" pacman -S --needed rust
-  have cargo || die "Після встановлення cargo так і не знайшовся."
+  have cargo || die "$(t "Після встановлення cargo так і не знайшовся." \
+                         "cargo still was not found after the installation.")"
 }
 
 # Проміжні файли cargo після встановлення не потрібні (бінарник уже скопійовано),
@@ -170,9 +208,11 @@ clean_build_cache() {
   [[ -d "$TARGET_DIR" ]] || return 0
   size=$(du -sh -- "$TARGET_DIR" 2>/dev/null | cut -f1 || true)
   if (cd -- "$SRC_DIR" && cargo clean --quiet --target-dir "$TARGET_DIR"); then
-    ok "Прибрано проміжні файли збирання Rust: $TARGET_DIR (${size:-?})"
+    ok "$(t "Прибрано проміжні файли збирання Rust: $TARGET_DIR (${size:-?})" \
+            "Removed the intermediate Rust build files: $TARGET_DIR (${size:-?})")"
   else
-    warn "Не вдалося прибрати $TARGET_DIR — прибери вручну: cd '$SRC_DIR' && cargo clean"
+    warn "$(t "Не вдалося прибрати $TARGET_DIR — прибери вручну: cd '$SRC_DIR' && cargo clean" \
+              "Could not remove $TARGET_DIR — remove it manually: cd '$SRC_DIR' && cargo clean")"
   fi
 }
 
@@ -180,12 +220,14 @@ install_desktop_shortcut() {
   local dir file
   dir=$(desktop_dir)
   if [[ ! -d "$dir" ]]; then
-    warn "Теки робочого столу $dir немає — ярлик не додаю."
+    warn "$(t "Теки робочого столу $dir немає — ярлик не додаю." \
+              "There is no desktop folder $dir — not adding a shortcut.")"
     return 0
   fi
   file="$dir/$DESKTOP_ID"
   if [[ -e "$file" ]] && ! grep -qs -- "$MARKER" "$file"; then
-    warn "$file уже існує і створений не цим установником — не чіпаю."
+    warn "$(t "$file уже існує і створений не цим установником — не чіпаю." \
+              "$file already exists and was not created by this installer — leaving it alone.")"
     return 0
   fi
   put "$APPS_DIR/$DESKTOP_ID" "$file" 755
@@ -196,28 +238,32 @@ install_desktop_shortcut() {
       gio set -t string "$file" metadata::xfce-exe-checksum "$(sha256sum -- "$file" | awk '{print $1}')" 2>/dev/null || true
     fi
   fi
-  ok "Ярлик на робочому столі: $file"
+  ok "$(t "Ярлик на робочому столі: $file" "Desktop shortcut: $file")"
 }
 
 do_install() {   # $1 = yes|no|ask — ярлик на робочому столі
   local want_desktop=$1 tmp desktop_file
-  (( EUID != 0 )) || die "Не запускай від root: TUI ставиться для звичайного користувача."
-  [[ -f "$SRC_DIR/Cargo.toml" ]] || die "Не знайдено Cargo.toml поруч з install.sh ($SRC_DIR)."
+  (( EUID != 0 )) || die "$(t "Не запускай від root: TUI ставиться для звичайного користувача." \
+                              "Do not run as root: the TUI is installed for a normal user.")"
+  [[ -f "$SRC_DIR/Cargo.toml" ]] || die "$(t "Не знайдено Cargo.toml поруч з install.sh ($SRC_DIR)." \
+                                             "Cargo.toml was not found next to install.sh ($SRC_DIR).")"
   banner
   # Програма вже стоїть готовим пакетом: копія в ~/.local/bin перекриє її (PATH, ярлик).
   if have pacman && pacman -Qq obs-legacy >/dev/null 2>&1; then
-    warn "Пакет obs-legacy уже встановлено (/usr/bin/obs-legacy), і копія в $BIN_DIR його перекриє. Залиш щось одне: sudo pacman -R obs-legacy або потім ./install.sh --uninstall."
+    warn "$(t "Пакет obs-legacy уже встановлено (/usr/bin/obs-legacy), і копія в $BIN_DIR його перекриє. Залиш щось одне: sudo pacman -R obs-legacy або потім ./install.sh --uninstall." \
+              "The obs-legacy package is already installed (/usr/bin/obs-legacy), and the copy in $BIN_DIR will override it. Keep only one: sudo pacman -R obs-legacy or later ./install.sh --uninstall.")"
   fi
   ensure_rust
 
-  say "Збираю obs-legacy (cargo build --release --locked) — це займе хвилину-дві"
+  say "$(t "Збираю obs-legacy (cargo build --release --locked) — це займе хвилину-дві" \
+           "Building obs-legacy (cargo build --release --locked) — this takes a minute or two")"
   # Як і OBS, програму збираємо під цей процесор (вона ставиться лише на нього).
   (cd -- "$SRC_DIR" && RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C target-cpu=native" \
      cargo build --release --locked --target-dir "$TARGET_DIR")
 
-  say "Встановлюю"
+  say "$(t "Встановлюю" "Installing")"
   put "$TARGET_DIR/release/obs-legacy" "$BIN_DIR/obs-legacy" 755
-  ok "Програма: $BIN_DIR/obs-legacy"
+  ok "$(t "Програма: $BIN_DIR/obs-legacy" "Program: $BIN_DIR/obs-legacy")"
   clean_build_cache
   put "$SRC_DIR/assets/obs-legacy.svg" "$ICON_DIR/obs-legacy.svg" 644
   tmp=$(mktemp)
@@ -228,7 +274,8 @@ do_install() {   # $1 = yes|no|ask — ярлик на робочому стол
   if have gtk-update-icon-cache && [[ -f "$DATA_HOME/icons/hicolor/index.theme" ]]; then
     gtk-update-icon-cache -q -t "$DATA_HOME/icons/hicolor" 2>/dev/null || true
   fi
-  ok "Ярлик у меню програм: OBS-Legacy ($APPS_DIR/$DESKTOP_ID)"
+  ok "$(t "Ярлик у меню програм: OBS-Legacy ($APPS_DIR/$DESKTOP_ID)" \
+          "Applications menu shortcut: OBS-Legacy ($APPS_DIR/$DESKTOP_ID)")"
   mkdir -p -- "$STATE_DIR"
   printf '%s\n' "$SRC_DIR" > "$STATE_DIR/source-dir"
 
@@ -238,7 +285,7 @@ do_install() {   # $1 = yes|no|ask — ярлик на робочому стол
     ask)
       if grep -qs -- "$MARKER" "$desktop_file"; then
         install_desktop_shortcut
-      elif confirm "Додати ярлик OBS-Legacy на робочий стіл?"; then
+      elif confirm "$(t "Додати ярлик OBS-Legacy на робочий стіл?" "Add an OBS-Legacy shortcut to the desktop?")"; then
         install_desktop_shortcut
       fi
       ;;
@@ -251,13 +298,16 @@ do_install() {   # $1 = yes|no|ask — ярлик на робочому стол
 
   case ":$PATH:" in
     *":$BIN_DIR:"*) ;;
-    *) warn "$BIN_DIR немає в PATH: команда obs-legacy в терміналі не знайдеться (ярлик у меню працює). Додай у ~/.bashrc або ~/.zshrc: export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
+    *) warn "$(t "$BIN_DIR немає в PATH: команда obs-legacy в терміналі не знайдеться (ярлик у меню працює). Додай у ~/.bashrc або ~/.zshrc: export PATH=\"\$HOME/.local/bin:\$PATH\"" \
+                 "$BIN_DIR is not in PATH: the obs-legacy command will not be found in a terminal (the menu shortcut works). Add to ~/.bashrc or ~/.zshrc: export PATH=\"\$HOME/.local/bin:\$PATH\"")" ;;
   esac
 
-  printf '\n%sГОТОВО ✓%s\n' "$C_GRN$C_BLD" "$C_RST" >&2
-  printf '  Запуск: меню програм → «OBS-Legacy» (або команда obs-legacy). Клацання відкриє термінал з меню.\n' >&2
-  printf '  Оновити OBS-Legacy: у меню obs-legacy → «Оновити OBS-Legacy» (або git pull && ./install.sh).\n' >&2
-  if [[ "$want_desktop" != update ]] && confirm "Відкрити OBS-Legacy зараз?"; then
+  printf "$(t '\n%sГОТОВО ✓%s\n' '\n%sDONE ✓%s\n')" "$C_GRN$C_BLD" "$C_RST" >&2
+  printf "$(t '  Запуск: меню програм → «OBS-Legacy» (або команда obs-legacy). Клацання відкриє термінал з меню.\n' \
+              '  Launch: applications menu → “OBS-Legacy” (or the obs-legacy command). Clicking it opens a terminal with the menu.\n')" >&2
+  printf "$(t '  Оновити OBS-Legacy: у меню obs-legacy → «Оновити OBS-Legacy» (або git pull && ./install.sh).\n' \
+              '  Update OBS-Legacy: in the obs-legacy menu → “Update OBS-Legacy” (or git pull && ./install.sh).\n')" >&2
+  if [[ "$want_desktop" != update ]] && confirm "$(t "Відкрити OBS-Legacy зараз?" "Open OBS-Legacy now?")"; then
     exec "$BIN_DIR/obs-legacy"
   fi
 }
@@ -265,14 +315,17 @@ do_install() {   # $1 = yes|no|ask — ярлик на робочому стол
 do_uninstall() {
   local f installed
   banner
-  say "Прибираю TUI OBS-Legacy (пакети OBS-Legacy це НЕ видаляє)"
+  say "$(t "Прибираю TUI OBS-Legacy (пакети OBS-Legacy це НЕ видаляє)" \
+           "Removing the OBS-Legacy TUI (this does NOT remove the OBS-Legacy packages)")"
   installed=$(pacman -Qq 2>/dev/null | grep -E -- '-legacy-580xx$' | tr '\n' ' ' || true)
   if [[ -n "$installed" || -d /opt/obs-studio-nvenc ]]; then
-    warn "Лишаються встановленими: ${installed:-стара збірка в /opt/obs-studio-nvenc}. Щоб прибрати і їх, спершу запусти obs-legacy → «Видалити OBS-Legacy»."
-    confirm "Прибрати лише TUI?" || exit 1
+    warn "$(t "Лишаються встановленими: ${installed:-стара збірка в /opt/obs-studio-nvenc}. Щоб прибрати і їх, спершу запусти obs-legacy → «Видалити OBS-Legacy»." \
+              "Still installed: ${installed:-the old build in /opt/obs-studio-nvenc}. To remove them too, first run obs-legacy → “Remove OBS-Legacy”.")"
+    confirm "$(t "Прибрати лише TUI?" "Remove only the TUI?")" || exit 1
   fi
   if [[ -x "$BIN_DIR/obs-legacy" ]]; then
-    "$BIN_DIR/obs-legacy" --notifier disable || warn "Сповіщення не вдалося вимкнути: obs-legacy --notifier status підкаже, що лишилось."
+    "$BIN_DIR/obs-legacy" --notifier disable || warn "$(t "Сповіщення не вдалося вимкнути: obs-legacy --notifier status підкаже, що лишилось." \
+                                                          "Could not turn off notifications: obs-legacy --notifier status shows what is left.")"
   fi
   rm -rf -- "${XDG_STATE_HOME:-$HOME/.local/state}/obs-legacy"
   rm -f -- "$BIN_DIR/obs-legacy" "$ICON_DIR/obs-legacy.svg" "$STATE_DIR/source-dir"
@@ -286,7 +339,40 @@ do_uninstall() {
     rm -f -- "$STATE_DIR/build-obs-nvenc-legacy-artix.sh"
     rmdir -- "$STATE_DIR" 2>/dev/null || true
   fi
-  ok "TUI прибрано. Налаштування лишились у ${XDG_CONFIG_HOME:-$HOME/.config}/obs-legacy/ — видали вручну, якщо не потрібні."
+  ok "$(t "TUI прибрано. Налаштування лишились у ${XDG_CONFIG_HOME:-$HOME/.config}/obs-legacy/ — видали вручну, якщо не потрібні." \
+          "TUI removed. The settings are left in ${XDG_CONFIG_HOME:-$HOME/.config}/obs-legacy/ — delete them manually if not needed.")"
+}
+
+usage() {
+  if ((LANG_EN)); then
+    cat <<'EOF'
+install.sh — installs the OBS-Legacy TUI for the current user
+https://github.com/YellowHearth1/OBS-Legacy
+
+Made with Claude Code (Anthropic's AI assistant), commissioned and directed by the
+repository owner. Inspired by: https://github.com/sl5net/build-obs-nvenc-legacy
+
+What it does:
+  * builds obs-legacy (cargo build --release --locked) and, after installing, removes
+    the intermediate build files (target/, hundreds of megabytes);
+  * puts it into ~/.local/bin, adds an "OBS-Legacy" shortcut to the applications menu
+    and an icon, and optionally a desktop shortcut. Clicking the shortcut opens
+    a terminal window with the OBS-Legacy menu right away;
+  * optionally turns on notifications about new versions of OBS, plugins and OBS-Legacy
+    itself: a systemd, dinit, OpenRC, runit or s6 user service, or session autostart
+    (obs-legacy --notifier, no sudo).
+It installs nothing into the system except (only with your consent) the rust package.
+
+Usage:
+  ./install.sh              install or update (asks about a desktop shortcut)
+  ./install.sh --desktop    the same + a desktop shortcut without asking
+  ./install.sh --no-desktop no desktop shortcut
+  ./install.sh --update     no questions (this is how obs-legacy itself runs it)
+  ./install.sh --uninstall  remove the TUI and notifications (the built OBS stays)
+EOF
+  else
+    sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  fi
 }
 
 main() {
@@ -297,8 +383,9 @@ main() {
     --no-desktop) desktop=no ;;
     --update)     desktop=update; INTERACTIVE=0 ;;
     --uninstall)  do_uninstall; return ;;
-    -h|--help)    sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; return ;;
-    *)            die "Невідомий параметр: $1 (див. ./install.sh --help)" ;;
+    -h|--help)    usage; return ;;
+    *)            die "$(t "Невідомий параметр: $1 (див. ./install.sh --help)" \
+                           "Unknown option: $1 (see ./install.sh --help)")" ;;
   esac
   do_install "$desktop"
 }
