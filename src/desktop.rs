@@ -8,7 +8,7 @@ use std::process::{Child, Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 
-use crate::system::find_in_path;
+use crate::paths::find_in_path;
 
 /// Відкриває файл або теку через xdg-open, не прив'язуючи програму до термінала.
 pub fn open(path: &Path) -> Result<()> {

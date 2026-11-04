@@ -17,14 +17,15 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
-use std::sync::Once;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use crate::catalog::{self, PluginInfo};
 use crate::cli;
+use crate::clock;
 use crate::notify;
+use crate::paths;
 use crate::script;
 use crate::service;
 use crate::settings::Settings;
@@ -50,27 +51,6 @@ const FIRST_DELAY: u64 = 2 * 60;
 /// Як часто прокидатися (бібліотеки після pacman, сповіщення, що чекають сесії).
 const TICK: u64 = 5 * 60;
 
-pub fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
-}
-
-/// Місцевий час «2026-10-29 14:05».
-pub fn local_time(secs: u64) -> String {
-    static TZ: Once = Once::new();
-    unsafe extern "C" {
-        fn tzset();
-    }
-    // SAFETY: tzset лише читає TZ і /etc/localtime; виклик один раз до localtime_r.
-    TZ.call_once(|| unsafe { tzset() });
-    let t = secs as libc::time_t;
-    // SAFETY: localtime_r заповнює передану структуру й не зберігає вказівників.
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    if unsafe { libc::localtime_r(&t, &mut tm) }.is_null() {
-        return secs.to_string();
-    }
-    format!("{:04}-{:02}-{:02} {:02}:{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min)
-}
-
 // ------------------------------------------------------------------ стан
 
 /// ~/.local/state/obs-legacy/updates.env: KEY=VALUE.
@@ -81,7 +61,7 @@ pub struct State {
 
 impl State {
     pub fn path() -> PathBuf {
-        script::state_dir().join("updates.env")
+        paths::state_dir().join("updates.env")
     }
 
     pub fn load() -> Self {
@@ -100,7 +80,7 @@ impl State {
 
     pub fn save(&self) -> io::Result<()> {
         let path = Self::path();
-        fs::create_dir_all(script::state_dir())?;
+        fs::create_dir_all(paths::state_dir())?;
         let mut body = String::from(tr!(
             "# OBS-Legacy: стан фонової перевірки оновлень. Якщо файл видалити, про наявні\n\
              # оновлення буде сповіщено ще раз.\n",
@@ -539,7 +519,7 @@ fn pacman_mtime() -> Option<u64> {
 // -------------------------------------------------------------- журнал
 
 pub fn log_path() -> PathBuf {
-    script::state_dir().join("updates.log")
+    paths::state_dir().join("updates.log")
 }
 
 /// Дублювати журнал у stdout: у фоновому режимі його збирає служба
@@ -548,13 +528,13 @@ static ECHO: AtomicBool = AtomicBool::new(false);
 
 /// Рядок у журнал ~/.local/state/obs-legacy/updates.log.
 fn log(msg: &str) {
-    let line = format!("{} {msg}\n", local_time(now()));
+    let line = format!("{} {msg}\n", clock::local_time(clock::now()));
     if ECHO.load(Ordering::Relaxed) {
         print!("{line}");
         let _ = io::stdout().flush();
     }
     let path = log_path();
-    let _ = fs::create_dir_all(script::state_dir());
+    let _ = fs::create_dir_all(paths::state_dir());
     // Журнал не росте безкінечно: лишаються останні 400 рядків.
     if fs::metadata(&path).is_ok_and(|m| m.len() > 256 * 1024)
         && let Ok(text) = fs::read_to_string(&path)
@@ -570,7 +550,7 @@ fn log(msg: &str) {
 // ---------------------------------------------------------- блокування
 
 fn lock_path() -> PathBuf {
-    script::state_dir().join("watch.lock")
+    paths::state_dir().join("watch.lock")
 }
 
 /// PID фонової перевірки, якщо вона зараз працює.
@@ -586,7 +566,7 @@ pub fn running_pid() -> Option<u32> {
 /// Лише одна фонова перевірка: друга (скажімо, і служба, і автозапуск) чекає,
 /// поки перша завершиться, і лише тоді береться до роботи.
 fn acquire_lock() -> io::Result<File> {
-    fs::create_dir_all(script::state_dir())?;
+    fs::create_dir_all(paths::state_dir())?;
     let mut file = OpenOptions::new().read(true).write(true).create(true).truncate(false).open(lock_path())?;
     // SAFETY: flock на власному дескрипторі.
     if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
@@ -710,7 +690,7 @@ pub fn check_main() -> ExitCode {
     let libs = check_libs();
     report(&facts, libs.as_deref());
     let mut st = State::load();
-    let t = now();
+    let t = clock::now();
     st.set("checked", t);
     if facts.online() {
         st.set("ok", t);
@@ -753,7 +733,7 @@ pub fn watch_main(exe: &Path) -> ExitCode {
         std::process::id()
     ));
     let mut st = State::load();
-    let mut next = st.next_check(now());
+    let mut next = st.next_check(clock::now());
     let mut pending: Vec<Notice> = Vec::new();
     let add = |pending: &mut Vec<Notice>, st: &State, n: Notice| {
         if n.is_new(st) && !pending.iter().any(|p| p.items == n.items) {
@@ -788,7 +768,7 @@ pub fn watch_main(exe: &Path) -> ExitCode {
             }
         }
         // Нові версії.
-        let t = now();
+        let t = clock::now();
         if t >= next {
             let facts = gather();
             st.set("checked", t);
@@ -811,7 +791,7 @@ pub fn watch_main(exe: &Path) -> ExitCode {
         if dirty && let Err(e) = st.save() {
             log(&trf!("Не вдалося зберегти {}: {e}", "Couldn't save {}: {e}", State::path().display()));
         }
-        let wait = next.saturating_sub(now()).clamp(1, TICK);
+        let wait = next.saturating_sub(clock::now()).clamp(1, TICK);
         thread::sleep(Duration::from_secs(wait));
     }
 }
@@ -957,12 +937,5 @@ mod tests {
         assert_eq!(st.next_check(9000), 9000 + RETRY);
         // Давно не перевіряли — за 2 хв після запуску.
         assert_eq!(st.next_check(9000 + PERIOD * 3), 9000 + PERIOD * 3 + FIRST_DELAY);
-    }
-
-    #[test]
-    fn time_format() {
-        let s = local_time(1_761_740_000);
-        assert_eq!(s.len(), 16);
-        assert!(s.starts_with("2025-"));
     }
 }

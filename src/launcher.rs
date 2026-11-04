@@ -5,10 +5,12 @@
 use std::env;
 use std::ffi::OsString;
 use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use anyhow::{Result, bail};
+
+use crate::paths::find_in_path;
 
 const COLS: u16 = 120;
 const ROWS: u16 = 36;
@@ -64,15 +66,6 @@ pub fn terminal_command(term: &str, program: &Path) -> Vec<OsString> {
         // konsole, qterminal, lxterminal, tilix, kgx, ptyxis та інші
         _ => vec![s(term), s("-e"), p],
     }
-}
-
-fn find_in_path(name: &str) -> Option<PathBuf> {
-    let path = env::var_os("PATH")?;
-    env::split_paths(&path).map(|d| d.join(name)).find(|p| {
-        p.metadata()
-            .map(|m| m.is_file() && std::os::unix::fs::PermissionsExt::mode(&m.permissions()) & 0o111 != 0)
-            .unwrap_or(false)
-    })
 }
 
 /// Порядок пошуку: $TERMINAL, xdg-terminal-exec, термінал поточного

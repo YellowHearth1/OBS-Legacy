@@ -8,7 +8,8 @@ use ratatui::widgets::{Paragraph, Wrap};
 
 use super::intro::{REPO_URL, credit_lines, notice_lines};
 use super::{bullet, footer, panel, section, top_bar};
-use crate::app::{App, short_path};
+use crate::app::App;
+use crate::paths::{self, short_path};
 use crate::reports;
 use crate::script;
 use crate::settings;
@@ -40,8 +41,8 @@ fn text_uk(t: &Theme, width: u16) -> Vec<Line<'static>> {
     let code = |s: &str| vec![Line::from(Span::styled(format!("    {s}"), Style::new().fg(t.accent2)))];
     let gap = || vec![Line::from("")];
     let head = |s: &'static str| vec![section(t, s)];
-    let script_path = short_path(&script::data_dir().join(script::SCRIPT_NAME));
-    let store = short_path(&script::package_store());
+    let script_path = short_path(&paths::data_dir().join(script::SCRIPT_NAME));
+    let store = short_path(&paths::package_store());
     let parts: Vec<Vec<Line<'static>>> = vec![
         head("Швидкий старт"),
         n(1, "«Перевірити систему» — переконатися, що все готово. Нічого не змінює, 5–15 хв."),
@@ -153,7 +154,7 @@ fn text_uk(t: &Theme, width: u16) -> Vec<Line<'static>> {
         b("Кеш збірки: ~/.cache/obs-studio-nvenc-artix/  (журнали плагінів — plugins/<id>/build.log)"),
         b("Копії налаштувань OBS перед кожним оновленням: ~/.local/share/obs-studio-nvenc-artix/config-backups/"),
         b(&format!("Налаштування OBS-Legacy: {}", short_path(&settings::settings_path()))),
-        b(&format!("Сповіщення про оновлення: що вже показано і журнал — {}", short_path(&script::state_dir()))),
+        b(&format!("Сповіщення про оновлення: що вже показано і журнал — {}", short_path(&paths::state_dir()))),
         b(&format!("Скрипт збирання: {script_path} — його можна запускати й без TUI:")),
         code(&format!("{script_path} help")),
         gap(),
@@ -178,8 +179,8 @@ fn text_en(t: &Theme, width: u16) -> Vec<Line<'static>> {
     let code = |s: &str| vec![Line::from(Span::styled(format!("    {s}"), Style::new().fg(t.accent2)))];
     let gap = || vec![Line::from("")];
     let head = |s: &'static str| vec![section(t, s)];
-    let script_path = short_path(&script::data_dir().join(script::SCRIPT_NAME));
-    let store = short_path(&script::package_store());
+    let script_path = short_path(&paths::data_dir().join(script::SCRIPT_NAME));
+    let store = short_path(&paths::package_store());
     let parts: Vec<Vec<Line<'static>>> = vec![
         head("Quick start"),
         n(1, "“Check system” — make sure everything is ready. Changes nothing, 5–15 min."),
@@ -292,7 +293,7 @@ fn text_en(t: &Theme, width: u16) -> Vec<Line<'static>> {
         b("Build cache: ~/.cache/obs-studio-nvenc-artix/  (plugin logs — plugins/<id>/build.log)"),
         b("Copies of the OBS settings before every update: ~/.local/share/obs-studio-nvenc-artix/config-backups/"),
         b(&format!("OBS-Legacy settings: {}", short_path(&settings::settings_path()))),
-        b(&format!("Update notifications: what was already shown, and the log — {}", short_path(&script::state_dir()))),
+        b(&format!("Update notifications: what was already shown, and the log — {}", short_path(&paths::state_dir()))),
         b(&format!("Build script: {script_path} — it also runs without the TUI:")),
         code(&format!("{script_path} help")),
         gap(),

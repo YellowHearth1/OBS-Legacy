@@ -903,6 +903,6 @@ fn dashboard(app: &App) -> Vec<Line<'static>> {
             space(s.free_root_gib, 2.0, "/usr"),
         ],
     ));
-    l.push(kv(t, tr!("Звіти", "Reports"), vec![muted(truncate(&crate::app::short_path(&reports::dir()), 60))]));
+    l.push(kv(t, tr!("Звіти", "Reports"), vec![muted(truncate(&crate::paths::short_path(&reports::dir()), 60))]));
     l
 }

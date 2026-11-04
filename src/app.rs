@@ -19,6 +19,7 @@ use crate::advice::{self, Advice};
 use crate::analyzer::Prompt;
 use crate::catalog::{self, PluginInfo};
 use crate::desktop;
+use crate::paths::{self, expand_home, short_path};
 use crate::reports::{self, Outcome, ReportInfo};
 use crate::runner::Job;
 use crate::script::{self, SelfSource};
@@ -723,23 +724,6 @@ fn bell() {
     let mut out = std::io::stdout();
     let _ = out.write_all(b"\x07");
     let _ = out.flush();
-}
-
-/// «~/x» → «$HOME/x»; інші шляхи — як є.
-pub fn expand_home(p: &str) -> PathBuf {
-    match p.strip_prefix("~/") {
-        Some(rest) => script::home().join(rest),
-        None => PathBuf::from(p),
-    }
-}
-
-/// Шлях для показу: домашня тека — як «~».
-pub fn short_path(p: &std::path::Path) -> String {
-    let home = script::home();
-    match p.strip_prefix(&home) {
-        Ok(rest) if home.as_os_str() != "/" => format!("~/{}", rest.display()),
-        _ => p.display().to_string(),
-    }
 }
 
 impl App {
@@ -1595,7 +1579,7 @@ impl App {
         match Job::spawn(
             program,
             &args,
-            &script::home(),
+            &paths::home(),
             &env,
             rows.saturating_sub(9).max(5),
             cols.saturating_sub(4).max(20),
@@ -1649,7 +1633,7 @@ impl App {
             });
             return;
         }
-        let Some(obs) = system::find_in_path("obs") else {
+        let Some(obs) = paths::find_in_path("obs") else {
             self.toast(
                 ToastKind::Err,
                 tr!(
@@ -2356,16 +2340,6 @@ mod tests {
         e.key(key(KeyCode::End, KeyModifiers::NONE));
         e.key(key(KeyCode::Backspace, KeyModifiers::NONE));
         assert_eq!(e.text(), "3.0.");
-    }
-
-    #[test]
-    fn home_paths() {
-        let home = script::home();
-        assert_eq!(expand_home("~/.cache/r.txt"), home.join(".cache/r.txt"));
-        assert_eq!(expand_home("/tmp/r.txt"), PathBuf::from("/tmp/r.txt"));
-        if home.as_os_str() != "/" {
-            assert_eq!(short_path(&home.join(".cache/r.txt")), "~/.cache/r.txt");
-        }
     }
 
     #[test]

@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use crate::analyzer::{Analyzer, Problem, Tag, tag};
-use crate::script;
+use crate::clock;
+use crate::paths;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
@@ -39,7 +40,7 @@ impl ReportInfo {
 }
 
 pub fn dir() -> PathBuf {
-    script::cache_home().join("obs-studio-nvenc-artix").join("reports")
+    paths::cache_home().join("obs-studio-nvenc-artix").join("reports")
 }
 
 pub fn command_label(command: &str) -> &'static str {
@@ -56,22 +57,9 @@ pub fn command_label(command: &str) -> &'static str {
     }
 }
 
-/// Сьогоднішня дата як «YYYYmmdd» за місцевим часом.
-fn today() -> String {
-    // SAFETY: time і localtime_r заповнюють передані структури.
-    unsafe {
-        let now = libc::time(std::ptr::null_mut());
-        let mut tm: libc::tm = std::mem::zeroed();
-        if libc::localtime_r(&now, &mut tm).is_null() {
-            return String::new();
-        }
-        format!("{:04}{:02}{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday)
-    }
-}
-
 /// «20261028-174550» → «сьогодні 17:45» або «28.10.2026 17:45» (англійською — «today 17:45», «2026-10-28 17:45»).
 pub fn when(stamp: &str) -> String {
-    when_relative(stamp, &today())
+    when_relative(stamp, &clock::today())
 }
 
 fn when_relative(stamp: &str, today: &str) -> String {

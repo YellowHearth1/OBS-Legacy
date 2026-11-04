@@ -7,7 +7,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
 
 use super::{footer, kv, panel, panel_title, spinner, top_bar};
-use crate::app::{App, Target, short_path};
+use crate::app::{App, Target};
+use crate::paths::short_path;
 use crate::settings::{self, Kind, Settings};
 use crate::theme::Theme;
 

@@ -7,7 +7,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::script;
+use crate::paths;
 
 pub const DEFAULT_PLUGINS: &str = "obs-multi-rtmp";
 
@@ -316,7 +316,7 @@ pub fn validate(field: &Field, value: &str) -> Result<(), String> {
 pub fn settings_path() -> PathBuf {
     match env::var_os("OBS_LEGACY_SETTINGS") {
         Some(p) if !p.is_empty() => PathBuf::from(p),
-        _ => script::config_dir().join("settings.env"),
+        _ => paths::config_dir().join("settings.env"),
     }
 }
 

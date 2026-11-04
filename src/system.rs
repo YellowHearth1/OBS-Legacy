@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::nvenc;
-use crate::script;
+use crate::paths::{self, find_in_path};
 
 pub const MARKER: &str = "Managed by build-obs-nvenc-legacy-artix";
 /// Приписка пакетів OBS-Legacy: obs-studio-legacy-580xx, <плагін>-legacy-580xx, ffmpeg-legacy-580xx.
@@ -29,7 +29,7 @@ pub const OBS_REPO: &str = "https://github.com/obsproject/obs-studio.git";
 /// Каталог збірок старої схеми (/opt/obs-studio-nvenc).
 /// Чи працює зараз скрипт збирання: він тримає блокування `.lock` у своєму кеші.
 pub fn build_running() -> bool {
-    let path = script::cache_home().join("obs-studio-nvenc-artix/.lock");
+    let path = paths::cache_home().join("obs-studio-nvenc-artix/.lock");
     let Ok(file) = fs::File::open(path) else { return false };
     // SAFETY: flock на власному дескрипторі; блокування знімається разом із закриттям файлу.
     unsafe { libc::flock(std::os::fd::AsRawFd::as_raw_fd(&file), libc::LOCK_SH | libc::LOCK_NB) != 0 }
@@ -174,7 +174,7 @@ fn read_build_dirs(dir: &Path, active: Option<&str>, legacy: bool) -> Vec<BuildI
 /// Збірки для панелі стану й відкату: набори пакетів (активний — встановлений),
 /// а поки пакетів немає — ще й збірки старої схеми в /opt.
 pub fn read_builds() -> (Vec<BuildInfo>, Option<String>) {
-    read_builds_from(&info_dir(), &script::package_store(), &install_root())
+    read_builds_from(&info_dir(), &paths::package_store(), &install_root())
 }
 
 fn read_builds_from(info: &Path, store: &Path, legacy_root: &Path) -> (Vec<BuildInfo>, Option<String>) {
@@ -264,15 +264,6 @@ impl SysInfo {
         let hdr = nvenc::api_to_int(self.headers_api.as_deref()?)?;
         Some(drv >= hdr)
     }
-}
-
-pub fn find_in_path(name: &str) -> Option<PathBuf> {
-    let path = env::var_os("PATH")?;
-    env::split_paths(&path).map(|d| d.join(name)).find(|p| {
-        p.metadata()
-            .map(|m| m.is_file() && std::os::unix::fs::PermissionsExt::mode(&m.permissions()) & 0o111 != 0)
-            .unwrap_or(false)
-    })
 }
 
 fn read_trim(path: &str) -> Option<String> {
@@ -413,7 +404,7 @@ pub fn gather(exe: &Path, headers_tag: &str) -> SysInfo {
         cpus: std::thread::available_parallelism().map_or(1, |n| n.get()),
         mem_total_gib,
         mem_avail_gib,
-        free_cache_gib: free_gib(&script::cache_home()),
+        free_cache_gib: free_gib(&paths::cache_home()),
         free_root_gib: free_gib(&sys_root().join("usr")),
         cpu_model: cpu_model(),
         gpus,

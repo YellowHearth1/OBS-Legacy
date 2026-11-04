@@ -34,8 +34,7 @@ use std::time::{Duration, Instant};
 
 use crate::cli;
 use crate::notify;
-use crate::script;
-use crate::system::find_in_path;
+use crate::paths::{self, find_in_path, short_path};
 use crate::updates::{self, State};
 
 /// Назва служби в усіх init-системах.
@@ -86,7 +85,7 @@ impl Backend {
     /// Файл чи тека служби лежить у фіксованому місці (для runit і s6 — у теці
     /// служб конкретного runsvdir/s6-svscan).
     fn fixed_path(self) -> Option<PathBuf> {
-        let config = script::config_home();
+        let config = paths::config_home();
         match self {
             Backend::Systemd => Some(config.join("systemd/user").join(format!("{NAME}.service"))),
             Backend::Dinit => Some(config.join("dinit.d").join(NAME)),
@@ -119,7 +118,7 @@ impl Place {
 
     /// Шлях для показу (~ замість домашньої теки).
     pub fn shown(&self) -> String {
-        crate::app::short_path(&self.path)
+        short_path(&self.path)
     }
 }
 
@@ -203,7 +202,7 @@ fn supervisor_dirs(program: &str) -> Vec<PathBuf> {
 /// Тека служб на постійному диску в домашній теці (тека в /run зникне після
 /// перезавантаження, тож для неї краще автозапуск).
 fn persistent_supervisor_dir(program: &str) -> Option<PathBuf> {
-    let home = script::home();
+    let home = paths::home();
     supervisor_dirs(program).into_iter().find(|d| d.starts_with(&home) && d.is_dir())
 }
 
@@ -243,7 +242,7 @@ pub fn available() -> Vec<Place> {
 
 /// Де служба вже встановлена (файли з маркером).
 pub fn installed() -> Vec<Place> {
-    let home = script::home();
+    let home = paths::home();
     let mut out: Vec<Place> = Backend::ALL
         .into_iter()
         .filter_map(|b| Some(Place { backend: b, path: b.fixed_path()? }))
@@ -430,7 +429,7 @@ fn dinit_check_body(body: &str) -> Result<(), String> {
 /// ~/.config/dinit.d/boot.d; і поруч з нашим файлом, якщо XDG_CONFIG_HOME інший).
 fn dinit_boot_links(file: &Path) -> Vec<PathBuf> {
     let mut links = vec![file.with_file_name("boot.d").join(NAME)];
-    let home = script::home().join(".config/dinit.d/boot.d").join(NAME);
+    let home = paths::home().join(".config/dinit.d/boot.d").join(NAME);
     if !links.contains(&home) {
         links.push(home);
     }
@@ -678,7 +677,7 @@ impl Status {
     /// «Остання перевірка: 2026-10-29 14:05 — нового немає».
     pub fn last_line(&self) -> Option<String> {
         let t = self.last_check?;
-        let mut s = trf!("Остання перевірка: {}", "Last check: {}", updates::local_time(t));
+        let mut s = trf!("Остання перевірка: {}", "Last check: {}", crate::clock::local_time(t));
         if let Some(sum) = &self.summary {
             let _ = write!(s, " — {sum}");
         }
@@ -756,7 +755,7 @@ fn print_status() -> ExitCode {
     if let Some(line) = s.last_line() {
         cli::info(&line);
     }
-    cli::info(&trf!("Журнал: {}", "Log: {}", crate::app::short_path(&updates::log_path())));
+    cli::info(&trf!("Журнал: {}", "Log: {}", short_path(&updates::log_path())));
     ExitCode::SUCCESS
 }
 
