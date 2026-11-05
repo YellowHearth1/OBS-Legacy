@@ -28,6 +28,10 @@ const PACMAN_LOCK: &str = "/var/lib/pacman/db.lck";
 /// Як часто прокидатися (бібліотеки після pacman, сповіщення, що чекають сесії).
 const TICK: u64 = 5 * 60;
 
+/// Журнал не росте безкінечно: більший за LOG_MAX_BYTES обрізається до останніх LOG_KEEP_LINES рядків.
+const LOG_MAX_BYTES: u64 = 256 * 1024;
+const LOG_KEEP_LINES: usize = 400;
+
 /// Коли pacman востаннє змінював набір пакетів.
 fn pacman_mtime() -> Option<u64> {
     fs::metadata(PACMAN_DB).ok().map(|m| m.mtime().max(0) as u64)
@@ -50,12 +54,11 @@ fn log(msg: &str) {
     }
     let path = log_path();
     let _ = fs::create_dir_all(paths::state_dir());
-    // Журнал не росте безкінечно: лишаються останні 400 рядків.
-    if fs::metadata(&path).is_ok_and(|m| m.len() > 256 * 1024)
+    if fs::metadata(&path).is_ok_and(|m| m.len() > LOG_MAX_BYTES)
         && let Ok(text) = fs::read_to_string(&path)
     {
         let lines: Vec<&str> = text.lines().collect();
-        let _ = fs::write(&path, lines[lines.len().saturating_sub(400)..].join("\n") + "\n");
+        let _ = fs::write(&path, lines[lines.len().saturating_sub(LOG_KEEP_LINES)..].join("\n") + "\n");
     }
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
         let _ = f.write_all(line.as_bytes());
@@ -201,12 +204,7 @@ pub fn check_main() -> ExitCode {
     let libs = check_libs();
     report(&facts, libs.as_deref());
     let mut st = State::load();
-    let t = clock::now();
-    st.set("checked", t);
-    if facts.online() {
-        st.set("ok", t);
-    }
-    st.set("summary", facts.summary());
+    st.record_check(clock::now(), &facts);
     if libs.as_ref().is_some_and(Vec::is_empty) {
         st.remove("notified.libs");
     }
@@ -243,66 +241,123 @@ pub fn watch_main(exe: &Path) -> ExitCode {
         env!("CARGO_PKG_VERSION"),
         std::process::id()
     ));
-    let mut st = State::load();
-    let mut next = st.next_check(clock::now());
-    let mut pending: Vec<Notice> = Vec::new();
-    let add = |pending: &mut Vec<Notice>, st: &State, n: Notice| {
-        if n.is_new(st) && !pending.iter().any(|p| p.items == n.items) {
-            pending.retain(|p| p.items.first().map(|i| &i.0) != n.items.first().map(|i| &i.0));
-            pending.push(n);
-        }
-    };
+    let st = State::load();
+    let next = st.next_check(clock::now());
+    let mut watch = Watch { exe, st, next, pending: Vec::new() };
     loop {
+        let wait = watch.tick();
+        thread::sleep(wait);
+    }
+}
+
+/// Додати сповіщення в чергу, якщо про це ще не сповіщали. Новіше про те саме (той самий перший ключ:
+/// obs, ffmpeg, libs…) замінює старіше, що ще чекає на графічну сесію.
+fn queue(pending: &mut Vec<Notice>, st: &State, n: Notice) {
+    if n.is_new(st) && !pending.iter().any(|p| p.items == n.items) {
+        pending.retain(|p| p.items.first().map(|i| &i.0) != n.items.first().map(|i| &i.0));
+        pending.push(n);
+    }
+}
+
+/// Стан фонової перевірки між пробудженнями.
+struct Watch<'a> {
+    exe: &'a Path,
+    st: State,
+    /// Коли перевіряти нові версії наступного разу (секунди від епохи).
+    next: u64,
+    /// Сповіщення, які ще не вдалося показати (немає графічної сесії).
+    pending: Vec<Notice>,
+}
+
+impl Watch<'_> {
+    /// Одне пробудження: бібліотеки, нові версії, сповіщення. Повертає, скільки спати до наступного.
+    fn tick(&mut self) -> Duration {
         // Мову могли змінити в налаштуваннях, поки служба працює.
         crate::i18n::set(Settings::load().ui_lang());
-        let mut dirty = false;
-        // Після транзакції pacman (і коли вона вже завершилася) — бібліотеки.
-        if let Some(m) = pacman_mtime()
-            && st.get("pacman") != Some(m.to_string().as_str())
-            && !Path::new(PACMAN_LOCK).exists()
+        let libs = self.check_libs_after_pacman();
+        let versions = self.check_versions();
+        let delivered = self.deliver_pending();
+        if (libs || versions || delivered)
+            && let Err(e) = self.st.save()
         {
-            st.set("pacman", m);
-            dirty = true;
-            match check_libs() {
-                Some(p) if p.is_empty() => st.remove("notified.libs"),
-                Some(p) => {
-                    log(&trf!(
-                        "Власній збірці OBS бракує бібліотек: {}",
-                        "Your OBS build is missing libraries: {}",
-                        p.join("; ")
-                    ));
-                    if let Some(n) = libs_notice(&p) {
-                        add(&mut pending, &st, n);
-                    }
-                }
-                None => {}
-            }
-        }
-        // Нові версії.
-        let t = clock::now();
-        if t >= next {
-            let facts = gather();
-            st.set("checked", t);
-            if facts.online() {
-                st.set("ok", t);
-            }
-            st.set("summary", facts.summary());
-            next = st.next_check(t);
-            dirty = true;
-            log(&trf!("Перевірка: {}", "Check: {}", facts.summary()));
-            for n in notices(&facts) {
-                add(&mut pending, &st, n);
-            }
-        }
-        if !pending.is_empty() {
-            let before = pending.len();
-            pending = deliver(pending, &mut st, Some(exe), false);
-            dirty |= pending.len() != before;
-        }
-        if dirty && let Err(e) = st.save() {
             log(&trf!("Не вдалося зберегти {}: {e}", "Couldn't save {}: {e}", State::path().display()));
         }
-        let wait = next.saturating_sub(clock::now()).clamp(1, TICK);
-        thread::sleep(Duration::from_secs(wait));
+        Duration::from_secs(self.next.saturating_sub(clock::now()).clamp(1, TICK))
+    }
+
+    /// Після транзакції pacman (і коли вона вже завершилася) — чи вистачає бібліотек. true — стан змінився.
+    fn check_libs_after_pacman(&mut self) -> bool {
+        let Some(m) = pacman_mtime() else { return false };
+        if self.st.get("pacman") == Some(m.to_string().as_str()) || Path::new(PACMAN_LOCK).exists() {
+            return false;
+        }
+        self.st.set("pacman", m);
+        match check_libs() {
+            Some(p) if p.is_empty() => self.st.remove("notified.libs"),
+            Some(p) => {
+                log(&trf!(
+                    "Власній збірці OBS бракує бібліотек: {}",
+                    "Your OBS build is missing libraries: {}",
+                    p.join("; ")
+                ));
+                if let Some(n) = libs_notice(&p) {
+                    queue(&mut self.pending, &self.st, n);
+                }
+            }
+            None => {}
+        }
+        true
+    }
+
+    /// Нові версії, коли настав час. true — стан змінився.
+    fn check_versions(&mut self) -> bool {
+        let t = clock::now();
+        if t < self.next {
+            return false;
+        }
+        let facts = gather();
+        self.st.record_check(t, &facts);
+        self.next = self.st.next_check(t);
+        log(&trf!("Перевірка: {}", "Check: {}", facts.summary()));
+        for n in notices(&facts) {
+            queue(&mut self.pending, &self.st, n);
+        }
+        true
+    }
+
+    /// Показати сповіщення, що чекають. true — щось показано.
+    fn deliver_pending(&mut self) -> bool {
+        if self.pending.is_empty() {
+            return false;
+        }
+        let before = self.pending.len();
+        self.pending = deliver(std::mem::take(&mut self.pending), &mut self.st, Some(self.exe), false);
+        self.pending.len() != before
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn notice(key: &str, value: &str) -> Notice {
+        Notice { items: vec![(key.into(), value.into())], title: value.into(), body: String::new(), urgent: false }
+    }
+
+    #[test]
+    fn newer_news_replaces_the_waiting_one() {
+        let mut st = State::default();
+        let mut pending = Vec::new();
+        queue(&mut pending, &st, notice("obs", "33.0.1"));
+        queue(&mut pending, &st, notice("obs", "33.0.1"));
+        queue(&mut pending, &st, notice("ffmpeg", "2:9.0.3-1"));
+        assert_eq!(pending.len(), 2);
+        // Поки сповіщення чекало на сесію, вийшла ще новіша версія — показати лише її.
+        queue(&mut pending, &st, notice("obs", "33.0.2"));
+        assert_eq!(pending.iter().map(|n| n.title.as_str()).collect::<Vec<_>>(), ["2:9.0.3-1", "33.0.2"]);
+        // Про показане вже не сповіщаємо.
+        notice("plugin.waveform", "v1.10.0").mark(&mut st);
+        queue(&mut pending, &st, notice("plugin.waveform", "v1.10.0"));
+        assert_eq!(pending.len(), 2);
     }
 }

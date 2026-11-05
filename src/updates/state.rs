@@ -7,6 +7,7 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 
+use super::Facts;
 use crate::paths;
 
 /// Як часто перевіряти нові версії (секунди).
@@ -74,6 +75,15 @@ impl State {
 
     pub(super) fn remove(&mut self, key: &str) {
         self.map.remove(key);
+    }
+
+    /// Записати підсумок перевірки нових версій: коли, чи відповів GitHub, що знайшли.
+    pub(super) fn record_check(&mut self, at: u64, facts: &Facts) {
+        self.set("checked", at);
+        if facts.online() {
+            self.set("ok", at);
+        }
+        self.set("summary", facts.summary());
     }
 
     /// Коли востаннє перевіряли нові версії (успішно чи ні).
