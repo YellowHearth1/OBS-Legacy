@@ -125,10 +125,13 @@ impl Place {
     }
 }
 
+/// Скільки чекати на команду init-системи (dinitctl, systemctl, sv…): зависла не тримає програму вічно.
+const COMMAND_TIMEOUT_SECS: &str = "20";
+
 /// Команда з обмеженням часу; Ok — код 0.
 fn run(program: &str, args: &[&str]) -> Result<String, String> {
     let out = Command::new("timeout")
-        .arg("20")
+        .arg(COMMAND_TIMEOUT_SECS)
         .arg(program)
         .args(args)
         .stdin(Stdio::null())

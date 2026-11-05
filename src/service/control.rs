@@ -55,74 +55,90 @@ pub(super) fn stop_running() {
 pub(super) fn activate(place: &Place, exe: &Path, again: bool) -> Result<(), String> {
     let p = place.path.as_path();
     match place.backend {
-        Backend::Systemd => {
-            write_file(p, &render(Backend::Systemd, exe), 0o644)?;
-            run("systemctl", &["--user", "daemon-reload"])?;
-            let unit = format!("{NAME}.service");
-            if again {
-                run("systemctl", &["--user", "enable", &unit])?;
-                run("systemctl", &["--user", "restart", &unit])?;
-            } else {
-                run("systemctl", &["--user", "enable", "--now", &unit])?;
-            }
+        Backend::Systemd => activate_systemd(p, exe, again),
+        Backend::Dinit => activate_dinit(p, exe, again),
+        Backend::Openrc => activate_openrc(p, exe, again),
+        Backend::Runit | Backend::S6 => activate_supervised(place.backend, p, exe, again),
+        Backend::Autostart => activate_autostart(p, exe),
+    }
+}
+
+fn activate_systemd(p: &Path, exe: &Path, again: bool) -> Result<(), String> {
+    write_file(p, &render(Backend::Systemd, exe), 0o644)?;
+    run("systemctl", &["--user", "daemon-reload"])?;
+    let unit = format!("{NAME}.service");
+    if again {
+        run("systemctl", &["--user", "enable", &unit])?;
+        run("systemctl", &["--user", "restart", &unit])?;
+    } else {
+        run("systemctl", &["--user", "enable", "--now", &unit])?;
+    }
+    Ok(())
+}
+
+/// Опис перевіряється `dinit-check` ще до запису, а якщо нового опису dinit не прийме — повертається
+/// попередній.
+fn activate_dinit(p: &Path, exe: &Path, again: bool) -> Result<(), String> {
+    let body = render(Backend::Dinit, exe);
+    dinit_check_body(&body)?;
+    // Опис, який dinit уже прийняв, — повернути, якщо нового він не прийме: на старий
+    // посилається boot.d, і зламаний опис там не дав би dinit --user запуститися.
+    let previous = if again { fs::read_to_string(p).ok() } else { None };
+    write_file(p, &body, 0o644)?;
+    if let Err(e) = dinit_load(again) {
+        if let Some(old) = previous {
+            let _ = write_file(p, &old, 0o644);
+            let _ = run("dinitctl", &["--user", "reload", NAME]);
+            let _ = run("dinitctl", &["--user", "start", NAME]);
         }
-        Backend::Dinit => {
-            let body = render(Backend::Dinit, exe);
-            dinit_check_body(&body)?;
-            // Опис, який dinit уже прийняв, — повернути, якщо нового він не прийме: на старий
-            // посилається boot.d, і зламаний опис там не дав би dinit --user запуститися.
-            let previous = if again { fs::read_to_string(p).ok() } else { None };
-            write_file(p, &body, 0o644)?;
-            if let Err(e) = dinit_load(again) {
-                if let Some(old) = previous {
-                    let _ = write_file(p, &old, 0o644);
-                    let _ = run("dinitctl", &["--user", "reload", NAME]);
-                    let _ = run("dinitctl", &["--user", "start", NAME]);
-                }
-                return Err(e);
-            }
-            let action =
-                if again && run("dinitctl", &["--user", "is-started", NAME]).is_ok() { "restart" } else { "start" };
-            run("dinitctl", &["--user", action, NAME])?;
+        return Err(e);
+    }
+    let action = if again && run("dinitctl", &["--user", "is-started", NAME]).is_ok() { "restart" } else { "start" };
+    run("dinitctl", &["--user", action, NAME])?;
+    Ok(())
+}
+
+fn activate_openrc(p: &Path, exe: &Path, again: bool) -> Result<(), String> {
+    write_file(p, &render(Backend::Openrc, exe), 0o755)?;
+    let _ = run("rc-update", &["--user", "add", NAME, "default"]);
+    let action = if again { "restart" } else { "start" };
+    run("rc-service", &["--user", NAME, action])?;
+    Ok(())
+}
+
+/// runit і s6: тека служби в теці, яку обслуговує runsvdir чи s6-svscan користувача.
+fn activate_supervised(backend: Backend, p: &Path, exe: &Path, again: bool) -> Result<(), String> {
+    let files = supervised_files(backend, exe);
+    if again && p.is_dir() {
+        for (name, body, mode) in &files {
+            write_file(&p.join(name), body, *mode)?;
         }
-        Backend::Openrc => {
-            write_file(p, &render(Backend::Openrc, exe), 0o755)?;
-            let _ = run("rc-update", &["--user", "add", NAME, "default"]);
-            let action = if again { "restart" } else { "start" };
-            run("rc-service", &["--user", NAME, action])?;
+        if backend == Backend::Runit {
+            run("sv", &["restart", &p.display().to_string()])?;
+        } else {
+            run("s6-svc", &["-r", &p.display().to_string()])?;
         }
-        Backend::Runit | Backend::S6 => {
-            let files = supervised_files(place.backend, exe);
-            if again && p.is_dir() {
-                for (name, body, mode) in &files {
-                    write_file(&p.join(name), body, *mode)?;
-                }
-                if place.backend == Backend::Runit {
-                    run("sv", &["restart", &p.display().to_string()])?;
-                } else {
-                    run("s6-svc", &["-r", &p.display().to_string()])?;
-                }
-            } else {
-                // Тека з'являється одразу готовою: runsvdir і s6-svscan не беруть теки з крапкою.
-                let parent = p.parent().ok_or(tr!("без теки", "no directory"))?;
-                let tmp = parent.join(format!(".{NAME}.new"));
-                let _ = fs::remove_dir_all(&tmp);
-                for (name, body, mode) in &files {
-                    write_file(&tmp.join(name), body, *mode)?;
-                }
-                fs::rename(&tmp, p)
-                    .map_err(|e| trf!("не вдалося створити {}: {e}", "couldn't create {}: {e}", p.display()))?;
-                if place.backend == Backend::S6 {
-                    run("s6-svscanctl", &["-a", &parent.display().to_string()])?;
-                }
-            }
+    } else {
+        // Тека з'являється одразу готовою: runsvdir і s6-svscan не беруть теки з крапкою.
+        let parent = p.parent().ok_or(tr!("без теки", "no directory"))?;
+        let tmp = parent.join(format!(".{NAME}.new"));
+        let _ = fs::remove_dir_all(&tmp);
+        for (name, body, mode) in &files {
+            write_file(&tmp.join(name), body, *mode)?;
         }
-        Backend::Autostart => {
-            write_file(p, &render(Backend::Autostart, exe), 0o644)?;
-            stop_running();
-            spawn_watch(exe)?;
+        fs::rename(&tmp, p).map_err(|e| trf!("не вдалося створити {}: {e}", "couldn't create {}: {e}", p.display()))?;
+        if backend == Backend::S6 {
+            run("s6-svscanctl", &["-a", &parent.display().to_string()])?;
         }
     }
+    Ok(())
+}
+
+/// Автозапуск сесії: файл .desktop і одразу фонова перевірка, без повторного входу.
+fn activate_autostart(p: &Path, exe: &Path) -> Result<(), String> {
+    write_file(p, &render(Backend::Autostart, exe), 0o644)?;
+    stop_running();
+    spawn_watch(exe)?;
     Ok(())
 }
 
