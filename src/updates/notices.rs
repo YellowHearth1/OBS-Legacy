@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use super::state::State;
-use super::{Facts, RELEASES, plugin_list};
+use super::{Facts, RELEASES, SelfInstall, plugin_list};
 use crate::notify;
 
 /// Одне сповіщення.
@@ -104,23 +104,21 @@ pub fn notices(f: &Facts) -> Vec<Notice> {
     }
     if let Some(latest) = f.self_update() {
         let file = format!("obs-legacy-{}-1-x86_64.pkg.tar.zst", latest.trim_start_matches('v'));
-        let how = if f.self_menu {
-            tr!(
+        let how = match f.self_install {
+            SelfInstall::Menu => tr!(
                 "Онови: OBS-Legacy → Додатково → «Оновити OBS-Legacy».",
                 "Update: OBS-Legacy → More → “Update OBS-Legacy”."
             )
-            .to_string()
-        } else if f.self_package {
-            trf!(
+            .to_string(),
+            SelfInstall::Package => trf!(
                 "Завантаж пакет {file} з {RELEASES} і постав: sudo pacman -U {file}",
                 "Download the {file} package from {RELEASES} and install it: sudo pacman -U {file}"
-            )
-        } else {
-            tr!(
+            ),
+            SelfInstall::Manual => tr!(
                 "Онови так само, як встановлював: git pull і ./install.sh у теці з вихідними кодами.",
                 "Update the way you installed it: git pull and ./install.sh in the source folder."
             )
-            .to_string()
+            .to_string(),
         };
         let mine = &f.self_version;
         out.push(Notice {
@@ -186,7 +184,7 @@ mod tests {
             plugins_checked: 2,
             self_version: "0.0.1".into(),
             self_latest: Some("v0.0.1".into()),
-            self_menu: true,
+            self_install: SelfInstall::Menu,
             ..Default::default()
         }
     }
@@ -253,9 +251,9 @@ mod tests {
         let n = notices(&Facts { self_latest: Some("v0.0.2".into()), ..facts() });
         assert_eq!(n[0].title, "Вийшов OBS-Legacy 0.0.2");
         assert!(n[0].body.contains("«Оновити OBS-Legacy»"));
-        let n = notices(&Facts { self_latest: Some("v0.0.2".into()), self_menu: false, ..facts() });
+        let n = notices(&Facts { self_latest: Some("v0.0.2".into()), self_install: SelfInstall::Manual, ..facts() });
         assert!(n[0].body.contains("./install.sh"));
-        let n = notices(&Facts { self_latest: Some("v0.0.3".into()), self_menu: false, self_package: true, ..facts() });
+        let n = notices(&Facts { self_latest: Some("v0.0.3".into()), self_install: SelfInstall::Package, ..facts() });
         assert!(n[0].body.contains("sudo pacman -U obs-legacy-0.0.3-1-x86_64.pkg.tar.zst"));
     }
 

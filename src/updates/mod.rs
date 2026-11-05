@@ -48,6 +48,18 @@ pub struct PluginUpdate {
     pub latest: String,
 }
 
+/// Як поставлено сам OBS-Legacy.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SelfInstall {
+    /// Оновлюється з меню («Оновити OBS-Legacy»): з теки з вихідними кодами чи з релізу.
+    Menu,
+    /// Пакет pacman (`/usr/bin/obs-legacy`): оновлення — новим пакетом з релізу.
+    Package,
+    /// Зібрано вручну: оновлювати так само — git pull і ./install.sh.
+    #[default]
+    Manual,
+}
+
 /// Що відомо про версії (результат перевірки через мережу).
 #[derive(Debug, Clone, Default)]
 pub struct Facts {
@@ -61,10 +73,8 @@ pub struct Facts {
     pub plugin_updates: Vec<PluginUpdate>,
     pub self_version: String,
     pub self_latest: Option<String>,
-    /// OBS-Legacy можна оновити з меню (відома тека з вихідними кодами).
-    pub self_menu: bool,
-    /// OBS-Legacy поставлено пакетом pacman (`/usr/bin/obs-legacy`): оновлення — новим пакетом з релізу.
-    pub self_package: bool,
+    /// Як поставлено сам OBS-Legacy — від цього залежить, як його оновлювати.
+    pub self_install: SelfInstall,
     /// З якої версії ffmpeg з репозиторію зібрано ffmpeg-legacy-580xx (None — не встановлено).
     pub ffmpeg_built: Option<String>,
     /// Новіша версія ffmpeg у репозиторії — ffmpeg-legacy-580xx пора перезібрати.
@@ -203,8 +213,13 @@ pub fn facts_from(
         plugin_updates,
         self_version: env!("CARGO_PKG_VERSION").to_string(),
         self_latest: u.self_latest.clone(),
-        self_menu,
-        self_package: !self_menu && service::exe_path() == Path::new(PACKAGE_EXE),
+        self_install: if self_menu {
+            SelfInstall::Menu
+        } else if service::exe_path() == Path::new(PACKAGE_EXE) {
+            SelfInstall::Package
+        } else {
+            SelfInstall::Manual
+        },
         ffmpeg_built,
         ffmpeg_new,
     }
@@ -222,6 +237,9 @@ pub fn gather() -> Facts {
     facts_from(active, &u, &settings, &catalog, script::self_source().is_some())
 }
 
+/// check-libs проганяє ldd по всіх файлах пакетів OBS-Legacy: на повільному диску це хвилини, але не вічність.
+const LIBCHECK_TIMEOUT_SECS: &str = "300";
+
 /// Чого бракує власній збірці OBS — тією ж перевіркою, що й pacman-хук.
 /// None — перевірки немає (хук не встановлено чи вимкнено).
 pub fn check_libs() -> Option<Vec<String>> {
@@ -231,7 +249,7 @@ pub fn check_libs() -> Option<Vec<String>> {
         return None;
     }
     let out = Command::new("timeout")
-        .args(["300", "bash"])
+        .args([LIBCHECK_TIMEOUT_SECS, "bash"])
         .arg(&libcheck)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
