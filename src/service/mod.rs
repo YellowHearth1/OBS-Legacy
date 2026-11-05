@@ -36,7 +36,7 @@ use std::process::{Command, ExitCode, Stdio};
 use crate::paths::{self, find_in_path, short_path};
 use crate::updates::{self, State};
 
-use commands::{disable_cmd, enable_cmd, print_status, test_cmd};
+use commands::{disable_cmd, enable_cmd, print_status, restart_cmd, test_cmd};
 pub use detect::{available, installed};
 
 /// Назва служби в усіх init-системах.
@@ -197,9 +197,9 @@ pub fn main(args: &[String]) -> ExitCode {
     let backend = args.get(1).map(|s| (s, Backend::from_name(s)));
     match (args.first().map(String::as_str), backend) {
         (None | Some("status"), None) => print_status(),
-        (Some("enable"), None) => enable_cmd(None, false),
-        (Some("enable"), Some((_, Some(b)))) => enable_cmd(Some(b), false),
-        (Some("restart"), None) => enable_cmd(None, true),
+        (Some("enable"), None) => enable_cmd(None),
+        (Some("enable"), Some((_, Some(b)))) => enable_cmd(Some(b)),
+        (Some("restart"), None) => restart_cmd(),
         (Some("disable"), None) => disable_cmd(),
         // Для install.sh: код 0 — увімкнено.
         (Some("is-enabled"), None) => {

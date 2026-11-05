@@ -120,72 +120,64 @@ pub(super) fn test_cmd() -> ExitCode {
                 "Потрібна служба сповіщень робочого столу (у GNOME, KDE, Xfce вона вбудована; у sway, Hyprland — \
                  mako, dunst чи swaync) і notify-send з пакета libnotify: sudo pacman -S --needed libnotify.",
                 "You need a desktop notification service (GNOME, KDE and Xfce have one built in; on sway or Hyprland \
-                 — mako, dunst or swaync) and notify-send from the libnotify package: sudo pacman -S --needed libnotify."
+                 — mako, dunst or swaync) and notify-send from the libnotify package: sudo pacman -S --needed \
+                 libnotify."
             ));
             ExitCode::FAILURE
         }
     }
 }
 
-pub(super) fn enable_cmd(choice: Option<Backend>, again_only: bool) -> ExitCode {
+/// Скільки чекати, поки щойно ввімкнена фонова перевірка запуститься.
+const START_WAIT_SECS: u64 = 10;
+
+/// Служби користувача не вмикаються від root. true — запущено від root (пояснення вже надруковано).
+fn refuse_root() -> bool {
     // SAFETY: geteuid не має передумов.
-    if unsafe { libc::geteuid() } == 0 {
-        cli::fail(tr!(
-            "Сповіщення вмикаються для звичайного користувача, а не для root.",
-            "Notifications are turned on for a regular user, not for root."
-        ));
-        cli::hint(tr!(
-            "Запусти без sudo: obs-legacy --notifier enable",
-            "Run it without sudo: obs-legacy --notifier enable"
-        ));
+    if unsafe { libc::geteuid() } != 0 {
+        return false;
+    }
+    cli::fail(tr!(
+        "Сповіщення вмикаються для звичайного користувача, а не для root.",
+        "Notifications are turned on for a regular user, not for root."
+    ));
+    cli::hint(tr!(
+        "Запусти без sudo: obs-legacy --notifier enable",
+        "Run it without sudo: obs-legacy --notifier enable"
+    ));
+    true
+}
+
+/// `--notifier restart` (так його викликає install.sh --update): перезапустити фонову перевірку з новою
+/// програмою, якщо сповіщення ввімкнено. Невдача — лише попередження: оновленню програми вона не заважає.
+pub(super) fn restart_cmd() -> ExitCode {
+    if refuse_root() {
         return ExitCode::FAILURE;
     }
-    let exe = exe_path();
     let installed = installed();
-    if again_only {
-        // install.sh --update: перезапустити з новою програмою, якщо ввімкнено.
-        let Some(place) = installed.first() else { return ExitCode::SUCCESS };
-        return match activate(place, &exe, true) {
-            Ok(()) => {
-                cli::ok(&trf!(
-                    "Фонову перевірку оновлень перезапущено ({}).",
-                    "The background update check was restarted ({}).",
-                    place.backend.label()
-                ));
-                ExitCode::SUCCESS
-            }
-            Err(e) => {
-                cli::warn(&trf!(
-                    "Не вдалося перезапустити фонову перевірку ({}): {e}",
-                    "Couldn't restart the background check ({}): {e}",
-                    place.backend.label()
-                ));
-                ExitCode::SUCCESS
-            }
-        };
+    let Some(place) = installed.first() else { return ExitCode::SUCCESS };
+    match activate(place, &exe_path(), true) {
+        Ok(()) => cli::ok(&trf!(
+            "Фонову перевірку оновлень перезапущено ({}).",
+            "The background update check was restarted ({}).",
+            place.backend.label()
+        )),
+        Err(e) => cli::warn(&trf!(
+            "Не вдалося перезапустити фонову перевірку ({}): {e}",
+            "Couldn't restart the background check ({}): {e}",
+            place.backend.label()
+        )),
+    }
+    ExitCode::SUCCESS
+}
+
+/// `--notifier enable [служба]`: увімкнути одну службу (названу чи найкращу для цієї системи).
+pub(super) fn enable_cmd(choice: Option<Backend>) -> ExitCode {
+    if refuse_root() {
+        return ExitCode::FAILURE;
     }
     cli::say(tr!("Вмикаю сповіщення про оновлення", "Turning on update notifications"));
-    let avail = available();
-    let target = match choice {
-        Some(b) => match avail.iter().find(|p| p.backend == b) {
-            Some(p) => p.clone(),
-            None => {
-                cli::fail(&trf!(
-                    "{} для користувача тут не працює.",
-                    "{} isn't available to the user here.",
-                    upper_first(b.label())
-                ));
-                let names: Vec<&str> = avail.iter().map(|p| p.backend.name()).collect();
-                cli::hint(&trf!(
-                    "Що працює на цій системі: {}. Без назви програма вибере сама: obs-legacy --notifier enable",
-                    "What works on this system: {}. Without a name the program picks one itself: obs-legacy --notifier enable",
-                    names.join(", ")
-                ));
-                return ExitCode::FAILURE;
-            }
-        },
-        None => avail[0].clone(),
-    };
+    let Some(target) = pick_target(choice) else { return ExitCode::FAILURE };
     if foreign(&target) {
         cli::fail(&trf!(
             "{} уже існує і створений не OBS-Legacy — не чіпаю.",
@@ -198,20 +190,10 @@ pub(super) fn enable_cmd(choice: Option<Backend>, again_only: bool) -> ExitCode 
         ));
         return ExitCode::FAILURE;
     }
-    // Одна служба: інші, якщо були, прибрати (наприклад, після зміни init-системи).
-    for p in installed.iter().filter(|p| **p != target) {
-        match deactivate(p) {
-            Ok(()) => cli::ok(&trf!(
-                "Прибрано попередню: {} ({}).",
-                "Removed the previous one: {} ({}).",
-                p.backend.label(),
-                p.shown()
-            )),
-            Err(e) => cli::warn(&trf!("Не вдалося прибрати {}: {e}", "Couldn't remove {}: {e}", p.shown())),
-        }
-    }
+    let installed = installed();
+    remove_others(&installed, &target);
     let again = installed.contains(&target);
-    if let Err(e) = activate(&target, &exe, again) {
+    if let Err(e) = activate(&target, &exe_path(), again) {
         // Нова служба не запрацювала — не лишати її напівувімкненою (файл без запуску, запис у boot.d).
         if !again && target.ours() {
             let _ = deactivate(&target);
@@ -225,8 +207,51 @@ pub(super) fn enable_cmd(choice: Option<Backend>, again_only: bool) -> ExitCode 
         }
         return ExitCode::FAILURE;
     }
+    report_enabled(&target);
+    ExitCode::SUCCESS
+}
+
+/// Яку службу вмикати: названу, якщо вона тут працює, або найкращу з доступних.
+fn pick_target(choice: Option<Backend>) -> Option<Place> {
+    let avail = available();
+    let Some(b) = choice else { return avail.into_iter().next() };
+    if let Some(p) = avail.iter().find(|p| p.backend == b) {
+        return Some(p.clone());
+    }
+    cli::fail(&trf!(
+        "{} для користувача тут не працює.",
+        "{} isn't available to the user here.",
+        upper_first(b.label())
+    ));
+    let names: Vec<&str> = avail.iter().map(|p| p.backend.name()).collect();
+    cli::hint(&trf!(
+        "Що працює на цій системі: {}. Без назви програма вибере сама: obs-legacy --notifier enable",
+        "What works on this system: {}. Without a name the program picks one itself: obs-legacy --notifier \
+         enable",
+        names.join(", ")
+    ));
+    None
+}
+
+/// Одна служба на користувача: інші, якщо були, прибрати (наприклад, після зміни init-системи).
+fn remove_others(installed: &[Place], target: &Place) {
+    for p in installed.iter().filter(|p| *p != target) {
+        match deactivate(p) {
+            Ok(()) => cli::ok(&trf!(
+                "Прибрано попередню: {} ({}).",
+                "Removed the previous one: {} ({}).",
+                p.backend.label(),
+                p.shown()
+            )),
+            Err(e) => cli::warn(&trf!("Не вдалося прибрати {}: {e}", "Couldn't remove {}: {e}", p.shown())),
+        }
+    }
+}
+
+/// Що вийшло: служба, чи запустилася фонова перевірка, пробне сповіщення і як усе вимкнути.
+fn report_enabled(target: &Place) {
     cli::ok(&format!("{}: {}", upper_first(target.backend.label()), target.shown()));
-    match wait_running(10) {
+    match wait_running(START_WAIT_SECS) {
         Some(pid) => cli::ok(&trf!(
             "Фонова перевірка працює (PID {pid}): нові версії — раз на 12 годин.",
             "The background check is running (PID {pid}): new versions — every 12 hours."
@@ -267,7 +292,6 @@ pub(super) fn enable_cmd(choice: Option<Backend>, again_only: bool) -> ExitCode 
         "Вимкнути: obs-legacy → Додатково → «Сповіщення про оновлення» або obs-legacy --notifier disable.",
         "To turn off: obs-legacy → More → “Update notifications” or obs-legacy --notifier disable."
     ));
-    ExitCode::SUCCESS
 }
 
 pub(super) fn disable_cmd() -> ExitCode {
