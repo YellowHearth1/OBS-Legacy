@@ -7,8 +7,9 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
 
-use super::{count_word, kv, lower_first, panel, section, spinner, truncate, wrap_spans};
+use super::{kv, lower_first, panel, section, spinner, truncate, wrap_spans};
 use crate::app::{App, Target};
+use crate::i18n::count_word;
 use crate::reports::{self, Outcome};
 use crate::theme::Theme;
 use crate::versions;
