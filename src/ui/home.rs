@@ -13,8 +13,8 @@ use crate::app::{App, MenuItem, Row, Target, menu_item};
 use crate::logo;
 use crate::reports::{self, Outcome};
 use crate::script;
-use crate::system;
 use crate::theme::Theme;
+use crate::versions;
 
 pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
     let t = app.theme;
@@ -585,7 +585,7 @@ fn summary(app: &App, width: u16) -> Vec<Line<'static>> {
             (Some(_), Some(news)) => {
                 l.extend(row("⚠", t.warn(), tr!("Оновлення", "Updates"), vec![Span::styled(news, t.warn())]))
             }
-            (Some(b), None) if f.obs_pinned.is_some() && system::newer(&latest, b.obs_version()) => l.extend(row(
+            (Some(b), None) if f.obs_pinned.is_some() && versions::newer(&latest, b.obs_version()) => l.extend(row(
                 "•",
                 t.muted(),
                 tr!("Оновлення", "Updates"),
@@ -803,7 +803,7 @@ fn dashboard(app: &App) -> Vec<Line<'static>> {
                     .as_ref()
                     .and_then(|u| u.plugins.iter().find(|(pid, _)| pid == id))
                     .and_then(|(_, latest)| latest.clone())
-                    .filter(|latest| system::newer(latest, ver));
+                    .filter(|latest| versions::newer(latest, ver));
                 spans.push(Span::raw(id.clone()));
                 spans.push(muted(format!(" {ver}")));
                 if let Some(n) = newer {

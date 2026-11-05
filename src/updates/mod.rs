@@ -17,11 +17,13 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use crate::builds::{self, BuildInfo};
 use crate::catalog::{self, PluginInfo};
 use crate::script;
 use crate::service;
 use crate::settings::Settings;
-use crate::system::{self, BuildInfo, Updates, newer};
+use crate::system;
+use crate::versions::{self, Updates, newer};
 
 pub use state::State;
 pub use watch::{check_main, log_path, running_pid, watch_main};
@@ -186,7 +188,9 @@ pub fn facts_from(
     // Коли збирання ffmpeg вимкнено, «install» його й не перезбере — тоді мовчимо.
     let ffmpeg_built = active.and_then(|b| b.get("ffmpeg.arch_version")).filter(|v| !v.is_empty()).map(str::to_string);
     let ffmpeg_new = match (&ffmpeg_built, &u.ffmpeg_repo) {
-        (Some(built), Some(repo)) if setting(settings, "BUILD_FFMPEG") != "0" && system::pacman_newer(repo, built) => {
+        (Some(built), Some(repo))
+            if setting(settings, "BUILD_FFMPEG") != "0" && versions::pacman_newer(repo, built) =>
+        {
             Some(repo.clone())
         }
         _ => None,
@@ -208,13 +212,13 @@ pub fn facts_from(
 
 /// Перевірити нові версії (мережа: git ls-remote до GitHub).
 pub fn gather() -> Facts {
-    let (builds, _) = system::read_builds();
+    let (builds, _) = builds::read_builds();
     let active = builds.iter().find(|b| b.active);
     let settings = Settings::load();
     let catalog = script::ensure_extracted().ok().and_then(|s| catalog::load(&s).ok()).unwrap_or_default();
     let repos: Vec<(String, String)> =
         tracked_plugins(active, &settings, &catalog).into_iter().map(|(id, _, _, repo)| (id, repo)).collect();
-    let u = system::check_updates(&repos, Some(&self_repo()));
+    let u = versions::check_updates(&repos, Some(&self_repo()));
     facts_from(active, &u, &settings, &catalog, script::self_source().is_some())
 }
 

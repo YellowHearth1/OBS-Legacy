@@ -9,8 +9,9 @@ use crate::catalog::{self, PluginInfo};
 use crate::reports::{self, ReportInfo};
 use crate::service;
 use crate::settings;
-use crate::system::{self, SysInfo, Updates};
+use crate::system::{self, SysInfo};
 use crate::updates;
+use crate::versions::{self, Updates};
 
 pub(super) enum Msg {
     Sys(Box<SysInfo>),
@@ -98,7 +99,7 @@ impl App {
         let tx = self.tx.clone();
         thread::spawn(move || {
             let self_repo = updates::self_repo();
-            let _ = tx.send(Msg::Updates(system::check_updates(&repos, Some(&self_repo))));
+            let _ = tx.send(Msg::Updates(versions::check_updates(&repos, Some(&self_repo))));
         });
     }
 

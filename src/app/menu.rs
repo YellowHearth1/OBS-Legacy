@@ -2,10 +2,10 @@
 
 use super::dialogs::{Dialog, DialogAction};
 use super::{App, Screen};
+use crate::builds;
 use crate::paths::short_path;
 use crate::script::SelfSource;
 use crate::settings::Settings;
-use crate::system;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -439,7 +439,7 @@ impl App {
                 self.screen = Screen::Reports;
             }
             Action::Rollback => {
-                let (builds, _) = system::read_builds();
+                let (builds, _) = builds::read_builds();
                 self.build_sel = builds.iter().position(|b| !b.active && b.complete).unwrap_or(0);
                 self.builds = builds;
                 self.screen = Screen::Rollback;

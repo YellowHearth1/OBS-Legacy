@@ -24,16 +24,18 @@ use ratatui::crossterm::event;
 use ratatui::layout::Rect;
 
 use crate::advice::{self, Advice};
+use crate::builds::BuildInfo;
 use crate::catalog::PluginInfo;
 use crate::desktop;
 use crate::reports::ReportInfo;
 use crate::script::{self, SelfSource};
 use crate::service;
 use crate::settings::Settings;
-use crate::system::{BuildInfo, SysInfo, Updates};
+use crate::system::SysInfo;
 use crate::theme::Theme;
 use crate::ui;
 use crate::updates;
+use crate::versions::Updates;
 
 pub use dialogs::Dialog;
 pub use editor::Editor;

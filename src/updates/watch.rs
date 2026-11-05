@@ -19,7 +19,7 @@ use crate::clock;
 use crate::notify;
 use crate::paths;
 use crate::settings::Settings;
-use crate::system::newer;
+use crate::versions::newer;
 
 const PACMAN_DB: &str = "/var/lib/pacman/local";
 

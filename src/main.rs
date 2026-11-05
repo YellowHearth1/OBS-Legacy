@@ -10,6 +10,7 @@ mod i18n;
 mod advice;
 mod analyzer;
 mod app;
+mod builds;
 mod catalog;
 mod cli;
 mod clock;
@@ -29,6 +30,7 @@ mod term_view;
 mod theme;
 mod ui;
 mod updates;
+mod versions;
 
 use std::env;
 use std::io::{self, IsTerminal};

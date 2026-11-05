@@ -481,7 +481,7 @@ pub fn advise(i: &Input) -> Advice {
 mod tests {
     use super::*;
     use crate::analyzer::{Level, Problem};
-    use crate::system::BuildInfo;
+    use crate::builds::BuildInfo;
 
     fn sys() -> SysInfo {
         SysInfo {
