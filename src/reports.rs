@@ -37,7 +37,15 @@ impl ReportInfo {
     pub fn label(&self) -> &'static str {
         command_label(&self.command)
     }
+
+    /// Звіт збирання OBS: встановлення, оновлення чи перезбирання.
+    pub fn is_build(&self) -> bool {
+        BUILD_COMMANDS.contains(&self.command.as_str())
+    }
 }
+
+/// Команди скрипта, що збирають OBS.
+pub const BUILD_COMMANDS: [&str; 3] = ["install", "update", "rebuild"];
 
 pub fn dir() -> PathBuf {
     paths::cache_home().join("obs-studio-nvenc-artix").join("reports")

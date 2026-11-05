@@ -13,7 +13,7 @@ use super::{App, Screen, ToastKind};
 use crate::analyzer::Prompt;
 use crate::desktop;
 use crate::paths;
-use crate::reports::Outcome;
+use crate::reports::{Outcome, ReportInfo};
 use crate::runner::Job;
 use crate::script::SelfSource;
 use crate::settings;
@@ -79,22 +79,20 @@ impl App {
     /// відкривати файл на кожному кадрі.
     pub(super) fn build_running(&self) -> bool {
         self.run.as_ref().is_some_and(|r| r.job.running())
-            || (self
-                .reports
-                .iter()
-                .find(|r| matches!(r.command.as_str(), "install" | "update" | "rebuild"))
-                .is_some_and(|r| r.outcome == Outcome::Unknown)
-                && system::build_running())
+            || (self.last_build_report().is_some_and(|r| r.outcome == Outcome::Unknown) && system::build_running())
     }
 
     /// Останнє встановлення / оновлення / перезбирання обірвалося (звіт без «Результат:», а скрипт уже
     /// не працює) або завершилося помилкою.
     pub fn last_build_broken(&self) -> bool {
         let running = self.build_running();
-        self.reports
-            .iter()
-            .find(|r| matches!(r.command.as_str(), "install" | "update" | "rebuild"))
+        self.last_build_report()
             .is_some_and(|r| r.outcome == Outcome::Failed || (r.outcome == Outcome::Unknown && !running))
+    }
+
+    /// Найновіший звіт збирання OBS (встановлення, оновлення чи перезбирання).
+    fn last_build_report(&self) -> Option<&ReportInfo> {
+        self.reports.iter().find(|r| r.is_build())
     }
 
     /// Запустити команду скрипта. false — не запущено.
