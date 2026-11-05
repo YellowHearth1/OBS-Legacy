@@ -13,12 +13,12 @@ use std::env;
 use std::fs;
 use std::io::Read;
 use std::os::unix::fs::MetadataExt;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::desktop;
 use crate::paths;
 
 /// Змінні, які переносяться з графічної сесії в notify-send і в OBS-Legacy,
@@ -264,17 +264,8 @@ fn open_app(exe: Option<&Path>, session: &Session) {
     let Some(exe) = exe else { return };
     let mut cmd = Command::new(exe);
     session.apply(&mut cmd);
-    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-    // SAFETY: setsid безпечний між fork і exec; так вікно не залежить від служби.
-    unsafe {
-        cmd.pre_exec(|| {
-            libc::setsid();
-            Ok(())
-        });
-    }
-    if let Ok(mut child) = cmd.spawn() {
-        thread::spawn(move || child.wait());
-    }
+    // Окремо від служби: вікно не залежить від неї.
+    let _ = desktop::spawn_detached(&mut cmd);
 }
 
 /// Рядок у текстовому форматі GVariant.

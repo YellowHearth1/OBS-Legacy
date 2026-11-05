@@ -18,10 +18,32 @@ pub(super) enum Msg {
     Updates(Updates),
     Catalog(Result<Vec<PluginInfo>, String>),
     Reports(Vec<ReportInfo>),
-    /// Пакети для збірки, яких бракує: (є в репозиторіях, немає в репозиторіях).
-    Deps(Option<(Vec<String>, Vec<String>)>),
+    /// Пакети для збірки, яких бракує (None — скрипт не відповів).
+    Deps(Option<MissingDeps>),
     /// Сповіщення про оновлення: Some(служба) — увімкнено.
     Notifier(Option<service::Backend>),
+}
+
+/// Пакети для збірки, яких бракує.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(super) struct MissingDeps {
+    /// Є в репозиторіях — їх поставить «Встановити пакети».
+    pub repo: Vec<String>,
+    /// Обов'язкові, але в репозиторіях їх немає.
+    pub norepo: Vec<String>,
+}
+
+/// Розбирає вивід `deps --missing`: рядки «repo <пакет>» і «norepo <пакет>», решту пропускає.
+fn parse_missing_deps(out: &str) -> MissingDeps {
+    let mut missing = MissingDeps::default();
+    for line in out.lines() {
+        match line.split_once(' ') {
+            Some(("repo", p)) => missing.repo.push(p.trim().to_string()),
+            Some(("norepo", p)) => missing.norepo.push(p.trim().to_string()),
+            _ => {}
+        }
+    }
+    missing
 }
 
 impl App {
@@ -59,17 +81,10 @@ impl App {
                 .stdin(Stdio::null())
                 .stderr(Stdio::null())
                 .output();
-            let parsed = out.ok().filter(|o| o.status.success()).map(|o| {
-                let (mut repo, mut norepo) = (Vec::new(), Vec::new());
-                for line in String::from_utf8_lossy(&o.stdout).lines() {
-                    match line.split_once(' ') {
-                        Some(("repo", p)) => repo.push(p.trim().to_string()),
-                        Some(("norepo", p)) => norepo.push(p.trim().to_string()),
-                        _ => {}
-                    }
-                }
-                (repo, norepo)
-            });
+            let parsed = out
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| parse_missing_deps(&String::from_utf8_lossy(&o.stdout)));
             let _ = tx.send(Msg::Deps(parsed));
         });
     }
@@ -136,9 +151,9 @@ impl App {
                     self.reports_sel = self.reports_sel.min(self.reports.len().saturating_sub(1));
                     changed = true;
                 }
-                Msg::Deps(Some((repo, norepo))) => {
-                    self.missing_packages = Some(repo);
-                    self.missing_norepo = norepo;
+                Msg::Deps(Some(missing)) => {
+                    self.missing_packages = Some(missing.repo);
+                    self.missing_norepo = missing.norepo;
                     changed = true;
                 }
                 Msg::Deps(None) => {}
@@ -154,5 +169,18 @@ impl App {
         if !self.updates_requested && self.screen != Screen::Intro && self.sys.is_some() && self.catalog.is_some() {
             self.spawn_updates();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_deps_output() {
+        let m = parse_missing_deps("repo swig\nnorepo libfoo\nщось інше\nrepo  asio \n\n");
+        assert_eq!(m.repo, ["swig", "asio"]);
+        assert_eq!(m.norepo, ["libfoo"]);
+        assert_eq!(parse_missing_deps(""), MissingDeps::default());
     }
 }

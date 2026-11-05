@@ -2,15 +2,15 @@
 //! вона запускає.
 
 use std::fs;
-use std::os::unix::process::CommandExt;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use super::dinit::{dinit_boot_links, dinit_check_body, dinit_load};
 use super::files::{render, supervised_files, write_file};
 use super::{Backend, NAME, Place, run};
+use crate::desktop;
 use crate::updates;
 
 /// Дочекатися, поки фонова перевірка запуститься.
@@ -29,18 +29,8 @@ pub(super) fn wait_running(secs: u64) -> Option<u32> {
 
 /// Запустити `--watch` окремо від термінала (для автозапуску — одразу, без
 /// повторного входу в сесію).
-fn spawn_detached(exe: &Path) -> Result<(), String> {
-    let mut cmd = Command::new(exe);
-    cmd.arg("--watch").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-    // SAFETY: setsid безпечний між fork і exec: процес не залежить від термінала TUI.
-    unsafe {
-        cmd.pre_exec(|| {
-            libc::setsid();
-            Ok(())
-        });
-    }
-    cmd.spawn()
-        .map(crate::desktop::reap)
+fn spawn_watch(exe: &Path) -> Result<(), String> {
+    desktop::spawn_detached(Command::new(exe).arg("--watch"))
         .map_err(|e| trf!("не вдалося запустити {} --watch: {e}", "couldn't start {} --watch: {e}", exe.display()))
 }
 
@@ -130,7 +120,7 @@ pub(super) fn activate(place: &Place, exe: &Path, again: bool) -> Result<(), Str
         Backend::Autostart => {
             write_file(p, &render(Backend::Autostart, exe), 0o644)?;
             stop_running();
-            spawn_detached(exe)?;
+            spawn_watch(exe)?;
         }
     }
     Ok(())

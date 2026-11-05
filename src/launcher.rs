@@ -10,10 +10,12 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Result, bail};
 
+use crate::desktop;
 use crate::paths::find_in_path;
 
-const COLS: u16 = 120;
-const ROWS: u16 = 36;
+/// Розмір вікна термінала, яке відкриває програма: усі екрани вміщаються без прокрутки.
+pub const COLS: u16 = 120;
+pub const ROWS: u16 = 36;
 const TITLE: &str = "OBS-Legacy";
 
 /// Командний рядок для запуску `program` у конкретному терміналі.
@@ -121,15 +123,6 @@ pub fn candidates() -> Vec<String> {
     list
 }
 
-fn notify(message: &str) {
-    let _ = Command::new("notify-send")
-        .args(["-a", TITLE, TITLE, message])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-}
-
 /// Змінна, за якою дочірній екземпляр знає, що його вже перезапустили:
 /// якщо «термінал» не дав йому TTY, він не почне відкривати вікна по колу.
 pub const NO_RELAUNCH_ENV: &str = "OBS_LEGACY_NO_RELAUNCH";
@@ -162,7 +155,7 @@ pub fn relaunch_in_terminal() -> Result<()> {
         "Не знайдено термінала. Встанови, напр., kitty, alacritty або konsole, чи задай змінну TERMINAL.",
         "No terminal found. Install one, e.g. kitty, alacritty or konsole, or set the TERMINAL variable."
     );
-    notify(msg);
+    desktop::notify(TITLE, msg);
     bail!(msg)
 }
 

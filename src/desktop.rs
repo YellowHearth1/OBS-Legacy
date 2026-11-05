@@ -1,7 +1,7 @@
-//! Дії з робочим столом: відкрити файл чи теку в типовій програмі та
-//! скопіювати текст у буфер обміну.
+//! Дії з робочим столом: відкрити файл чи теку в типовій програмі, запустити програму окремо від
+//! термінала, коротке сповіщення й буфер обміну.
 
-use std::io::Write;
+use std::io::{self, Write};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -15,17 +15,36 @@ pub fn open(path: &Path) -> Result<()> {
     if find_in_path("xdg-open").is_none() {
         bail!(tr!("немає xdg-open (пакет xdg-utils)", "xdg-open is missing (package xdg-utils)"));
     }
-    let mut cmd = Command::new("xdg-open");
-    cmd.arg(path).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-    // SAFETY: setsid лише відокремлює програму від сесії термінала.
+    spawn_detached(Command::new("xdg-open").arg(path))
+        .context(tr!("не вдалося запустити xdg-open", "couldn't start xdg-open"))
+}
+
+/// Запускає програму окремо від термінала й сесії TUI (`setsid`), без вводу й виводу: вона живе й
+/// після виходу з OBS-Legacy. На її завершення чекає окремий потік (`reap`).
+pub fn spawn_detached(cmd: &mut Command) -> io::Result<()> {
+    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    // SAFETY: між fork і exec викликається лише setsid — безпечна для такого місця функція.
     unsafe {
         cmd.pre_exec(|| {
             libc::setsid();
             Ok(())
         });
     }
-    reap(cmd.spawn().context(tr!("не вдалося запустити xdg-open", "couldn't start xdg-open"))?);
+    reap(cmd.spawn()?);
     Ok(())
+}
+
+/// Коротке сповіщення на робочому столі (`notify-send`); немає його — нічого не робить.
+pub fn notify(title: &str, body: &str) {
+    if let Ok(child) = Command::new("notify-send")
+        .args(["-a", "OBS-Legacy", title, body])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        reap(child);
+    }
 }
 
 /// Дочекатися фонової програми в окремому потоці: інакше, завершившись, вона лишається

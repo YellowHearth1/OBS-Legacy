@@ -1,8 +1,7 @@
 //! Завдання у вбудованому терміналі: запуск скрипта й інших команд, стан запуску, головна кнопка
 //! картки результату й запуск самого OBS.
 
-use std::os::unix::process::CommandExt;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::time::Instant;
 
 use ratatui::layout::Rect;
@@ -12,6 +11,7 @@ use super::menu::{Action, fix_action, menu_item};
 use super::{App, Screen, ToastKind};
 use crate::analyzer::Prompt;
 use crate::desktop;
+use crate::launcher;
 use crate::paths;
 use crate::reports::{Outcome, ReportInfo};
 use crate::runner::Job;
@@ -73,6 +73,13 @@ pub(super) fn self_update_args(src: &SelfSource) -> Vec<String> {
     }
 }
 
+/// Розмір псевдотермінала до першого кадру: вікно виводу — це екран без смуг, рамок і відступів.
+/// Точний розмір ui::run встановлює вже на першому кадрі (`Job::resize`).
+fn initial_pty_size() -> (u16, u16) {
+    let (cols, rows) = ratatui::crossterm::terminal::size().unwrap_or((launcher::COLS, launcher::ROWS));
+    (rows.saturating_sub(9).max(5), cols.saturating_sub(4).max(20))
+}
+
 impl App {
     /// Чи йде зараз збирання: власне завдання або скрипт, запущений деінде (тримає блокування кешу).
     /// Блокування перевіряється лише тоді, коли останній звіт збирання без результату — щоб не
@@ -112,20 +119,13 @@ impl App {
             );
             return false;
         }
-        let (cols, rows) = ratatui::crossterm::terminal::size().unwrap_or((120, 36));
+        let (rows, cols) = initial_pty_size();
         let env = [
             ("OBS_LEGACY_TUI", "1".to_string()),
             ("OBS_LEGACY_SETTINGS", settings::settings_path().display().to_string()),
             ("OBS_LEGACY_LANG", crate::i18n::lang().code().to_string()),
         ];
-        match Job::spawn(
-            program,
-            &args,
-            &paths::home(),
-            &env,
-            rows.saturating_sub(9).max(5),
-            cols.saturating_sub(4).max(20),
-        ) {
+        match Job::spawn(program, &args, &paths::home(), &env, rows, cols) {
             Ok(job) => {
                 let item = menu_item(action);
                 self.run = Some(RunState {
@@ -185,20 +185,8 @@ impl App {
             );
             return;
         };
-        let mut cmd = Command::new(&obs);
-        cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-        // SAFETY: setsid лише відокремлює OBS від сесії термінала.
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
-        }
-        match cmd.spawn() {
-            Ok(child) => {
-                desktop::reap(child);
-                self.toast(ToastKind::Ok, trf!("OBS запускається ({})…", "OBS is starting ({})…", obs.display()));
-            }
+        match desktop::spawn_detached(&mut Command::new(&obs)) {
+            Ok(()) => self.toast(ToastKind::Ok, trf!("OBS запускається ({})…", "OBS is starting ({})…", obs.display())),
             Err(e) => self.toast(ToastKind::Err, trf!("Не вдалося запустити OBS: {e}", "Couldn't start OBS: {e}")),
         }
     }

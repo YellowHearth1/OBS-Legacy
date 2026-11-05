@@ -14,7 +14,6 @@ mod tasks;
 
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 
@@ -45,6 +44,15 @@ pub use mouse::Target;
 pub use report_view::ReportView;
 use tasks::Msg;
 
+/// Як часто перемальовувати екран, поки щось рухається (вивід завдання, логотип на першому екрані).
+const FRAME_BUSY: Duration = Duration::from_millis(60);
+/// Як часто — коли нічого не відбувається: менше роботи для процесора.
+const FRAME_IDLE: Duration = Duration::from_millis(200);
+/// Скільки видно повідомлення внизу екрана.
+const TOAST_FOR: Duration = Duration::from_secs(5);
+/// Після якого часу завдання вважається довгим: тоді по завершенні ще й дзвінок і сповіщення.
+const LONG_TASK: Duration = Duration::from_secs(60);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
     Intro,
@@ -70,6 +78,15 @@ pub struct Toast {
     pub text: String,
     pub kind: ToastKind,
     until: Instant,
+}
+
+/// Чим закінчилося завдання.
+struct Finished {
+    success: bool,
+    /// Людина відмовилася ([СКАСОВАНО]) або перервала (Ctrl+C).
+    cancelled: bool,
+    elapsed: Duration,
+    action: Action,
 }
 
 pub struct App {
@@ -119,18 +136,6 @@ pub struct App {
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
     quit: bool,
-}
-
-fn notify_desktop(title: &str, body: &str) {
-    if let Ok(child) = Command::new("notify-send")
-        .args(["-a", "OBS-Legacy", title, body])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-    {
-        desktop::reap(child);
-    }
 }
 
 fn bell() {
@@ -198,8 +203,7 @@ impl App {
             terminal.draw(|f| ui::draw(f, &mut self))?;
             self.tick = self.tick.wrapping_add(1);
             let busy = self.screen == Screen::Intro || self.run.as_ref().is_some_and(|r| r.job.running());
-            let timeout = Duration::from_millis(if busy { 60 } else { 200 });
-            if event::poll(timeout)? {
+            if event::poll(if busy { FRAME_BUSY } else { FRAME_IDLE })? {
                 loop {
                     let ev = event::read()?;
                     self.handle_event(ev);
@@ -237,51 +241,60 @@ impl App {
         Some(updates::facts_from(active, u, &self.settings, catalog, self.self_source.is_some()))
     }
 
+    /// Що змінилося між кадрами: сповіщення внизу згасає, завдання видає новий вивід чи завершується.
     fn update(&mut self) {
-        let now = Instant::now();
-        if self.toast.as_ref().is_some_and(|t| now > t.until) {
+        if self.toast.as_ref().is_some_and(|t| Instant::now() > t.until) {
             self.toast = None;
         }
-        let mut finished: Option<(bool, bool, Duration, Action)> = None;
-        if let Some(run) = self.run.as_mut() {
-            run.job.pump();
-            let prompt = if run.job.running() { run.job.analyzer.prompt(now) } else { None };
-            if prompt.is_some() && prompt != run.last_prompt {
-                bell();
-            }
-            run.last_prompt = prompt;
-            if let Some(exit) = run.job.exit
-                && !run.finished_handled
-            {
-                run.finished_handled = true;
-                let cancelled = run.job.analyzer.cancelled.is_some() || run.interrupted;
-                finished = Some((exit.success, cancelled, run.job.elapsed(), run.action));
-            }
-        }
-        if let Some((success, cancelled, elapsed, action)) = finished {
-            if elapsed > Duration::from_secs(60) {
-                bell();
-                let label = menu_item(action).label();
-                if success {
-                    notify_desktop("OBS-Legacy", &trf!("{label}: готово ✓", "{label}: done ✓"));
-                } else if !cancelled {
-                    notify_desktop(
-                        "OBS-Legacy",
-                        &trf!(
-                            "{label}: помилка — що робити, підкаже OBS-Legacy",
-                            "{label}: error — OBS-Legacy will tell you what to do"
-                        ),
-                    );
-                }
-            }
-            // Після завершення курсор у меню знову ставиться на пораду.
-            self.menu_touched = false;
-            self.refresh();
+        if let Some(finished) = self.pump_job() {
+            self.job_finished(finished);
         }
     }
 
+    /// Забирає вивід завдання; дзвонить, коли скрипт щось питає. Some — завдання щойно завершилося.
+    fn pump_job(&mut self) -> Option<Finished> {
+        let run = self.run.as_mut()?;
+        run.job.pump();
+        let prompt = if run.job.running() { run.job.analyzer.prompt(Instant::now()) } else { None };
+        if prompt.is_some() && prompt != run.last_prompt {
+            bell();
+        }
+        run.last_prompt = prompt;
+        let exit = run.job.exit.filter(|_| !run.finished_handled)?;
+        run.finished_handled = true;
+        Some(Finished {
+            success: exit.success,
+            cancelled: run.job.analyzer.cancelled.is_some() || run.interrupted,
+            elapsed: run.job.elapsed(),
+            action: run.action,
+        })
+    }
+
+    /// Завдання завершилося: про довге — дзвінок і сповіщення на робочому столі (людина могла
+    /// відійти), а відомості про систему й звіти — наново.
+    fn job_finished(&mut self, f: Finished) {
+        if f.elapsed > LONG_TASK {
+            bell();
+            let label = menu_item(f.action).label();
+            if f.success {
+                desktop::notify("OBS-Legacy", &trf!("{label}: готово ✓", "{label}: done ✓"));
+            } else if !f.cancelled {
+                desktop::notify(
+                    "OBS-Legacy",
+                    &trf!(
+                        "{label}: помилка — що робити, підкаже OBS-Legacy",
+                        "{label}: error — OBS-Legacy will tell you what to do"
+                    ),
+                );
+            }
+        }
+        // Після завершення курсор у меню знову ставиться на пораду.
+        self.menu_touched = false;
+        self.refresh();
+    }
+
     pub fn toast(&mut self, kind: ToastKind, text: impl Into<String>) {
-        self.toast = Some(Toast { text: text.into(), kind, until: Instant::now() + Duration::from_secs(5) });
+        self.toast = Some(Toast { text: text.into(), kind, until: Instant::now() + TOAST_FOR });
     }
 
     fn go_home(&mut self) {
