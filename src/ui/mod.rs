@@ -6,6 +6,7 @@ mod intro;
 mod lists;
 mod report;
 mod run;
+mod system_panel;
 
 use std::time::Duration;
 
@@ -70,6 +71,12 @@ pub fn truncate(s: &str, max: usize) -> String {
     let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
     out.push('…');
     out
+}
+
+/// «Встановлення OBS» → «встановлення OBS» (абревіатури лишаються великими).
+pub fn lower_first(s: &str) -> String {
+    let mut chars = s.chars();
+    chars.next().map(|c| c.to_lowercase().chain(chars).collect()).unwrap_or_default()
 }
 
 /// Українська множина: plural(4, "потік", "потоки", "потоків") → "потоки".
