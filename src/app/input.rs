@@ -12,6 +12,26 @@ fn ctrl(k: &KeyEvent, c: char) -> bool {
     k.modifiers.contains(KeyModifiers::CONTROL) && matches!(k.code, KeyCode::Char(x) if x.eq_ignore_ascii_case(&c))
 }
 
+/// Скільки чекати на друге Ctrl+C: випадкове одне натискання завдання не перериває.
+const CTRL_C_WINDOW: Duration = Duration::from_secs(3);
+
+/// Гортання виводу — однакове, працює завдання чи вже завершилося. `scroll` — рядків від низу,
+/// `height` — висота вікна виводу. true — клавішу оброблено.
+fn scroll_output(scroll: &mut usize, height: u16, code: KeyCode) -> bool {
+    let page = usize::from(height.max(2) - 1);
+    match code {
+        KeyCode::PageUp => *scroll += page,
+        KeyCode::PageDown => *scroll = scroll.saturating_sub(page),
+        KeyCode::Up => *scroll += 1,
+        KeyCode::Down => *scroll = scroll.saturating_sub(1),
+        // До початку історії: vt100 сам обмежує зсув її довжиною.
+        KeyCode::Home => *scroll = usize::MAX / 2,
+        KeyCode::End => *scroll = 0,
+        _ => return false,
+    }
+    true
+}
+
 /// Клавіша → байти для псевдотермінала.
 pub fn key_to_bytes(k: &KeyEvent) -> Option<Vec<u8>> {
     let alt = k.modifiers.contains(KeyModifiers::ALT);
@@ -66,10 +86,7 @@ impl App {
                 run.job.write_input(text.replace('\n', "\r").as_bytes());
             }
         } else if let Some(ed) = self.editor.as_mut() {
-            for c in text.chars().filter(|c| !c.is_control()) {
-                ed.chars.insert(ed.cursor, c);
-                ed.cursor += 1;
-            }
+            ed.insert_str(text);
         }
     }
 
@@ -119,10 +136,7 @@ impl App {
             KeyCode::Home | KeyCode::Char('g') => self.menu_sel = 0,
             KeyCode::End | KeyCode::Char('G') => self.menu_sel = n - 1,
             KeyCode::Enter | KeyCode::Right | KeyCode::Char('l' | ' ') => self.activate_row(rows[self.menu_sel]),
-            KeyCode::Left | KeyCode::Char('h') if self.advanced_open => {
-                self.advanced_open = false;
-                self.menu_sel = self.rows().iter().position(|r| *r == Row::More).unwrap_or(0);
-            }
+            KeyCode::Left | KeyCode::Char('h') if self.advanced_open => self.collapse_advanced(),
             KeyCode::Char(c @ '1'..='9') => {
                 let i = c as usize - '1' as usize;
                 if i < n && rows[i] != Row::More {
@@ -138,10 +152,7 @@ impl App {
                 touched = false;
             }
             // Esc спершу згортає «Додатково», а вже потім закриває програму.
-            KeyCode::Esc if self.advanced_open => {
-                self.advanced_open = false;
-                self.menu_sel = self.rows().iter().position(|r| *r == Row::More).unwrap_or(0);
-            }
+            KeyCode::Esc if self.advanced_open => self.collapse_advanced(),
             KeyCode::Esc | KeyCode::Char('q' | 'й') => self.quit = true,
             _ => touched = false,
         }
@@ -153,85 +164,64 @@ impl App {
             self.go_home();
             return;
         };
-        let page = usize::from(run.output_area.height.max(2) - 1);
-        match k.code {
-            KeyCode::PageUp => {
-                run.scroll += page;
-                return;
-            }
-            KeyCode::PageDown => {
-                run.scroll = run.scroll.saturating_sub(page);
-                return;
-            }
-            KeyCode::Up if k.modifiers.contains(KeyModifiers::SHIFT) => {
-                run.scroll += 1;
-                return;
-            }
-            KeyCode::Down if k.modifiers.contains(KeyModifiers::SHIFT) => {
-                run.scroll = run.scroll.saturating_sub(1);
-                return;
-            }
-            KeyCode::End if k.modifiers.contains(KeyModifiers::CONTROL) || run.scroll > 0 => {
-                run.scroll = 0;
-                return;
-            }
-            _ => {}
+        if scroll_output(&mut run.scroll, run.output_area.height, k.code) {
+            return;
         }
         if !run.job.running() {
             match k.code {
                 KeyCode::Enter => self.run_primary_activate(),
                 KeyCode::Esc | KeyCode::Char('q' | 'й') | KeyCode::Backspace => self.go_home(),
-                KeyCode::Up => run.scroll += 1,
-                KeyCode::Down => run.scroll = run.scroll.saturating_sub(1),
-                KeyCode::Home => run.scroll = usize::MAX / 2,
                 KeyCode::Char('o' | 'щ') => self.view_current_report(),
                 KeyCode::Char('c' | 'с') => self.copy_report_path(),
                 KeyCode::Char('e' | 'у') => self.open_report_externally(false),
                 _ => {}
             }
-            return;
+        } else if ctrl(&k, 'c') {
+            self.interrupt_job();
+        } else {
+            self.forward_key(k);
         }
-        if ctrl(&k, 'c') {
-            let now = Instant::now();
-            let armed = run.ctrl_c_at.is_some_and(|t| now.duration_since(t) < Duration::from_secs(3));
-            if armed && run.interrupted {
-                run.job.kill();
-                run.ctrl_c_at = None;
-                self.toast(ToastKind::Warn, tr!("Завдання примусово зупинено.", "The task was killed."));
-            } else if armed {
-                run.job.interrupt();
-                run.interrupted = true;
-                run.ctrl_c_at = Some(now);
-                self.toast(
-                    ToastKind::Warn,
-                    tr!(
-                        "Надіслано Ctrl+C. Якщо скрипт не зупиниться — ще двічі Ctrl+C.",
-                        "Ctrl+C sent. If the script doesn't stop — press Ctrl+C twice more."
-                    ),
-                );
-            } else {
-                run.ctrl_c_at = Some(now);
-                self.toast(
-                    ToastKind::Warn,
-                    tr!("Натисни Ctrl+C ще раз, щоб перервати завдання.", "Press Ctrl+C again to interrupt the task."),
-                );
-            }
-            return;
-        }
+    }
+
+    /// Ctrl+C: перше натискання лише попереджає, друге (протягом `CTRL_C_WINDOW`) надсилає Ctrl+C
+    /// скрипту, а наступне після цього — зупиняє завдання примусово.
+    fn interrupt_job(&mut self) {
+        let Some(run) = self.run.as_mut() else { return };
+        let now = Instant::now();
+        let armed = run.ctrl_c_at.is_some_and(|t| now.duration_since(t) < CTRL_C_WINDOW);
+        let message = if armed && run.interrupted {
+            run.job.kill();
+            run.ctrl_c_at = None;
+            tr!("Завдання примусово зупинено.", "The task was killed.")
+        } else if armed {
+            run.job.interrupt();
+            run.interrupted = true;
+            run.ctrl_c_at = Some(now);
+            tr!(
+                "Надіслано Ctrl+C. Якщо скрипт не зупиниться — ще двічі Ctrl+C.",
+                "Ctrl+C sent. If the script doesn't stop — press Ctrl+C twice more."
+            )
+        } else {
+            run.ctrl_c_at = Some(now);
+            tr!("Натисни Ctrl+C ще раз, щоб перервати завдання.", "Press Ctrl+C again to interrupt the task.")
+        };
+        self.toast(ToastKind::Warn, message);
+    }
+
+    /// Поки завдання працює, літери, Enter, Backspace, Tab і Ctrl+… ідуть у скрипт.
+    fn forward_key(&mut self, k: KeyEvent) {
         // Скрипт питає лише y/N і пароль. Стрілки, Home/End, Esc йому не потрібні, а в рядку
         // введення лишилися б сміттям — і «y» на запитанні вже не зараховувалося б.
         match k.code {
-            KeyCode::Up => run.scroll += 1,
-            KeyCode::Down => run.scroll = run.scroll.saturating_sub(1),
-            KeyCode::Home => run.scroll = usize::MAX / 2,
-            KeyCode::End => run.scroll = 0,
             KeyCode::Esc => self.toast(
                 ToastKind::Info,
                 tr!("Завдання ще працює. Перервати — Ctrl+C.", "The task is still running. To interrupt — Ctrl+C."),
             ),
             KeyCode::Left | KeyCode::Right | KeyCode::Delete | KeyCode::Insert | KeyCode::BackTab => {}
             _ => {
-                if let Some(bytes) = key_to_bytes(&k) {
+                if let Some(bytes) = key_to_bytes(&k)
+                    && let Some(run) = self.run.as_mut()
+                {
                     run.scroll = 0;
                     run.job.write_input(&bytes);
                 }
@@ -321,14 +311,7 @@ impl App {
         };
         let page = view.page.max(2) as isize - 1;
         match k.code {
-            KeyCode::Esc | KeyCode::Left | KeyCode::Char('q' | 'й') | KeyCode::Backspace => {
-                let back = view.back;
-                if back == Screen::Home {
-                    self.go_home();
-                } else {
-                    self.screen = back;
-                }
-            }
+            KeyCode::Esc | KeyCode::Left | KeyCode::Char('q' | 'й') | KeyCode::Backspace => self.close_report(),
             KeyCode::Up | KeyCode::Char('k') => view.scroll_by(-1),
             KeyCode::Down | KeyCode::Char('j') => view.scroll_by(1),
             KeyCode::PageUp => view.scroll_by(-page),
@@ -375,6 +358,26 @@ mod tests {
 
     fn key(code: KeyCode, mods: KeyModifiers) -> KeyEvent {
         KeyEvent::new(code, mods)
+    }
+
+    #[test]
+    fn output_scrolls_by_lines_pages_and_ends() {
+        let mut scroll = 0;
+        assert!(scroll_output(&mut scroll, 11, KeyCode::PageUp));
+        assert_eq!(scroll, 10);
+        assert!(scroll_output(&mut scroll, 11, KeyCode::Down));
+        assert_eq!(scroll, 9);
+        assert!(scroll_output(&mut scroll, 11, KeyCode::PageDown));
+        assert_eq!(scroll, 0);
+        assert!(scroll_output(&mut scroll, 11, KeyCode::Down));
+        assert_eq!(scroll, 0);
+        assert!(scroll_output(&mut scroll, 11, KeyCode::Home));
+        assert!(scroll > 1_000_000);
+        assert!(scroll_output(&mut scroll, 11, KeyCode::End));
+        assert_eq!(scroll, 0);
+        // Літери й Enter — не гортання: вони йдуть у скрипт.
+        assert!(!scroll_output(&mut scroll, 11, KeyCode::Char('y')));
+        assert!(!scroll_output(&mut scroll, 11, KeyCode::Enter));
     }
 
     #[test]

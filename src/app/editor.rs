@@ -19,12 +19,21 @@ impl Editor {
         self.chars.iter().collect()
     }
 
+    fn insert(&mut self, c: char) {
+        self.chars.insert(self.cursor, c);
+        self.cursor += 1;
+    }
+
+    /// Вставлений текст (bracketed paste): без перенесень рядків і керівних символів.
+    pub(super) fn insert_str(&mut self, text: &str) {
+        for c in text.chars().filter(|c| !c.is_control()) {
+            self.insert(c);
+        }
+    }
+
     pub(super) fn key(&mut self, k: KeyEvent) {
         match k.code {
-            KeyCode::Char(c) if !k.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.chars.insert(self.cursor, c);
-                self.cursor += 1;
-            }
+            KeyCode::Char(c) if !k.modifiers.contains(KeyModifiers::CONTROL) => self.insert(c),
             KeyCode::Char('u') => {
                 self.chars.drain(..self.cursor);
                 self.cursor = 0;
@@ -65,5 +74,13 @@ mod tests {
         e.key(key(KeyCode::End, KeyModifiers::NONE));
         e.key(key(KeyCode::Backspace, KeyModifiers::NONE));
         assert_eq!(e.text(), "3.0.");
+    }
+
+    #[test]
+    fn paste_skips_line_breaks() {
+        let mut e = Editor::new("-DA=1");
+        e.insert_str(" -DB=2\n");
+        assert_eq!(e.text(), "-DA=1 -DB=2");
+        assert_eq!(e.cursor, e.chars.len());
     }
 }

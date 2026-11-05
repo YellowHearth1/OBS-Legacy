@@ -84,6 +84,16 @@ impl App {
     }
 
     /// Шлях до звіту, з яким зараз працює екран.
+    /// Закрити переглядач: назад, звідки його відкрили.
+    pub(super) fn close_report(&mut self) {
+        let back = self.report_view.as_ref().map_or(Screen::Home, |v| v.back);
+        if back == Screen::Home {
+            self.go_home();
+        } else {
+            self.screen = back;
+        }
+    }
+
     pub(super) fn current_report(&self) -> Option<PathBuf> {
         match self.screen {
             Screen::Report => self.report_view.as_ref().map(|v| v.path.clone()),

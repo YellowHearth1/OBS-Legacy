@@ -106,10 +106,7 @@ impl App {
             },
             Target::Back => match self.screen {
                 Screen::Run if self.run.as_ref().is_some_and(|r| r.job.running()) => {}
-                Screen::Report => {
-                    let back = self.report_view.as_ref().map_or(Screen::Home, |v| v.back);
-                    if back == Screen::Home { self.go_home() } else { self.screen = back }
-                }
+                Screen::Report => self.close_report(),
                 _ => self.go_home(),
             },
             // Клац по вибраному пункту — запуск; по іншому — вибір.

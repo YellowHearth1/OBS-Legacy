@@ -1,10 +1,7 @@
 //! Головне меню: пункти (`MENU`), рядки з розділом «Додатково» і що робить кожен пункт.
 
-use super::dialogs::{Dialog, DialogAction};
 use super::{App, Screen};
 use crate::builds;
-use crate::paths::short_path;
-use crate::script::SelfSource;
 use crate::settings::Settings;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -368,15 +365,17 @@ impl App {
         }
     }
 
+    /// Згорнути «Додатково» й поставити курсор на його заголовок.
+    pub(super) fn collapse_advanced(&mut self) {
+        self.advanced_open = false;
+        self.menu_sel = self.rows().iter().position(|r| *r == Row::More).unwrap_or(0);
+    }
+
     pub(super) fn activate_row(&mut self, row: Row) {
         match row {
             Row::Item(a) => self.activate(a),
-            Row::More => {
-                self.advanced_open = !self.advanced_open;
-                if !self.advanced_open {
-                    self.menu_sel = self.rows().iter().position(|r| *r == Row::More).unwrap_or(0);
-                }
-            }
+            Row::More if self.advanced_open => self.collapse_advanced(),
+            Row::More => self.advanced_open = true,
         }
     }
 
@@ -391,42 +390,7 @@ impl App {
                 self.start_script(action, &["status"]);
             }
             Action::Notify => self.notifier_dialog(),
-            Action::Deps => {
-                let missing = self.missing_packages.clone().unwrap_or_default();
-                let what = if missing.is_empty() {
-                    tr!(
-                        "Скрипт перевірить, чи всі пакети для збірки на місці, і поставить ті, яких бракує.",
-                        "The script checks that all build dependencies are in place and installs the missing ones."
-                    )
-                    .to_string()
-                } else {
-                    let list = missing.join(" ");
-                    trf!("Буде встановлено: {list}.", "To be installed: {list}.")
-                };
-                self.dialog = Some(Dialog {
-                    title: tr!("Встановити пакети для збірки?", "Install the build dependencies?").into(),
-                    lines: vec![
-                        what,
-                        String::new(),
-                        tr!(
-                            "Лише ці пакети через pacman -S --needed (залежності pacman додасть сам), без оновлення \
-                             системи.",
-                            "Only these packages, with pacman -S --needed (pacman adds the dependencies itself), \
-                             without a system update."
-                        )
-                        .into(),
-                        tr!(
-                            "Скрипт ще раз спитає y/n, а пароль sudo/doas вводь прямо у вікні виводу.",
-                            "The script asks y/n once more; type your sudo/doas password right in the output window."
-                        )
-                        .into(),
-                    ],
-                    confirm: tr!("Встановити", "Install"),
-                    danger: false,
-                    alt: None,
-                    action: DialogAction::Run(Action::Deps),
-                });
-            }
+            Action::Deps => self.deps_dialog(),
             Action::Plugins => {
                 if self.catalog.is_none() {
                     self.spawn_catalog();
@@ -452,68 +416,8 @@ impl App {
             Action::Clean => {
                 self.start_script(action, &["clean"]);
             }
-            Action::Uninstall => {
-                self.dialog = Some(Dialog {
-                    title: tr!("Видалити OBS-Legacy?", "Remove OBS-Legacy?").into(),
-                    lines: vec![
-                        tr!(
-                            "Буде прибрано пакети *-legacy-580xx (OBS і плагіни) через pacman -R, а \
-                             ffmpeg-legacy-580xx заміниться системним ffmpeg з репозиторію. Залишки старої схеми \
-                             (/opt/obs-studio-nvenc, /usr/local/bin/obs) теж приберуться.",
-                            "The *-legacy-580xx packages (OBS and plugins) are removed with pacman -R, and \
-                             ffmpeg-legacy-580xx is replaced with the system ffmpeg from the repository. Leftovers of \
-                             the old layout (/opt/obs-studio-nvenc, /usr/local/bin/obs) are removed too."
-                        )
-                        .into(),
-                        tr!(
-                            "Налаштування OBS (~/.config/obs-studio), кеш збірки й набори пакетів лишаться. \
-                             Звичайний OBS потім: sudo pacman -S obs-studio.",
-                            "OBS settings (~/.config/obs-studio), the build cache and the package sets stay. The \
-                             regular OBS afterwards: sudo pacman -S obs-studio."
-                        )
-                        .into(),
-                        String::new(),
-                        tr!(
-                            "Скрипт ще раз запитає підтвердження у вікні виводу.",
-                            "The script asks for confirmation once more in the output window."
-                        )
-                        .into(),
-                    ],
-                    confirm: tr!("Продовжити", "Continue"),
-                    danger: true,
-                    alt: None,
-                    action: DialogAction::Run(Action::Uninstall),
-                });
-            }
-            Action::SelfUpdate => {
-                let lines = match &self.self_source {
-                    Some(SelfSource::Git(dir)) => vec![
-                        trf!("git pull у {}", "git pull in {}", short_path(dir)),
-                        tr!(
-                            "і перевстановлення програми (cargo build). Твій OBS і налаштування не зміняться.",
-                            "and reinstalling the program (cargo build). Your OBS and settings stay as they are."
-                        )
-                        .into(),
-                    ],
-                    Some(SelfSource::Release) => vec![
-                        tr!(
-                            "Готова програма з найновішого релізу на GitHub, без збирання.",
-                            "The ready-made program from the latest release on GitHub, no build."
-                        )
-                        .into(),
-                        tr!("Твій OBS і налаштування не зміняться.", "Your OBS and settings stay as they are.").into(),
-                    ],
-                    None => return,
-                };
-                self.dialog = Some(Dialog {
-                    title: tr!("Оновити OBS-Legacy?", "Update OBS-Legacy?").into(),
-                    lines,
-                    confirm: tr!("Оновити", "Update"),
-                    danger: false,
-                    alt: None,
-                    action: DialogAction::Run(Action::SelfUpdate),
-                });
-            }
+            Action::Uninstall => self.uninstall_dialog(),
+            Action::SelfUpdate => self.self_update_dialog(),
             Action::Help => {
                 self.help_scroll = 0;
                 self.screen = Screen::Help;
@@ -528,6 +432,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::script::SelfSource;
 
     #[test]
     fn menu_has_unique_actions() {
@@ -550,6 +455,12 @@ mod tests {
         assert!(app.advanced_open);
         assert_eq!(app.rows()[app.menu_sel], Row::Item(Action::Uninstall));
         assert!(!app.rows().contains(&Row::Item(Action::SelfUpdate)));
+        // Згорнути — курсор на заголовку «Додатково», а не на пункті, якого вже не видно.
+        app.collapse_advanced();
+        assert!(!app.advanced_open);
+        assert_eq!(app.rows()[app.menu_sel], Row::More);
+        app.activate_row(Row::More);
+        assert!(app.advanced_open);
     }
 
     #[test]
