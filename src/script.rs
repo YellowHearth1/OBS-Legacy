@@ -4,7 +4,6 @@
 
 use std::env;
 use std::fs;
-use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
@@ -63,15 +62,8 @@ pub fn ensure_extracted() -> Result<PathBuf> {
     let path = dir.join(SCRIPT_NAME);
     let current = fs::read(&path).ok();
     if current.as_deref() != Some(SCRIPT.as_bytes()) {
-        let tmp = dir.join(format!(".{SCRIPT_NAME}.{}", std::process::id()));
-        {
-            let mut f = fs::File::create(&tmp)
-                .with_context(|| trf!("не вдалося записати {}", "couldn't write {}", tmp.display()))?;
-            f.write_all(SCRIPT.as_bytes())?;
-            f.sync_all()?;
-        }
-        fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755))?;
-        fs::rename(&tmp, &path).with_context(|| trf!("не вдалося оновити {}", "couldn't update {}", path.display()))?;
+        crate::atomic::write(&path, SCRIPT.as_bytes(), 0o755)
+            .with_context(|| trf!("не вдалося оновити {}", "couldn't update {}", path.display()))?;
     } else {
         let mode = fs::metadata(&path)?.permissions().mode();
         if mode & 0o111 == 0 {

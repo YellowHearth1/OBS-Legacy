@@ -64,7 +64,7 @@ set -Eeuo pipefail
 shopt -s inherit_errexit 2>/dev/null || true
 umask 022
 
-readonly SCRIPT_VERSION="2026.10.31.2"
+readonly SCRIPT_VERSION="2026.11.18.1"
 # Номер рецепта збирання й пакування. Підвищувати, лише коли зміна в рушії вимагає
 # перезібрати вже встановлені пакети (прапорці, розкладка, залежності): тоді «Оновити»
 # збере їх знову. Зміни інтерфейсу й підказок його не чіпають.
@@ -266,7 +266,8 @@ PLUGIN_CATALOG=(
   "waveform|Waveform|https://github.com/phandasm/waveform.git|fftw|-DPACKAGED_INSTALL=ON|$(t "Аудіовізуалізатор (спектр або хвиля) як джерело" "Audio visualizer (spectrum or wave) as a source")|obs-waveform obs-waveform-git"
   "rewards-theater|RewardsTheater|https://github.com/gottagofaster236/RewardsTheater.git|boost openssl fmt|-DENABLE_FRONTEND_API=ON -DENABLE_QT=ON CXXFLAGS+=-Wno-error=deprecated-declarations|$(t "Глядачі замовляють відео чи звуки на стрімі за бали каналу Twitch (черга, модерація, випадкове відео з VLC-джерела)" "Viewers order videos or sounds on stream for Twitch channel points (queue, moderation, a random video from a VLC source)")|rewards-theater-obs rewards-theater-obs-git"
 )
-readonly -a PLUGIN_CATALOG
+# Свої плагіни (load_local_plugins, після функцій виводу): id → 1.
+declare -A PLUGIN_LOCAL=()
 
 # Глобальні змінні, які заповнюються під час роботи.
 SUDO_CMD=''
@@ -326,6 +327,48 @@ cancelled() {
   printf '%s[%s]%s %s\n' "$C_YEL" "$TAG_CANCEL" "$C_RST" "${1:-$(t 'Нічого не змінено.' 'Nothing was changed.')}" >&2
   exit "$EXIT_CANCELLED"
 }
+
+# ---------------------------------------------------------------------------
+# Свої плагіни: рядки того самого формату, що й PLUGIN_CATALOG, у файлі plugins.local поруч
+# із settings.env (OBS_LEGACY_PLUGINS_LOCAL — інший файл). Так можна збирати власний форк чи
+# плагін, якого немає в каталозі, — наприклад із локальної теки (/home/…/plugin або file://…).
+# Файл лише читається: нічого з нього не виконується, параметри CMake йдуть окремими
+# аргументами. Вбудований каталог має перевагу — рядок з тим самим id пропускається.
+# ---------------------------------------------------------------------------
+PLUGINS_LOCAL_FILE="${OBS_LEGACY_PLUGINS_LOCAL:-${SETTINGS_FILE%/*}/plugins.local}"
+
+load_local_plugins() {
+  local line n=0 id repo pkgs aur r known
+  local -a f=()
+  [[ -f "$PLUGINS_LOCAL_FILE" && -r "$PLUGINS_LOCAL_FILE" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    n=$((n + 1))
+    line=${line%$'\r'}
+    [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+    IFS='|' read -r -a f <<<"$line"
+    id=${f[0]-} repo=${f[2]-} pkgs=${f[3]-} aur=${f[6]-}
+    if [[ ! "$id" =~ ^[a-z0-9][a-z0-9._-]*$ || -z "${f[1]-}" \
+          || ! "$repo" =~ ^(https://|ssh://|git@|file://|/)[^[:space:]]+$ \
+          || ! "$pkgs" =~ ^[a-z0-9@._+\ -]*$ || ! "$aur" =~ ^[a-z0-9@._+\ -]*$ || "$line" == *$'\t'* ]]; then
+      warn "$(t "$PLUGINS_LOCAL_FILE, рядок $n: не схоже на рядок каталогу (id|назва|репозиторій|пакети|параметри CMake|опис|назви в AUR) — пропускаю." \
+                "$PLUGINS_LOCAL_FILE, line $n: doesn't look like a catalog line (id|name|repository|packages|CMake options|description|AUR names) — skipping.")"
+      continue
+    fi
+    known=0
+    for r in "${PLUGIN_CATALOG[@]}"; do
+      if [[ "${r%%|*}" == "$id" ]]; then known=1; break; fi
+    done
+    if ((known)); then
+      warn "$(t "$PLUGINS_LOCAL_FILE, рядок $n: плагін $id уже є в каталозі — пропускаю." \
+                "$PLUGINS_LOCAL_FILE, line $n: plugin $id is already in the catalog — skipping.")"
+      continue
+    fi
+    PLUGIN_CATALOG+=("$line")
+    PLUGIN_LOCAL[$id]=1
+  done < "$PLUGINS_LOCAL_FILE"
+}
+load_local_plugins
+readonly -a PLUGIN_CATALOG
 
 # Як поставити пакети для збірки: у TUI — кнопкою «Виправити», без нього — командою.
 deps_action() {
@@ -4080,7 +4123,7 @@ cmd_clean() {
 # Каталог плагінів. --tsv — машинний формат для TUI:
 # id, назва, вибрано (1/0), типово (1/0), репозиторій, пакети, опис, назва пакета.
 cmd_plugins() {
-  local r id name repo pkgs desc sel def pkg
+  local r id name repo pkgs desc sel def pkg own
   local -a f=()
   resolve_selected_plugins
   if [[ "${1:-}" != --tsv ]]; then
@@ -4091,11 +4134,11 @@ cmd_plugins() {
     IFS='|' read -r -a f <<<"$r"
     id=${f[0]} name=${f[1]-} repo=${f[2]-} pkgs=${f[3]-} desc=${f[5]-}
     pkg=$(plugin_pkgname "$id")
-    sel=0 def=0
+    sel=0 def=0 own=${PLUGIN_LOCAL[$id]:-0}
     if [[ " ${PLUGINS_SELECTED[*]} " == *" $id "* ]]; then sel=1; fi
     if [[ "$id" == obs-multi-rtmp ]]; then def=1; fi
     if [[ "${1:-}" == --tsv ]]; then
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$sel" "$def" "$repo" "$pkgs" "$desc" "$pkg"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$sel" "$def" "$repo" "$pkgs" "$desc" "$pkg" "$own"
     else
       printf "$(t '  [%s] %-24s %s\n        %s\n        %s · пакет %s\n' \
                   '  [%s] %-24s %s\n        %s\n        %s · package %s\n')" "$( ((sel)) && echo x || echo ' ')" "$id" "$name" \
@@ -4105,6 +4148,8 @@ cmd_plugins() {
   if [[ "${1:-}" != --tsv ]]; then
     printf "$(t '\nВибір: OBS_PLUGINS="obs-multi-rtmp,move-transition" або файл %s\n' \
                 '\nTo choose: OBS_PLUGINS="obs-multi-rtmp,move-transition" or the file %s\n')" "$SETTINGS_FILE"
+    printf "$(t 'Свої плагіни (рядки того самого формату): %s\n' \
+                'Your own plugins (lines in the same format): %s\n')" "$PLUGINS_LOCAL_FILE"
   fi
 }
 

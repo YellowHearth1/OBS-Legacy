@@ -1,7 +1,5 @@
 //! Файли служб для кожної init-системи (з маркером `MARKER`) і їхній атомарний запис.
 
-use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use super::{Backend, MARKER, NAME};
@@ -135,19 +133,15 @@ pub(super) fn supervised_files(backend: Backend, exe: &Path) -> Vec<(&'static st
     files
 }
 
-/// Записати файл атомарно (через тимчасовий поруч).
+/// Записати файл атомарно й надійно (див. `crate::atomic`).
 pub(super) fn write_file(path: &Path, body: &str, mode: u32) -> Result<(), String> {
-    let dir = path.parent().ok_or(tr!("без теки", "no directory"))?;
-    fs::create_dir_all(dir)
-        .map_err(|e| trf!("не вдалося створити {}: {e}", "couldn't create {}: {e}", dir.display()))?;
-    let tmp = dir.join(format!(".{NAME}.tmp{}", std::process::id()));
-    fs::write(&tmp, body).map_err(|e| trf!("не вдалося записати {}: {e}", "couldn't write {}: {e}", tmp.display()))?;
-    fs::set_permissions(&tmp, fs::Permissions::from_mode(mode)).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, path).map_err(|e| trf!("не вдалося записати {}: {e}", "couldn't write {}: {e}", path.display()))
+    crate::atomic::write(path, body.as_bytes(), mode)
+        .map_err(|e| trf!("не вдалося записати {}: {e}", "couldn't write {}: {e}", path.display()))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::path::PathBuf;
     use std::process::Command;
 

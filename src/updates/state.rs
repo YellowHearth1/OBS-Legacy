@@ -37,7 +37,7 @@ impl State {
     pub(super) fn parse(text: &str) -> Self {
         let map = text
             .lines()
-            .filter(|l| !l.starts_with('#'))
+            .filter(|l| !l.trim_start().starts_with('#'))
             .filter_map(|l| l.split_once('='))
             .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
             .collect();
@@ -45,8 +45,6 @@ impl State {
     }
 
     pub fn save(&self) -> io::Result<()> {
-        let path = Self::path();
-        fs::create_dir_all(paths::state_dir())?;
         let mut body = String::from(tr!(
             "# OBS-Legacy: стан фонової перевірки оновлень. Якщо файл видалити, про наявні\n\
              # оновлення буде сповіщено ще раз.\n",
@@ -56,9 +54,7 @@ impl State {
         for (k, v) in &self.map {
             let _ = writeln!(body, "{k}={v}");
         }
-        let tmp = path.with_extension(format!("env.tmp{}", std::process::id()));
-        fs::write(&tmp, body)?;
-        fs::rename(&tmp, &path)
+        crate::atomic::write(&Self::path(), body.as_bytes(), 0o644)
     }
 
     pub fn get(&self, key: &str) -> Option<&str> {

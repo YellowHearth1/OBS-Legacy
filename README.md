@@ -357,6 +357,17 @@ How it works:
   **without it**, with a warning, and the previous package set with the plugin stays available for
   rollback. To cancel the installation in that case instead, set `PLUGINS_STRICT=1`.
 
+**Your own plugins.** A plugin that isn't in the catalog — your own fork, for example — can be added with a
+line in `~/.config/obs-legacy/plugins.local`, in the catalog format
+`id|name|git repository|pacman packages|CMake options|description|AUR names`. The repository may be a local
+folder (`/home/you/my-plugin` or `file://…`). The plugin must build with CMake and install an OBS module into
+`lib/obs-plugins`. It appears in the «Plugins» list marked «own» and is built, packaged and updated like any
+other. A line with the same `id` as a catalog plugin is skipped. Example:
+
+```text
+my-fork|My Fork|/home/you/my-fork|rust|-DSOME_OPTION=ON|My fork of a plugin|my-fork-obs some-plugin-obs
+```
+
 > [!NOTE]
 > All 18 plugins build from source against OBS 33.0.1 on Artix (checked in October 2026), and
 > `obs-multi-rtmp`, `pipewire-audio-capture`, `composite-blur` and `waveform` have also been checked inside

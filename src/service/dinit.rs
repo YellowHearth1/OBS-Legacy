@@ -3,6 +3,7 @@
 //! завантаження опису в dinit.
 
 use std::fs;
+use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -19,16 +20,30 @@ pub(super) fn dinit_errors(dir: &Path) -> Option<Vec<String>> {
     Some(text.lines().filter(|l| l.starts_with("Service '") && !l.contains("warning:")).map(str::to_string).collect())
 }
 
+/// Власна тимчасова тека (права 0700) для перевірки опису. Створюється заново, а не береться
+/// наявна: у спільній /tmp інший користувач міг би заздалегідь підкласти туди свою теку чи посилання.
+fn private_check_dir() -> Result<PathBuf, String> {
+    static SEQ: AtomicU32 = AtomicU32::new(0);
+    let base =
+        std::env::var_os("XDG_RUNTIME_DIR").filter(|v| !v.is_empty()).map_or_else(std::env::temp_dir, PathBuf::from);
+    let mut last_error = String::new();
+    for _ in 0..16 {
+        let dir = base.join(format!(".{NAME}-check-{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed)));
+        match fs::DirBuilder::new().mode(0o700).create(&dir) {
+            Ok(()) => return Ok(dir),
+            Err(e) => last_error = e.to_string(),
+        }
+    }
+    Err(trf!(
+        "не вдалося створити тимчасову теку для перевірки: {last_error}",
+        "couldn't create a temporary directory for the check: {last_error}"
+    ))
+}
+
 /// Перевірити опис служби dinit до того, як він ляже в ~/.config/dinit.d (у
 /// тимчасовій теці: у нашого опису немає залежностей).
 pub(super) fn dinit_check_body(body: &str) -> Result<(), String> {
-    static SEQ: AtomicU32 = AtomicU32::new(0);
-    let dir = std::env::temp_dir().join(format!(
-        ".{NAME}-check-{}-{}",
-        std::process::id(),
-        SEQ.fetch_add(1, Ordering::Relaxed)
-    ));
-    let _ = fs::remove_dir_all(&dir);
+    let dir = private_check_dir()?;
     write_file(&dir.join(NAME), body, 0o644)?;
     let errors = dinit_errors(&dir);
     let _ = fs::remove_dir_all(&dir);

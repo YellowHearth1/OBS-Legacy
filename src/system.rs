@@ -32,7 +32,6 @@ pub const HOOK_FILE: &str = "/etc/pacman.d/hooks/90-obs-legacy.hook";
 
 pub const LEGACY_LIBCHECK: &str = "/usr/local/lib/obs-legacy/check-libs";
 
-/// Каталог збірок старої схеми (/opt/obs-studio-nvenc).
 /// Чи працює зараз скрипт збирання: він тримає блокування `.lock` у своєму кеші.
 pub fn build_running() -> bool {
     let path = paths::cache_home().join("obs-studio-nvenc-artix/.lock");
@@ -41,6 +40,7 @@ pub fn build_running() -> bool {
     unsafe { libc::flock(std::os::fd::AsRawFd::as_raw_fd(&file), libc::LOCK_SH | libc::LOCK_NB) != 0 }
 }
 
+/// Каталог збірок старої схеми (/opt/obs-studio-nvenc); для демо й тестів — `INSTALL_ROOT`.
 pub fn install_root() -> PathBuf {
     env::var_os("INSTALL_ROOT")
         .filter(|v| !v.is_empty())
@@ -146,6 +146,11 @@ impl SysInfo {
     }
 }
 
+/// Байтів у гібібайті.
+const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
+/// nvidia-smi інколи зависає (драйвер у поганому стані): панель стану не має чекати вічно.
+const NVIDIA_SMI_TIMEOUT_SECS: &str = "10";
+
 fn read_trim(path: &str) -> Option<String> {
     fs::read_to_string(path).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
@@ -174,7 +179,7 @@ fn meminfo() -> (f64, f64) {
         text.lines()
             .find_map(|l| l.strip_prefix(key))
             .and_then(|v| v.split_whitespace().next()?.parse::<f64>().ok())
-            .map_or(0.0, |kib| kib / 1024.0 / 1024.0)
+            .map_or(0.0, |kib| kib * 1024.0 / GIB)
     };
     (get("MemTotal:"), get("MemAvailable:"))
 }
@@ -191,7 +196,7 @@ pub fn free_gib(path: &Path) -> Option<f64> {
     if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 {
         return None;
     }
-    Some(st.f_bavail as f64 * st.f_frsize as f64 / 1024.0 / 1024.0 / 1024.0)
+    Some(st.f_bavail as f64 * st.f_frsize as f64 / GIB)
 }
 
 fn nvidia_from_proc() -> (Vec<String>, Option<String>) {
@@ -218,7 +223,7 @@ fn nvidia_from_proc() -> (Vec<String>, Option<String>) {
 
 fn nvidia_from_smi() -> (Vec<String>, Option<String>) {
     let Ok(out) = Command::new("timeout")
-        .args(["10", "nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"])
+        .args([NVIDIA_SMI_TIMEOUT_SECS, "nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"])
         .stderr(Stdio::null())
         .output()
     else {

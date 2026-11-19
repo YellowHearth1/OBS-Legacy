@@ -15,7 +15,16 @@ use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system}
 
 use crate::analyzer::Analyzer;
 
+/// Скільки рядків історії виводу тримає емулятор (гортання PgUp).
 const SCROLLBACK: usize = 10_000;
+/// Найменший розмір псевдотермінала: менший ламає вивід програм, що рахують ширину.
+const MIN_ROWS: u16 = 2;
+const MIN_COLS: u16 = 10;
+/// Скільки чекати на решту виводу після завершення процесу (PTY віддає його із запізненням).
+const EXIT_DRAIN: Duration = Duration::from_millis(1500);
+const DRAIN_POLL: Duration = Duration::from_millis(50);
+/// Буфер читання з PTY.
+const READ_CHUNK: usize = 16 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Exit {
@@ -53,7 +62,7 @@ impl Job {
     ) -> Result<Self> {
         let pty = native_pty_system();
         let pair = pty
-            .openpty(PtySize { rows: rows.max(2), cols: cols.max(10), pixel_width: 0, pixel_height: 0 })
+            .openpty(PtySize { rows: rows.max(MIN_ROWS), cols: cols.max(MIN_COLS), pixel_width: 0, pixel_height: 0 })
             .context(tr!("не вдалося відкрити псевдотермінал", "couldn't open a pseudo-terminal"))?;
         let mut cmd = CommandBuilder::new(program);
         cmd.args(args);
@@ -72,7 +81,7 @@ impl Job {
         let writer = pair.master.take_writer()?;
         let (tx, rx) = mpsc::channel();
         thread::Builder::new().name("pty-reader".into()).spawn(move || {
-            let mut buf = [0u8; 16 * 1024];
+            let mut buf = [0u8; READ_CHUNK];
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) | Err(_) => break,
@@ -106,8 +115,7 @@ impl Job {
         loop {
             match self.rx.try_recv() {
                 Ok(chunk) => {
-                    self.parser.process(&chunk);
-                    self.analyzer.feed(&chunk, now);
+                    self.consume(&chunk, now);
                     changed = true;
                 }
                 Err(TryRecvError::Empty) => break,
@@ -121,14 +129,10 @@ impl Job {
             && let Ok(Some(status)) = self.child.try_wait()
         {
             // Дочекатися решти виводу (EOF) або хоча б короткої паузи.
-            let exited_at = now;
-            let deadline = exited_at + Duration::from_millis(1500);
+            let deadline = now + EXIT_DRAIN;
             while !self.eof && Instant::now() < deadline {
-                match self.rx.recv_timeout(Duration::from_millis(50)) {
-                    Ok(chunk) => {
-                        self.parser.process(&chunk);
-                        self.analyzer.feed(&chunk, Instant::now());
-                    }
+                match self.rx.recv_timeout(DRAIN_POLL) {
+                    Ok(chunk) => self.consume(&chunk, Instant::now()),
                     Err(mpsc::RecvTimeoutError::Timeout) => {}
                     Err(mpsc::RecvTimeoutError::Disconnected) => self.eof = true,
                 }
@@ -141,6 +145,12 @@ impl Job {
         changed
     }
 
+    /// Новий шматок виводу: на екран емулятора й в аналізатор.
+    fn consume(&mut self, chunk: &[u8], now: Instant) {
+        self.parser.process(chunk);
+        self.analyzer.feed(chunk, now);
+    }
+
     pub fn running(&self) -> bool {
         self.exit.is_none()
     }
@@ -149,6 +159,8 @@ impl Job {
         self.exit.map_or_else(Instant::now, |e| e.at).saturating_duration_since(self.started)
     }
 
+    /// Введення від людини в скрипт. Помилка запису означає, що процес щойно завершився, — тоді
+    /// вводити вже нікуди, і про це скаже картка результату.
     pub fn write_input(&mut self, bytes: &[u8]) {
         if self.running() {
             let _ = self.writer.write_all(bytes);
@@ -157,7 +169,7 @@ impl Job {
     }
 
     pub fn resize(&mut self, rows: u16, cols: u16) {
-        let (rows, cols) = (rows.max(2), cols.max(10));
+        let (rows, cols) = (rows.max(MIN_ROWS), cols.max(MIN_COLS));
         if self.size == (rows, cols) {
             return;
         }

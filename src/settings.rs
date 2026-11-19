@@ -430,15 +430,11 @@ impl Settings {
         self.set("OBS_PLUGINS", &value);
     }
 
+    /// Записує файл надійно: після збою живлення він або старий, або новий, але не порожній.
     pub fn save(&self) -> io::Result<()> {
-        if let Some(dir) = self.path.parent() {
-            fs::create_dir_all(dir)?;
-        }
         let mut body = self.lines.join("\n");
         body.push('\n');
-        let tmp = self.path.with_extension(format!("env.tmp{}", std::process::id()));
-        fs::write(&tmp, body)?;
-        fs::rename(&tmp, &self.path)
+        crate::atomic::write(&self.path, body.as_bytes(), 0o644)
     }
 }
 

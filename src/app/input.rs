@@ -8,8 +8,32 @@ use super::menu::{Action, Row};
 use super::{App, Screen, ToastKind};
 use crate::settings;
 
+/// Українська розкладка (ЙЦУКЕН) → латинська літера на тій самій клавіші.
+const UA_KEYS: &str = "йцукенгшщзфівапролдячсмить";
+const LATIN_KEYS: &str = "qwertyuiopasdfghjklzxcvbnm";
+
+/// Літера на тій самій клавіші в латинській розкладці. Скорочення прив'язані до клавіш, а не до літер:
+/// з українською розкладкою «q» (на ній «й») так само виходить, а «o» («щ») так само відкриває звіт.
+fn latin(c: char) -> char {
+    let lower = c.to_lowercase().next().unwrap_or(c);
+    match UA_KEYS.chars().position(|u| u == lower).and_then(|i| LATIN_KEYS.chars().nth(i)) {
+        Some(l) if c.is_uppercase() => l.to_ascii_uppercase(),
+        Some(l) => l,
+        None => c,
+    }
+}
+
+/// Код клавіші для скорочень (не для введення тексту): літера — як у латинській розкладці.
+fn shortcut(code: KeyCode) -> KeyCode {
+    match code {
+        KeyCode::Char(c) => KeyCode::Char(latin(c)),
+        other => other,
+    }
+}
+
 fn ctrl(k: &KeyEvent, c: char) -> bool {
-    k.modifiers.contains(KeyModifiers::CONTROL) && matches!(k.code, KeyCode::Char(x) if x.eq_ignore_ascii_case(&c))
+    k.modifiers.contains(KeyModifiers::CONTROL)
+        && matches!(k.code, KeyCode::Char(x) if latin(x).eq_ignore_ascii_case(&c))
 }
 
 /// Скільки чекати на друге Ctrl+C: випадкове одне натискання завдання не перериває.
@@ -37,7 +61,8 @@ pub fn key_to_bytes(k: &KeyEvent) -> Option<Vec<u8>> {
     let alt = k.modifiers.contains(KeyModifiers::ALT);
     let mut out = match k.code {
         KeyCode::Char(c) if k.modifiers.contains(KeyModifiers::CONTROL) => {
-            let b = c.to_ascii_lowercase() as u32;
+            // Ctrl+літера в українській розкладці — той самий керівний код, що й на латиниці (Ctrl+С = ^C).
+            let b = latin(c).to_ascii_lowercase() as u32;
             match b {
                 0x61..=0x7a => vec![(b - 0x60) as u8],
                 0x40 | 0x20 => vec![0],
@@ -92,14 +117,11 @@ impl App {
 
     pub(super) fn on_key(&mut self, k: KeyEvent) {
         if self.dialog.is_some() {
-            match k.code {
-                KeyCode::Enter => self.confirm_dialog(),
-                // Як і решта скорочень — за розташуванням клавіш: в українській розкладці на Y — «н», на N — «т».
-                KeyCode::Char('y' | 'Y' | 'н' | 'Н') => self.confirm_dialog(),
-                KeyCode::Char('r' | 'R' | 'к' | 'К') if self.dialog.as_ref().is_some_and(|d| d.alt.is_some()) => {
-                    self.alt_dialog()
-                }
-                KeyCode::Esc | KeyCode::Char('n' | 'N' | 'q' | 'т' | 'Т' | 'й') => self.dialog = None,
+            // Як і решта скорочень — за розташуванням клавіш: в українській розкладці на Y — «н», на N — «т».
+            match shortcut(k.code) {
+                KeyCode::Enter | KeyCode::Char('y' | 'Y') => self.confirm_dialog(),
+                KeyCode::Char('r' | 'R') if self.dialog.as_ref().is_some_and(|d| d.alt.is_some()) => self.alt_dialog(),
+                KeyCode::Esc | KeyCode::Char('n' | 'N' | 'q' | 'Q') => self.dialog = None,
                 _ => {}
             }
             return;
@@ -109,9 +131,9 @@ impl App {
             return;
         }
         match self.screen {
-            Screen::Intro => match k.code {
+            Screen::Intro => match shortcut(k.code) {
                 KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Right => self.go_home(),
-                KeyCode::Esc | KeyCode::Char('q' | 'й') => self.quit = true,
+                KeyCode::Esc | KeyCode::Char('q') => self.quit = true,
                 _ => {}
             },
             Screen::Home => self.home_key(k),
@@ -130,7 +152,7 @@ impl App {
         let n = rows.len();
         self.menu_sel = self.menu_sel.min(n - 1);
         let mut touched = true;
-        match k.code {
+        match shortcut(k.code) {
             KeyCode::Up | KeyCode::Char('k') | KeyCode::BackTab => self.menu_sel = (self.menu_sel + n - 1) % n,
             KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => self.menu_sel = (self.menu_sel + 1) % n,
             KeyCode::Home | KeyCode::Char('g') => self.menu_sel = 0,
@@ -143,17 +165,17 @@ impl App {
                     self.menu_sel = i;
                 }
             }
-            KeyCode::Char('o' | 'щ') => self.view_current_report(),
-            KeyCode::Char('d' | 'в') => self.details = !self.details,
+            KeyCode::Char('o') => self.view_current_report(),
+            KeyCode::Char('d') => self.details = !self.details,
             KeyCode::Char('?') | KeyCode::F(1) => self.activate(Action::Help),
-            KeyCode::Char('r' | 'к') | KeyCode::F(5) => {
+            KeyCode::Char('r') | KeyCode::F(5) => {
                 self.refresh();
                 self.toast(ToastKind::Info, tr!("Оновлюю відомості…", "Refreshing…"));
                 touched = false;
             }
             // Esc спершу згортає «Додатково», а вже потім закриває програму.
             KeyCode::Esc if self.advanced_open => self.collapse_advanced(),
-            KeyCode::Esc | KeyCode::Char('q' | 'й') => self.quit = true,
+            KeyCode::Esc | KeyCode::Char('q') => self.quit = true,
             _ => touched = false,
         }
         self.menu_touched |= touched;
@@ -168,12 +190,12 @@ impl App {
             return;
         }
         if !run.job.running() {
-            match k.code {
+            match shortcut(k.code) {
                 KeyCode::Enter => self.run_primary_activate(),
-                KeyCode::Esc | KeyCode::Char('q' | 'й') | KeyCode::Backspace => self.go_home(),
-                KeyCode::Char('o' | 'щ') => self.view_current_report(),
-                KeyCode::Char('c' | 'с') => self.copy_report_path(),
-                KeyCode::Char('e' | 'у') => self.open_report_externally(false),
+                KeyCode::Esc | KeyCode::Char('q') | KeyCode::Backspace => self.go_home(),
+                KeyCode::Char('o') => self.view_current_report(),
+                KeyCode::Char('c') => self.copy_report_path(),
+                KeyCode::Char('e') => self.open_report_externally(false),
                 _ => {}
             }
         } else if ctrl(&k, 'c') {
@@ -231,8 +253,8 @@ impl App {
 
     fn plugins_key(&mut self, k: KeyEvent) {
         let n = self.catalog.as_ref().map_or(0, Vec::len);
-        match k.code {
-            KeyCode::Esc | KeyCode::Left | KeyCode::Char('q' | 'й') | KeyCode::Backspace => self.go_home(),
+        match shortcut(k.code) {
+            KeyCode::Esc | KeyCode::Left | KeyCode::Char('q') | KeyCode::Backspace => self.go_home(),
             KeyCode::Up | KeyCode::Char('k') if n > 0 => self.plugin_sel = (self.plugin_sel + n - 1) % n,
             KeyCode::Down | KeyCode::Char('j') if n > 0 => self.plugin_sel = (self.plugin_sel + 1) % n,
             KeyCode::Home => self.plugin_sel = 0,
@@ -247,8 +269,8 @@ impl App {
 
     fn rollback_key(&mut self, k: KeyEvent) {
         let n = self.builds.len();
-        match k.code {
-            KeyCode::Esc | KeyCode::Left | KeyCode::Char('q' | 'й') | KeyCode::Backspace => self.go_home(),
+        match shortcut(k.code) {
+            KeyCode::Esc | KeyCode::Left | KeyCode::Char('q') | KeyCode::Backspace => self.go_home(),
             KeyCode::Up | KeyCode::Char('k') if n > 0 => self.build_sel = (self.build_sel + n - 1) % n,
             KeyCode::Down | KeyCode::Char('j') if n > 0 => self.build_sel = (self.build_sel + 1) % n,
             KeyCode::Enter if n > 0 => self.rollback_to(self.build_sel),
@@ -272,8 +294,8 @@ impl App {
             }
             return;
         }
-        match k.code {
-            KeyCode::Esc | KeyCode::Left | KeyCode::Char('q' | 'й') | KeyCode::Backspace => self.go_home(),
+        match shortcut(k.code) {
+            KeyCode::Esc | KeyCode::Left | KeyCode::Char('q') | KeyCode::Backspace => self.go_home(),
             KeyCode::Up | KeyCode::Char('k') => self.settings_sel = (self.settings_sel + n - 1) % n,
             KeyCode::Down | KeyCode::Char('j') => self.settings_sel = (self.settings_sel + 1) % n,
             KeyCode::Enter | KeyCode::Char(' ') => self.edit_setting(self.settings_sel),
@@ -287,19 +309,19 @@ impl App {
 
     fn reports_key(&mut self, k: KeyEvent) {
         let n = self.reports.len();
-        match k.code {
-            KeyCode::Esc | KeyCode::Left | KeyCode::Char('q' | 'й') | KeyCode::Backspace => self.go_home(),
+        match shortcut(k.code) {
+            KeyCode::Esc | KeyCode::Left | KeyCode::Char('q') | KeyCode::Backspace => self.go_home(),
             KeyCode::Up | KeyCode::Char('k') if n > 0 => self.reports_sel = (self.reports_sel + n - 1) % n,
             KeyCode::Down | KeyCode::Char('j') if n > 0 => self.reports_sel = (self.reports_sel + 1) % n,
             KeyCode::Home => self.reports_sel = 0,
             KeyCode::End if n > 0 => self.reports_sel = n - 1,
-            KeyCode::Enter | KeyCode::Right | KeyCode::Char('o' | 'щ') if n > 0 => {
+            KeyCode::Enter | KeyCode::Right | KeyCode::Char('o') if n > 0 => {
                 let path = self.reports[self.reports_sel].path.clone();
                 self.open_report(path, Screen::Reports);
             }
-            KeyCode::Char('c' | 'с') => self.copy_report_path(),
-            KeyCode::Char('e' | 'у') => self.open_report_externally(false),
-            KeyCode::Char('f' | 'а') => self.open_report_externally(true),
+            KeyCode::Char('c') => self.copy_report_path(),
+            KeyCode::Char('e') => self.open_report_externally(false),
+            KeyCode::Char('f') => self.open_report_externally(true),
             _ => {}
         }
     }
@@ -310,16 +332,16 @@ impl App {
             return;
         };
         let page = view.page.max(2) as isize - 1;
-        match k.code {
-            KeyCode::Esc | KeyCode::Left | KeyCode::Char('q' | 'й') | KeyCode::Backspace => self.close_report(),
+        match shortcut(k.code) {
+            KeyCode::Esc | KeyCode::Left | KeyCode::Char('q') | KeyCode::Backspace => self.close_report(),
             KeyCode::Up | KeyCode::Char('k') => view.scroll_by(-1),
             KeyCode::Down | KeyCode::Char('j') => view.scroll_by(1),
             KeyCode::PageUp => view.scroll_by(-page),
             KeyCode::PageDown | KeyCode::Char(' ') => view.scroll_by(page),
             KeyCode::Home | KeyCode::Char('g') => view.scroll = 0,
             KeyCode::End | KeyCode::Char('G') => view.scroll = view.max_scroll(),
-            KeyCode::Char(c @ ('n' | 'p' | 'т' | 'з')) => {
-                if !view.jump_problem(matches!(c, 'n' | 'т')) {
+            KeyCode::Char(c @ ('n' | 'p')) => {
+                if !view.jump_problem(c == 'n') {
                     self.toast(
                         ToastKind::Info,
                         tr!(
@@ -329,16 +351,16 @@ impl App {
                     );
                 }
             }
-            KeyCode::Char('c' | 'с') => self.copy_report_path(),
-            KeyCode::Char('e' | 'у') => self.open_report_externally(false),
-            KeyCode::Char('f' | 'а') => self.open_report_externally(true),
+            KeyCode::Char('c') => self.copy_report_path(),
+            KeyCode::Char('e') => self.open_report_externally(false),
+            KeyCode::Char('f') => self.open_report_externally(true),
             _ => {}
         }
     }
 
     fn help_key(&mut self, k: KeyEvent) {
-        match k.code {
-            KeyCode::Esc | KeyCode::Left | KeyCode::Char('q' | 'й') | KeyCode::Backspace => self.go_home(),
+        match shortcut(k.code) {
+            KeyCode::Esc | KeyCode::Left | KeyCode::Char('q') | KeyCode::Backspace => self.go_home(),
             KeyCode::Up | KeyCode::Char('k') => self.help_scroll = self.help_scroll.saturating_sub(1),
             KeyCode::Down | KeyCode::Char('j') => self.help_scroll = (self.help_scroll + 1).min(self.help_max_scroll),
             KeyCode::PageUp => self.help_scroll = self.help_scroll.saturating_sub(10),
@@ -378,6 +400,28 @@ mod tests {
         // Літери й Enter — не гортання: вони йдуть у скрипт.
         assert!(!scroll_output(&mut scroll, 11, KeyCode::Char('y')));
         assert!(!scroll_output(&mut scroll, 11, KeyCode::Enter));
+    }
+
+    #[test]
+    fn shortcuts_follow_key_positions_in_the_ukrainian_layout() {
+        assert_eq!(UA_KEYS.chars().count(), LATIN_KEYS.len());
+        for (ua, en) in [('й', 'q'), ('щ', 'o'), ('с', 'c'), ('у', 'e'), ('а', 'f'), ('в', 'd'), ('к', 'r')] {
+            assert_eq!(latin(ua), en);
+        }
+        for (ua, en) in [('о', 'j'), ('л', 'k'), ('п', 'g'), ('П', 'G'), ('т', 'n'), ('з', 'p'), ('ф', 'a'), ('ч', 'x')]
+        {
+            assert_eq!(latin(ua), en);
+        }
+        assert_eq!(latin('Н'), 'Y');
+        // Латиниця, цифри й знаки — як є.
+        for c in ['q', 'G', '1', '?', ' '] {
+            assert_eq!(latin(c), c);
+        }
+        assert_eq!(shortcut(KeyCode::Char('й')), KeyCode::Char('q'));
+        assert_eq!(shortcut(KeyCode::Enter), KeyCode::Enter);
+        assert!(ctrl(&key(KeyCode::Char('с'), KeyModifiers::CONTROL), 'c'));
+        assert!(!ctrl(&key(KeyCode::Char('с'), KeyModifiers::NONE), 'c'));
+        assert_eq!(key_to_bytes(&key(KeyCode::Char('в'), KeyModifiers::CONTROL)), Some(vec![4]));
     }
 
     #[test]

@@ -55,10 +55,19 @@ pub fn reap(mut child: Child) {
     });
 }
 
+/// Куди потрапив текст після `copy`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Copied {
+    /// Програма буфера обміну (wl-copy, xclip чи xsel) підтвердила копіювання.
+    Clipboard,
+    /// Спрацював лише запит до термінала (OSC 52): чи підтримує його термінал, дізнатися не можна.
+    TerminalOnly,
+}
+
 /// Копіює текст у буфер обміну: wl-copy (Wayland), xclip чи xsel (X11).
 /// Додатково надсилає OSC 52 — так буфер заповнює сам термінал (Kitty,
 /// WezTerm, foot, Alacritty…), навіть якщо цих програм немає.
-pub fn copy(text: &str) -> Result<()> {
+pub fn copy(text: &str) -> Copied {
     osc52(text);
     let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
     let x11 = std::env::var_os("DISPLAY").is_some();
@@ -80,11 +89,10 @@ pub fn copy(text: &str) -> Result<()> {
             let _ = stdin.write_all(text.as_bytes());
         }
         if child.wait().is_ok_and(|s| s.success()) {
-            return Ok(());
+            return Copied::Clipboard;
         }
     }
-    // Лишився тільки OSC 52; чи підтримує його термінал, дізнатися не можна.
-    Ok(())
+    Copied::TerminalOnly
 }
 
 fn osc52(text: &str) {

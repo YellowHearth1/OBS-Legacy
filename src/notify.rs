@@ -37,8 +37,7 @@ const SESSION_VARS: &[&str] = &[
     "PATH",
 ];
 
-/// Підпис кнопки на сповіщенні.
-
+/// Змінні графічної сесії, у якій показувати сповіщення й запускати програми.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Session {
     pub vars: Vec<(String, String)>,

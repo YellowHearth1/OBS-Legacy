@@ -72,7 +72,8 @@ resolve_lang() {
   if [[ "$v" != uk && "$v" != en ]]; then
     v=${UI_LANG:-}
     if [[ -z "$v" && -r "$file" ]]; then
-      v=$(sed -n 's/^[[:space:]]*UI_LANG=//p' "$file" 2>/dev/null | tail -n1 | tr -d "\"' " || true)
+      # Перше входження ключа, як у TUI і скрипті збирання.
+      v=$(sed -n '/^[[:space:]]*UI_LANG=/{s/^[[:space:]]*UI_LANG=//p;q;}' "$file" 2>/dev/null | tr -d "\"' " || true)
     fi
   fi
   if [[ "$v" != uk && "$v" != en ]]; then

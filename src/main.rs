@@ -10,6 +10,7 @@ mod i18n;
 mod advice;
 mod analyzer;
 mod app;
+mod atomic;
 mod builds;
 mod catalog;
 mod cli;

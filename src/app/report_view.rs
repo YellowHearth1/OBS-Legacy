@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use super::{App, Screen, ToastKind};
-use crate::desktop;
+use crate::desktop::{self, Copied};
 use crate::paths::{expand_home, short_path};
 use crate::reports;
 
@@ -113,8 +113,19 @@ impl App {
         };
         let text = path.display().to_string();
         match desktop::copy(&text) {
-            Ok(()) => self.toast(ToastKind::Ok, trf!("Шлях скопійовано: {}", "Path copied: {}", short_path(&path))),
-            Err(e) => self.toast(ToastKind::Err, trf!("Не вдалося скопіювати: {e:#}", "Couldn't copy: {e:#}")),
+            Copied::Clipboard => {
+                self.toast(ToastKind::Ok, trf!("Шлях скопійовано: {}", "Path copied: {}", short_path(&path)))
+            }
+            // Програми буфера обміну немає: текст пішов лише терміналу, і чи прийняв він його — невідомо.
+            // Тож не кажемо «скопійовано»: людина знатиме, що вставити може й не вийти.
+            Copied::TerminalOnly => self.toast(
+                ToastKind::Info,
+                trf!(
+                    "Шлях передано терміналу (wl-copy чи xclip не знайдено): {}",
+                    "Path handed to the terminal (no wl-copy or xclip): {}",
+                    short_path(&path)
+                ),
+            ),
         }
     }
 
