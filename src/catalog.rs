@@ -20,6 +20,8 @@ pub struct PluginInfo {
     pub package: String,
     /// Свій плагін власника з файлу plugins.local, а не з вбудованого каталогу.
     pub local: bool,
+    /// Назви пакета в AUR. Плагіни зі спільною назвою замінюють один одного.
+    pub names: Vec<String>,
 }
 
 impl PluginInfo {
@@ -28,6 +30,39 @@ impl PluginInfo {
         let r = self.repo.trim_start_matches("https://");
         r.strip_suffix(".git").unwrap_or(r)
     }
+
+    /// Чи замінює цей плагін інший: той самий плагін у двох втіленнях (спільна назва в AUR),
+    /// тож разом їх не вибирають.
+    pub fn replaces(&self, other: &PluginInfo) -> bool {
+        self.id != other.id && self.names.iter().any(|name| other.names.contains(name))
+    }
+}
+
+/// Вибір без плагінів, що замінюють один одного. `ticked` — щойно позначений плагін: він лишається,
+/// а ті, що він замінює, знімаються. Без нього з кожної такої пари лишається пізніший у каталозі
+/// (свої плагіни йдуть після вбудованих). Повертає вибір і назви знятих плагінів.
+pub fn without_replaced(catalog: &[PluginInfo], ids: &[String], ticked: Option<&str>) -> (Vec<String>, Vec<String>) {
+    let chosen: Vec<&PluginInfo> = catalog.iter().filter(|p| ids.contains(&p.id)).collect();
+    let mut kept: Vec<String> = Vec::new();
+    let mut removed: Vec<String> = Vec::new();
+    for (i, plugin) in chosen.iter().enumerate() {
+        let beaten = chosen.iter().enumerate().any(|(j, other)| {
+            other.replaces(plugin)
+                && match ticked {
+                    Some(id) if id == other.id => true,
+                    Some(id) if id == plugin.id => false,
+                    _ => j > i,
+                }
+        });
+        if beaten {
+            removed.push(plugin.name.clone());
+        } else {
+            kept.push(plugin.id.clone());
+        }
+    }
+    // Ідентифікатори, яких немає в каталозі, лишаються як були: про них скаже сам скрипт.
+    kept.extend(ids.iter().filter(|id| !catalog.iter().any(|p| &p.id == *id)).cloned());
+    (kept, removed)
 }
 
 pub fn parse_tsv(text: &str) -> Vec<PluginInfo> {
@@ -46,6 +81,7 @@ pub fn parse_tsv(text: &str) -> Vec<PluginInfo> {
                 description: f[6].to_string(),
                 package: f.get(7).map_or_else(|| format!("obs-{}-legacy-580xx", f[0]), |p| (*p).to_string()),
                 local: f.get(8) == Some(&"1"),
+                names: f.get(9).map(|names| names.split_whitespace().map(str::to_string).collect()).unwrap_or_default(),
             })
         })
         .collect()
@@ -136,7 +172,55 @@ mod tests {
         // Той самий id, що у вбудованому каталозі, не підміняє вбудований плагін.
         let rewards: Vec<_> = list.iter().filter(|p| p.id == "rewards-theater").collect();
         assert_eq!(rewards.len(), 1);
+        assert_eq!(own[0].names, ["my-fork-obs", "other-obs"]);
+        assert!(!own[0].replaces(rewards[0]), "no shared package name, no replacement");
         assert!(!rewards[0].local && rewards[0].name == "RewardsTheater");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn plugin(id: &str, names: &[&str]) -> PluginInfo {
+        PluginInfo {
+            id: id.into(),
+            name: id.to_uppercase(),
+            default: false,
+            repo: String::new(),
+            packages: String::new(),
+            description: String::new(),
+            package: format!("{id}-legacy-580xx"),
+            local: false,
+            names: names.iter().map(|n| (*n).to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn a_plugin_and_its_replacement_are_never_chosen_together() {
+        let catalog = vec![
+            plugin("multi", &["obs-multi-rtmp"]),
+            plugin("old", &["old-obs", "old-obs-git"]),
+            plugin("new", &["new-obs", "old-obs", "old-obs-git"]),
+        ];
+        assert!(catalog[2].replaces(&catalog[1]) && catalog[1].replaces(&catalog[2]));
+        assert!(!catalog[0].replaces(&catalog[1]));
+        let ids = |list: &[&str]| list.iter().map(|id| (*id).to_string()).collect::<Vec<_>>();
+        // Щойно позначений лишається, інший знімається.
+        let (kept, removed) = without_replaced(&catalog, &ids(&["multi", "old", "new"]), Some("new"));
+        assert_eq!(kept, ["multi", "new"]);
+        assert_eq!(removed, ["OLD"]);
+        let (kept, removed) = without_replaced(&catalog, &ids(&["multi", "old", "new"]), Some("old"));
+        assert_eq!(kept, ["multi", "old"]);
+        assert_eq!(removed, ["NEW"]);
+        // Без щойно позначеного лишається пізніший у каталозі (свій плагін).
+        let (kept, _) = without_replaced(&catalog, &ids(&["old", "new", "unknown"]), None);
+        assert_eq!(kept, ["new", "unknown"]);
+        // Якщо вибрано лише один, нічого не змінюється.
+        assert_eq!(without_replaced(&catalog, &ids(&["multi", "old"]), Some("old")).1, Vec::<String>::new());
+    }
+
+    #[test]
+    fn script_output_carries_the_package_names() {
+        let tsv = "a\tA\t0\t0\thttps://x/a.git\t\tОпис\ta-obs-legacy-580xx\t0\ta-obs b-obs\n";
+        assert_eq!(parse_tsv(tsv)[0].names, ["a-obs", "b-obs"]);
+        let old_script = "a\tA\t0\t0\thttps://x/a.git\t\tОпис\n";
+        assert!(parse_tsv(old_script)[0].names.is_empty());
     }
 }

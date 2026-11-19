@@ -362,7 +362,9 @@ line in `~/.config/obs-legacy/plugins.local`, in the catalog format
 `id|name|git repository|pacman packages|CMake options|description|AUR names`. The repository may be a local
 folder (`/home/you/my-plugin` or `file://…`). The plugin must build with CMake and install an OBS module into
 `lib/obs-plugins`. It appears in the «Plugins» list marked «own» and is built, packaged and updated like any
-other. A line with the same `id` as a catalog plugin is skipped. Example:
+other. A line with the same `id` as a catalog plugin is skipped. A plugin that shares an AUR name with
+another one replaces it: the two are never chosen together — ticking one unticks the other, and the
+script refuses to build both. Example:
 
 ```text
 my-fork|My Fork|/home/you/my-fork|rust|-DSOME_OPTION=ON|My fork of a plugin|my-fork-obs some-plugin-obs

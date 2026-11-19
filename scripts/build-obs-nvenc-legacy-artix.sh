@@ -64,7 +64,7 @@ set -Eeuo pipefail
 shopt -s inherit_errexit 2>/dev/null || true
 umask 022
 
-readonly SCRIPT_VERSION="2026.11.18.1"
+readonly SCRIPT_VERSION="2026.11.19.1"
 # Номер рецепта збирання й пакування. Підвищувати, лише коли зміна в рушії вимагає
 # перезібрати вже встановлені пакети (прапорці, розкладка, залежності): тоді «Оновити»
 # збере їх знову. Зміни інтерфейсу й підказок його не чіпають.
@@ -2036,6 +2036,37 @@ resolve_selected_plugins() {
   done
 }
 
+# Два плагіни замінюють один одного, коли мають спільну назву пакета в AUR: це той самий плагін
+# у двох втіленнях (наприклад, свій переписаний плагін замість вбудованого). Друкує спільну назву.
+plugins_replace() {   # $1, $2 = id
+  local a b
+  local -a first=() second=()
+  [[ "$1" != "$2" ]] || return 1
+  read -r -a first <<<"$(plugin_field "$1" aur)"
+  read -r -a second <<<"$(plugin_field "$2" aur)"
+  for a in "${first[@]}"; do
+    for b in "${second[@]}"; do
+      if [[ "$a" == "$b" ]]; then printf '%s\n' "$a"; return 0; fi
+    done
+  done
+  return 1
+}
+
+# Плагіни, що замінюють один одного, разом не збираються: пакети конфліктували б, а в OBS
+# кожна дія виконувалася б двічі. Помилка ще до збирання, щоб не чекати даремно.
+check_plugin_replacements() {
+  local i j shared first second
+  for ((i = 0; i < ${#PLUGINS_SELECTED[@]}; i++)); do
+    for ((j = i + 1; j < ${#PLUGINS_SELECTED[@]}; j++)); do
+      shared=$(plugins_replace "${PLUGINS_SELECTED[i]}" "${PLUGINS_SELECTED[j]}") || continue
+      first=$(plugin_field "${PLUGINS_SELECTED[i]}" name)
+      second=$(plugin_field "${PLUGINS_SELECTED[j]}" name)
+      die "$(t "Плагіни $first і $second замінюють один одного (спільний пакет $shared), разом їх не ставлять. Залиште в OBS_PLUGINS лише один (або зніміть галочку в «Плагінах» OBS-Legacy)." \
+               "The plugins $first and $second replace each other (shared package $shared) and are never installed together. Keep only one in OBS_PLUGINS (or untick it in OBS-Legacy's «Plugins»).")"
+    done
+  done
+}
+
 plugin_packages() {   # пакети pacman, потрібні вибраним плагінам
   local id p
   local -a pk=()
@@ -3399,6 +3430,7 @@ cmd_check() {
   detect_foreign_install
   print_header "$(t "перевірка (нічого не встановлюється)" "check (nothing is installed)")"
   resolve_selected_plugins
+  check_plugin_replacements
   show_inventory
   detect_build_profile
   ffmpeg_plan
@@ -3593,6 +3625,7 @@ report_update_plan() {
 
 build_set() {
   resolve_selected_plugins
+  check_plugin_replacements
   show_inventory
   detect_build_profile
   ffmpeg_plan
@@ -4121,9 +4154,10 @@ cmd_clean() {
 }
 
 # Каталог плагінів. --tsv — машинний формат для TUI:
-# id, назва, вибрано (1/0), типово (1/0), репозиторій, пакети, опис, назва пакета.
+# id, назва, вибрано (1/0), типово (1/0), репозиторій, пакети, опис, назва пакета, свій (1/0),
+# назви в AUR через пробіл (за ними TUI бачить плагіни, що замінюють один одного).
 cmd_plugins() {
-  local r id name repo pkgs desc sel def pkg own
+  local r id name repo pkgs desc sel def pkg own other
   local -a f=()
   resolve_selected_plugins
   if [[ "${1:-}" != --tsv ]]; then
@@ -4138,11 +4172,17 @@ cmd_plugins() {
     if [[ " ${PLUGINS_SELECTED[*]} " == *" $id "* ]]; then sel=1; fi
     if [[ "$id" == obs-multi-rtmp ]]; then def=1; fi
     if [[ "${1:-}" == --tsv ]]; then
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$sel" "$def" "$repo" "$pkgs" "$desc" "$pkg" "$own"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$sel" "$def" "$repo" "$pkgs" "$desc" "$pkg" "$own" \
+        "$(plugin_field "$id" aur)"
     else
       printf "$(t '  [%s] %-24s %s\n        %s\n        %s · пакет %s\n' \
                   '  [%s] %-24s %s\n        %s\n        %s · package %s\n')" "$( ((sel)) && echo x || echo ' ')" "$id" "$name" \
         "$desc" "$repo" "$pkg"
+      for other in "${PLUGIN_CATALOG[@]}"; do
+        if plugins_replace "$id" "${other%%|*}" >/dev/null; then
+          printf "$(t '        замінює %s: разом їх не вибирають\n' '        replaces %s: never chosen together\n')" "$(plugin_field "${other%%|*}" name)"
+        fi
+      done
     fi
   done
   if [[ "${1:-}" != --tsv ]]; then
