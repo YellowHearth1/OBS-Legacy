@@ -1,7 +1,8 @@
-//! Фонова підготовка пакетів: коли в репозиторії вийшов новий ffmpeg або після оновлення системи
-//! пакетам OBS-Legacy забракло бібліотек, `--watch` сам запускає команду скрипта `prepare` (лише
-//! збирає набір — нічого не ставить і нічого не питає) і сповіщає, коли набір готовий. Тоді
-//! `obs-legacy --upgrade-system` чи «Встановити / оновити OBS» ставлять його одразу, без збирання.
+//! Фонова підготовка пакетів. Коли після оновлення системи пакети OBS-Legacy працюють на збережених
+//! копіях старих бібліотек (хук keep-libs) чи їм бракує бібліотек — одразу; коли вийшли новий ffmpeg,
+//! OBS чи плагіни — разом з найближчим оновленням системи (транзакцією pacman). Тоді `--watch` сам
+//! запускає команду скрипта `prepare` (лише збирає набір — нічого не ставить і нічого не питає) і
+//! сповіщає, коли набір готовий; «Встановити / оновити OBS» ставить його одразу, без збирання.
 
 use std::fs::OpenOptions;
 use std::io;
@@ -21,11 +22,36 @@ pub fn enabled(settings: &Settings) -> bool {
     super::setting(settings, SETTING) != "0"
 }
 
-/// Чому готувати пакети — відбиток причин, щоб не збирати двічі під те саме. None — нема чому.
-pub fn trigger(ffmpeg_new: Option<&str>, libs: Option<&str>) -> Option<String> {
-    let parts: Vec<String> =
-        [ffmpeg_new.map(|v| format!("ffmpeg={v}")), libs.map(|f| format!("libs={f}"))].into_iter().flatten().collect();
-    (!parts.is_empty()).then(|| parts.join(" "))
+/// Чому готувати пакети. None — цієї причини немає.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Reasons {
+    /// Нова версія ffmpeg у репозиторії.
+    pub ffmpeg: Option<String>,
+    /// Пакетам бракує бібліотек (відбиток виводу check-libs).
+    pub libs: Option<String>,
+    /// Пакети працюють на збережених копіях старих бібліотек (відбиток списку keep-libs).
+    pub kept: Option<String>,
+    /// Вийшов новий OBS.
+    pub obs: Option<String>,
+    /// Вийшли нові версії плагінів («Waveform v1.10.0, …»).
+    pub plugins: Option<String>,
+}
+
+impl Reasons {
+    /// Відбиток причин, щоб не збирати двічі під те саме. None — нема чому.
+    pub fn key(&self) -> Option<String> {
+        let parts: Vec<String> = [
+            ("ffmpeg", &self.ffmpeg),
+            ("libs", &self.libs),
+            ("kept", &self.kept),
+            ("obs", &self.obs),
+            ("plugins", &self.plugins),
+        ]
+        .into_iter()
+        .filter_map(|(k, v)| v.as_ref().map(|v| format!("{k}={v}")))
+        .collect();
+        (!parts.is_empty()).then(|| parts.join(" "))
+    }
 }
 
 /// Блокування скрипта (те саме, що бере `acquire_lock` у скрипті).
@@ -85,10 +111,15 @@ mod tests {
     }
 
     #[test]
-    fn trigger_joins_reasons() {
-        assert_eq!(trigger(None, None), None);
-        assert_eq!(trigger(Some("2:9.1-1.1"), None).as_deref(), Some("ffmpeg=2:9.1-1.1"));
-        assert_eq!(trigger(Some("2:9.1-2"), Some("ab12")).as_deref(), Some("ffmpeg=2:9.1-2 libs=ab12"));
+    fn reasons_key_joins_what_is_there() {
+        assert_eq!(Reasons::default().key(), None);
+        let r = Reasons { ffmpeg: Some("2:9.1-1.1".into()), ..Default::default() };
+        assert_eq!(r.key().as_deref(), Some("ffmpeg=2:9.1-1.1"));
+        // Порядок — як у ключах попередніх версій («ffmpeg=… libs=…»): уже спробуване не збирається знову.
+        let r = Reasons { ffmpeg: Some("2:9.1-2".into()), libs: Some("ab12".into()), ..Default::default() };
+        assert_eq!(r.key().as_deref(), Some("ffmpeg=2:9.1-2 libs=ab12"));
+        let r = Reasons { kept: Some("cd34".into()), obs: Some("33.0.3".into()), ..Default::default() };
+        assert_eq!(r.key().as_deref(), Some("kept=cd34 obs=33.0.3"));
     }
 
     #[test]

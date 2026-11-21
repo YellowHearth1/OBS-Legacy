@@ -195,12 +195,14 @@ pub fn facts_from(
             })
         })
         .collect();
-    // ffmpeg-legacy-580xx зібрано зі старішого ffmpeg, ніж тепер у репозиторії.
+    // ffmpeg-legacy-580xx зібрано зі старішої версії ffmpeg, ніж тепер у репозиторії (лише версія,
+    // без pkgrel: перезбирання під нові бібліотеки ловлять keep-libs і check-libs).
     // Коли збирання ffmpeg вимкнено, «install» його й не перезбере — тоді мовчимо.
     let ffmpeg_built = active.and_then(|b| b.get("ffmpeg.arch_version")).filter(|v| !v.is_empty()).map(str::to_string);
     let ffmpeg_new = match (&ffmpeg_built, &u.ffmpeg_repo) {
         (Some(built), Some(repo))
-            if setting(settings, "BUILD_FFMPEG") != "0" && versions::pacman_newer(repo, built) =>
+            if setting(settings, "BUILD_FFMPEG") != "0"
+                && versions::pacman_newer(versions::without_pkgrel(repo), versions::without_pkgrel(built)) =>
         {
             Some(repo.clone())
         }
@@ -237,6 +239,11 @@ pub fn ffmpeg_new_local() -> Option<String> {
 
 /// Перевірити нові версії (мережа: git ls-remote до GitHub).
 pub fn gather() -> Facts {
+    gather_with_updates().0
+}
+
+/// Те саме, що `gather`, і ще відповідь GitHub — щоб потім перераховувати факти без мережі.
+pub fn gather_with_updates() -> (Facts, Updates) {
     let (builds, _) = builds::read_builds();
     let active = builds.iter().find(|b| b.active);
     let settings = Settings::load();
@@ -244,7 +251,37 @@ pub fn gather() -> Facts {
     let repos: Vec<(String, String)> =
         tracked_plugins(active, &settings, &catalog).into_iter().map(|(id, _, _, repo)| (id, repo)).collect();
     let u = versions::check_updates(&repos, Some(&self_repo()));
-    facts_from(active, &u, &settings, &catalog, script::self_source().is_some())
+    (facts_from(active, &u, &settings, &catalog, script::self_source().is_some()), u)
+}
+
+/// Факти з уже відомих версій (без мережі): після транзакції pacman встановлене могло змінитися
+/// (поставили новий набір, `pacman -Sy` приніс новий ffmpeg).
+pub fn facts_offline(u: &Updates) -> Facts {
+    let (builds, _) = builds::read_builds();
+    let active = builds.iter().find(|b| b.active);
+    let catalog = script::ensure_extracted().ok().and_then(|s| catalog::load(&s).ok()).unwrap_or_default();
+    let u = Updates { ffmpeg_repo: versions::repo_package_version("ffmpeg"), ..u.clone() };
+    facts_from(active, &u, &Settings::load(), &catalog, script::self_source().is_some())
+}
+
+/// Список бібліотек, які зберіг хук keep-libs (скрипт, KEPT_LIBS_LIST): у системі їх уже немає, а
+/// пакети OBS-Legacy ще працюють на копіях — їх треба перезібрати під нові.
+const KEPT_LIBS_LIST: &str = "/var/lib/obs-legacy/kept-libs.tsv";
+
+/// «libjxl.so.0.12 (ffmpeg-legacy-580xx)» на кожну збережену бібліотеку; порожньо — нічого.
+pub fn kept_libs() -> Vec<String> {
+    fs::read_to_string(KEPT_LIBS_LIST).map(|t| parse_kept(&t)).unwrap_or_default()
+}
+
+/// Рядки списку keep-libs: «бібліотека<TAB>пакети через пробіл».
+pub fn parse_kept(text: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|l| {
+            let (so, by) = l.split_once('\t').unwrap_or((l, ""));
+            let (so, by) = (so.trim(), by.trim());
+            (!so.is_empty()).then(|| if by.is_empty() { so.to_string() } else { format!("{so} ({by})") })
+        })
+        .collect()
 }
 
 /// check-libs проганяє ldd по всіх файлах пакетів OBS-Legacy: на повільному диску це хвилини, але не вічність.
@@ -275,4 +312,23 @@ pub fn parse_libcheck(out: &str) -> Vec<String> {
         .map(|l| l.trim().to_string())
         .filter(|l| !l.is_empty() && !l.starts_with('…'))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kept_list_lines() {
+        let text = "libjxl.so.0.12\tffmpeg-legacy-580xx\nlibx264.so.165\tobs-studio-legacy-580xx ffmpeg-legacy-580xx\n\nbare.so.1\n";
+        assert_eq!(
+            parse_kept(text),
+            [
+                "libjxl.so.0.12 (ffmpeg-legacy-580xx)",
+                "libx264.so.165 (obs-studio-legacy-580xx ffmpeg-legacy-580xx)",
+                "bare.so.1"
+            ]
+        );
+        assert!(parse_kept("").is_empty());
+    }
 }

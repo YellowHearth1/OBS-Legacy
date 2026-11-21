@@ -11,10 +11,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-use super::notices::{Notice, fingerprint, libs_notice, notices, prepare_failed, prepare_ready, prepare_started};
-use super::prepare;
+use super::notices::{
+    Notice, fingerprint, kept_notice, libs_notice, notices, prepare_failed, prepare_ready, prepare_started,
+};
+use super::prepare::{self, Reasons};
 use super::state::State;
-use super::{Facts, check_libs, ffmpeg_new_local, gather, plugin_list};
+use super::{Facts, check_libs, facts_offline, ffmpeg_new_local, gather, gather_with_updates, kept_libs, plugin_list};
 use crate::cli;
 use crate::clock;
 use crate::notify;
@@ -22,14 +24,16 @@ use crate::paths;
 use crate::reports;
 use crate::script;
 use crate::settings::Settings;
-use crate::versions::newer;
+use crate::versions::{Updates, newer};
 
 const PACMAN_DB: &str = "/var/lib/pacman/local";
 
 const PACMAN_LOCK: &str = "/var/lib/pacman/db.lck";
 
-/// Як часто прокидатися (бібліотеки після pacman, сповіщення, що чекають сесії).
-const TICK: u64 = 5 * 60;
+/// Як часто прокидатися (бібліотеки після pacman, сповіщення, що чекають сесії). Хвилина — щоб
+/// перезбирання після `pacman -Syu` починалося майже одразу; поза транзакціями пробудження дешеве
+/// (кілька stat).
+const TICK: u64 = 60;
 
 /// Журнал не росте безкінечно: більший за LOG_MAX_BYTES обрізається до останніх LOG_KEEP_LINES рядків.
 const LOG_MAX_BYTES: u64 = 256 * 1024;
@@ -254,6 +258,10 @@ pub fn watch_main(exe: &Path) -> ExitCode {
         pending: Vec::new(),
         ffmpeg_new: ffmpeg_new_local(),
         libs,
+        kept: kept_libs(),
+        facts: None,
+        updates: None,
+        upgraded: false,
         prep: None,
         prep_key: String::new(),
     };
@@ -284,6 +292,14 @@ struct Watch<'a> {
     ffmpeg_new: Option<String>,
     /// Чого бракує пакетам OBS-Legacy після останньої транзакції pacman.
     libs: Option<Vec<String>>,
+    /// Бібліотеки, на збережених копіях яких працюють пакети OBS-Legacy (хук keep-libs).
+    kept: Vec<String>,
+    /// Останні відомі нові версії: факти й відповідь GitHub (щоб перераховувати без мережі).
+    facts: Option<Facts>,
+    updates: Option<Updates>,
+    /// Після останньої підготовки була транзакція pacman (оновлення системи): нові OBS, плагіни
+    /// й ffmpeg збираються саме тоді — разом з оновленням.
+    upgraded: bool,
     /// Фонова підготовка пакетів (`prepare`), що зараз іде, і її причина.
     prep: Option<Child>,
     prep_key: String,
@@ -313,8 +329,29 @@ impl Watch<'_> {
             return false;
         }
         self.st.set("pacman", m);
-        // pacman -Sy користувача міг принести новий ffmpeg — це видно й без мережі.
-        self.ffmpeg_new = ffmpeg_new_local();
+        self.upgraded = true;
+        // pacman -Sy користувача міг принести новий ffmpeg, а pacman -U — новий набір: це видно й без мережі.
+        match &self.updates {
+            Some(u) => {
+                let f = facts_offline(u);
+                self.ffmpeg_new = f.ffmpeg_new.clone();
+                self.facts = Some(f);
+            }
+            None => self.ffmpeg_new = ffmpeg_new_local(),
+        }
+        self.kept = kept_libs();
+        if self.kept.is_empty() {
+            self.st.remove("notified.kept");
+        } else {
+            log(&trf!(
+                "Пакети OBS-Legacy працюють на збережених копіях бібліотек: {}",
+                "The OBS-Legacy packages run on kept library copies: {}",
+                self.kept.join("; ")
+            ));
+            if let Some(n) = kept_notice(&self.kept) {
+                queue(&mut self.pending, &self.st, n);
+            }
+        }
         let libs = check_libs();
         self.libs = libs.clone().filter(|p| !p.is_empty());
         match libs {
@@ -341,7 +378,7 @@ impl Watch<'_> {
             return false;
         }
         sync_repo_copy();
-        let facts = gather();
+        let (facts, u) = gather_with_updates();
         self.ffmpeg_new = facts.ffmpeg_new.clone();
         self.st.record_check(t, &facts);
         self.next = self.st.next_check(t);
@@ -349,7 +386,25 @@ impl Watch<'_> {
         for n in notices(&facts) {
             queue(&mut self.pending, &self.st, n);
         }
+        self.facts = Some(facts);
+        self.updates = Some(u);
         true
+    }
+
+    /// Чому зараз готувати пакети. Збережені копії й бібліотеки, яких бракує, — одразу; нові ffmpeg,
+    /// OBS і плагіни — лише після транзакції pacman, тобто разом з оновленням системи.
+    fn reasons(&self) -> Reasons {
+        let with_upgrade = |v: Option<String>| v.filter(|_| self.upgraded);
+        let facts = self.facts.as_ref();
+        Reasons {
+            ffmpeg: with_upgrade(self.ffmpeg_new.clone()),
+            libs: self.libs.as_deref().map(fingerprint),
+            kept: (!self.kept.is_empty()).then(|| fingerprint(&self.kept)),
+            obs: with_upgrade(facts.and_then(Facts::obs_update).map(str::to_string)),
+            plugins: with_upgrade(
+                facts.filter(|f| !f.plugin_updates.is_empty()).map(|f| plugin_list(&f.plugin_updates)),
+            ),
+        }
     }
 
     /// Фонова підготовка пакетів: дочекатися тієї, що йде, або почати нову, коли є причина
@@ -370,8 +425,8 @@ impl Watch<'_> {
                 }
             };
         }
-        let libs_fp = self.libs.as_deref().map(fingerprint);
-        let Some(key) = prepare::trigger(self.ffmpeg_new.as_deref(), libs_fp.as_deref()) else { return false };
+        let reasons = self.reasons();
+        let Some(key) = reasons.key() else { return false };
         if self.st.get("prepared") == Some(key.as_str())
             || !prepare::enabled(&Settings::load())
             || Path::new(PACMAN_LOCK).exists()
@@ -395,15 +450,29 @@ impl Watch<'_> {
         self.st.set("prepared", &key);
         self.prep = Some(child);
         self.prep_key = key.clone();
-        // Про новий ffmpeg і бібліотеки окремо не сповіщати: про них скаже ця підготовка.
-        if let Some(v) = &self.ffmpeg_new {
+        self.upgraded = false;
+        // Про те, що збирає ця підготовка, окремо не сповіщати: про все скаже вона сама.
+        if let Some(v) = &reasons.ffmpeg {
             self.st.set("notified.ffmpeg", v);
         }
         if let Some(n) = self.libs.as_deref().and_then(libs_notice) {
             n.mark(&mut self.st);
         }
-        self.pending.retain(|n| !matches!(n.items.first().map(|i| i.0.as_str()), Some("ffmpeg" | "libs")));
-        let started = prepare_started(&key, self.ffmpeg_new.as_deref(), self.libs.is_some());
+        if let Some(n) = kept_notice(&self.kept) {
+            n.mark(&mut self.st);
+        }
+        if (reasons.obs.is_some() || reasons.plugins.is_some())
+            && let Some(f) = &self.facts
+        {
+            for (k, v) in notices(f).iter().flat_map(|n| n.items.iter()) {
+                if k == "obs" || k.starts_with("plugin.") {
+                    self.st.set(&format!("notified.{k}"), v);
+                }
+            }
+        }
+        let st = &self.st;
+        self.pending.retain(|n| n.is_new(st));
+        let started = prepare_started(&key, &reasons);
         queue(&mut self.pending, &self.st, started);
         true
     }

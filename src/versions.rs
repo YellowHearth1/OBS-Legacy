@@ -129,6 +129,12 @@ pub fn repo_package_version(name: &str) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+/// Версія без pkgrel: «2:9.1-1.1» → «2:9.1». Новий pkgrel у репозиторії — здебільшого перезбирання під
+/// нові бібліотеки; таку потребу видно з keep-libs і ldd, а не з версії.
+pub fn without_pkgrel(v: &str) -> &str {
+    v.rsplit_once('-').map_or(v, |(base, _)| base)
+}
+
 /// Чи `latest` новіша за `current` за правилами pacman (epoch:pkgver-pkgrel) —
 /// утилітою vercmp з самого pacman.
 pub fn pacman_newer(latest: &str, current: &str) -> bool {
@@ -178,5 +184,8 @@ mod tests {
         assert!(!is_release_tag("0.7.4.4-obs32.1.2", TagStyle::Release));
         assert_eq!(headers_api("n13.0.19.1").as_deref(), Some("13.0"));
         assert_eq!(headers_api("n12.2.72.0").as_deref(), Some("12.2"));
+        assert_eq!(without_pkgrel("2:9.1-1.1"), "2:9.1");
+        assert_eq!(without_pkgrel("2:9.1-2"), "2:9.1");
+        assert_eq!(without_pkgrel("9.1"), "9.1");
     }
 }

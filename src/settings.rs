@@ -122,14 +122,14 @@ pub const FIELDS: &[Field] = &[
         key: "AUTO_PREPARE",
         label: ("Готувати пакети заздалегідь", "Prepare packages in advance"),
         help: (
-            "Коли в репозиторії виходить новий ffmpeg або після оновлення системи пакетам OBS-Legacy бракує \
-             бібліотек, фонова перевірка (Додатково → «Сповіщення про оновлення») сама збирає нові пакети з \
-             найнижчим пріоритетом і сповіщає, коли вони готові. Нічого не встановлює: поставиш їх однією \
-             командою obs-legacy --upgrade-system разом з оновленням системи або пунктом «Встановити / оновити OBS».",
-            "When the repository gets a new ffmpeg or the OBS-Legacy packages are missing libraries after a system \
-             upgrade, the background check (More → “Update notifications”) builds new packages by itself at the \
-             lowest priority and tells you when they're ready. It installs nothing: you install them with one \
-             command, obs-legacy --upgrade-system, together with the system upgrade, or with “Install / update OBS”.",
+            "Фонова перевірка (Додатково → «Сповіщення про оновлення») сама збирає нові пакети з найнижчим \
+             пріоритетом: одразу, коли після оновлення системи OBS-Legacy працює на збережених копіях старих \
+             бібліотек чи їх бракує, і разом з оновленням системи, коли вийшли нові OBS, плагіни чи ffmpeg. \
+             Нічого не встановлює: коли пакети готові, сповіщає, а «Встановити / оновити OBS» ставить їх одразу.",
+            "The background check (More → “Update notifications”) builds new packages by itself at the lowest \
+             priority: right away when after a system upgrade OBS-Legacy runs on kept copies of old libraries or \
+             misses libraries, and together with a system upgrade when a new OBS, plugin or ffmpeg version is out. \
+             It installs nothing: it tells you when the packages are ready, and “Install / update OBS” installs them.",
         ),
         kind: Kind::Toggle,
         default: "1",

@@ -3,6 +3,7 @@
 
 use std::path::Path;
 
+use super::prepare::Reasons;
 use super::state::State;
 use super::{Facts, RELEASES, SelfInstall, plugin_list};
 use crate::notify;
@@ -146,19 +147,46 @@ pub(super) fn fingerprint(problems: &[String]) -> String {
     format!("{h:016x}")
 }
 
+/// Перші три різні назви через кому й «і ще N».
+fn short_list(mut items: Vec<&str>) -> String {
+    items.sort_unstable();
+    items.dedup();
+    let mut list = items.iter().take(3).copied().collect::<Vec<_>>().join(", ");
+    if items.len() > 3 {
+        let more = items.len() - 3;
+        list.push_str(&trf!(" і ще {more}", " and {more} more"));
+    }
+    list
+}
+
+/// Пакети OBS-Legacy працюють на копіях бібліотек, які зберіг хук keep-libs: OBS працює, але його
+/// треба зібрати під нові бібліотеки (коли фонова підготовка вимкнена чи не почалася).
+pub fn kept_notice(kept: &[String]) -> Option<Notice> {
+    if kept.is_empty() {
+        return None;
+    }
+    let list = short_list(kept.iter().map(|k| k.split_once(' ').map_or(k.as_str(), |(so, _)| so)).collect());
+    Some(Notice {
+        items: vec![("kept".into(), fingerprint(kept))],
+        title: tr!("OBS-Legacy треба зібрати під нові бібліотеки", "OBS-Legacy needs building for the new libraries")
+            .into(),
+        body: trf!(
+            "Після оновлення системи OBS працює на збережених копіях старих бібліотек ({list}). \
+             Усе працює, але перезбери: {}.",
+            "After the system upgrade OBS runs on kept copies of the old libraries ({list}). \
+             Everything works, but rebuild: {}.",
+            how_install()
+        ),
+        urgent: false,
+    })
+}
+
 /// Сповіщення про бібліотеки, яких бракує власній збірці.
 pub fn libs_notice(problems: &[String]) -> Option<Notice> {
     if problems.is_empty() {
         return None;
     }
-    let mut libs: Vec<&str> = problems.iter().map(|p| p.rsplit_once(": ").map_or(p.as_str(), |(_, l)| l)).collect();
-    libs.sort_unstable();
-    libs.dedup();
-    let mut list = libs.iter().take(3).copied().collect::<Vec<_>>().join(", ");
-    if libs.len() > 3 {
-        let more = libs.len() - 3;
-        list.push_str(&trf!(" і ще {more}", " and {more} more"));
-    }
+    let list = short_list(problems.iter().map(|p| p.rsplit_once(": ").map_or(p.as_str(), |(_, l)| l)).collect());
     Some(Notice {
         items: vec![("libs".into(), fingerprint(problems))],
         title: tr!("OBS після оновлення системи може не запуститися", "OBS may not start after the system update")
@@ -172,27 +200,52 @@ pub fn libs_notice(problems: &[String]) -> Option<Notice> {
     })
 }
 
-/// Як поставити готовий набір разом з оновленням системи.
-fn how_upgrade() -> &'static str {
+/// Як поставити готовий набір.
+fn how_install_ready() -> &'static str {
     tr!(
-        "Онови все однією командою в терміналі: obs-legacy --upgrade-system (або OBS-Legacy → «Встановити / \
-         оновити OBS» — набір поставиться одразу, без збирання).",
-        "Upgrade everything with one command in a terminal: obs-legacy --upgrade-system (or OBS-Legacy → “Install / \
-         update OBS” — the set is installed at once, without building)."
+        "Постав його: OBS-Legacy → «Встановити / оновити OBS» — набір поставиться одразу, без збирання.",
+        "Install it: OBS-Legacy → “Install / update OBS” — the set is installed at once, without building."
     )
 }
 
-/// Фонова підготовка почалася: чому й скільки чекати. `key` — відбиток причин (prepare::trigger).
-pub fn prepare_started(key: &str, ffmpeg_new: Option<&str>, libs: bool) -> Notice {
-    let why = match (ffmpeg_new, libs) {
-        (_, true) => tr!(
-            "Після оновлення системи пакетам OBS-Legacy бракує бібліотек.",
-            "After the system upgrade the OBS-Legacy packages are missing libraries."
-        )
-        .to_string(),
-        (Some(v), false) => trf!("У репозиторії новий ffmpeg {v}.", "The repository has a new ffmpeg {v}."),
-        (None, false) => String::new(),
-    };
+/// Чому почалася фонова підготовка — реченнями для сповіщення.
+fn prepare_why(r: &Reasons) -> String {
+    let mut why = Vec::new();
+    if r.kept.is_some() {
+        why.push(
+            tr!(
+                "Після оновлення системи OBS-Legacy працює на збережених копіях старих бібліотек — усе працює, \
+             але треба зібрати під нові.",
+                "After the system upgrade OBS-Legacy runs on kept copies of the old libraries — everything works, \
+             but it needs building for the new ones."
+            )
+            .to_string(),
+        );
+    }
+    if r.libs.is_some() {
+        why.push(
+            tr!(
+                "Після оновлення системи пакетам OBS-Legacy бракує бібліотек.",
+                "After the system upgrade the OBS-Legacy packages are missing libraries."
+            )
+            .to_string(),
+        );
+    }
+    if let Some(v) = &r.ffmpeg {
+        why.push(trf!("У репозиторії новий ffmpeg {v}.", "The repository has a new ffmpeg {v}."));
+    }
+    if let Some(v) = &r.obs {
+        why.push(trf!("Вийшов OBS {v}.", "OBS {v} is out."));
+    }
+    if let Some(list) = &r.plugins {
+        why.push(trf!("Нові версії плагінів: {list}.", "New plugin versions: {list}."));
+    }
+    why.join(" ")
+}
+
+/// Фонова підготовка почалася: чому й скільки чекати. `key` — відбиток причин (Reasons::key).
+pub fn prepare_started(key: &str, r: &Reasons) -> Notice {
+    let why = prepare_why(r);
     Notice {
         items: vec![("prepare".into(), key.into())],
         title: tr!("OBS-Legacy готує нові пакети", "OBS-Legacy is preparing new packages").into(),
@@ -214,7 +267,7 @@ pub fn prepare_ready(label: &str) -> Notice {
         body: trf!(
             "Набір {label} зібрано під твою систему. {}",
             "The set {label} is built for your system. {}",
-            how_upgrade()
+            how_install_ready()
         ),
         urgent: false,
     }
@@ -242,10 +295,17 @@ mod tests {
 
     #[test]
     fn prepare_notices_explain_what_next() {
-        let started = prepare_started("ffmpeg=2:9.1-2", Some("2:9.1-2"), false);
+        let r = Reasons { ffmpeg: Some("2:9.1-2".into()), ..Default::default() };
+        let started = prepare_started(&r.key().unwrap_or_default(), &r);
         assert!(started.body.contains("2:9.1-2"));
+        let r = Reasons { kept: Some("ab".into()), obs: Some("33.0.3".into()), ..Default::default() };
+        let started = prepare_started("kept=ab obs=33.0.3", &r);
+        assert!(started.body.contains("збережених копіях") && started.body.contains("OBS 33.0.3"));
         let ready = prepare_ready("20261122-100000_33.0.2");
-        assert!(ready.body.contains("--upgrade-system"));
+        assert!(ready.body.contains("Встановити / оновити OBS"));
+        let kept = kept_notice(&["libjxl.so.0.12 (ffmpeg-legacy-580xx)".into()]).expect("є копії");
+        assert!(kept.body.contains("libjxl.so.0.12") && !kept.body.contains("ffmpeg-legacy-580xx)"));
+        assert_eq!(kept_notice(&[]), None);
         let st = State::default();
         assert!(ready.is_new(&st));
         let failed = prepare_failed("libs=ab", Some("Бракує пакетів"), Some("Натисни «Виправити»."));
