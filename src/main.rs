@@ -55,6 +55,9 @@ application menu or a file manager), it opens a terminal window itself.
 Options:
   --script-path   print the path of the build script (it also runs without the TUI)
   --check-updates check for new versions of OBS, plugins and OBS-Legacy now
+  --upgrade-system upgrade the system (pacman -Syu) together with OBS-Legacy: first a dry
+                  run; if ffmpeg-legacy-580xx stands in the way, it is swapped for the
+                  repository ffmpeg for the upgrade and built again right after it
   --notifier status          update notifications: on or off, the last check
   --notifier enable [service] turn on the background check (every 12 hours): a
                              systemd, dinit, openrc, runit, s6 or autostart service;
@@ -81,6 +84,9 @@ Inspired by https://github.com/sl5net/build-obs-nvenc-legacy"
 Параметри:
   --script-path   показати шлях до скрипта збирання (його можна запускати й без TUI)
   --check-updates перевірити нові версії OBS, плагінів і OBS-Legacy зараз
+  --upgrade-system оновити систему (pacman -Syu) разом з OBS-Legacy: спершу пробний
+                  прогін; якщо ffmpeg-legacy-580xx заважає, на час оновлення його замінює
+                  ffmpeg з репозиторію, а одразу після оновлення він збирається знову
   --notifier status          сповіщення про оновлення: чи ввімкнено, остання перевірка
   --notifier enable [служба] увімкнути фонову перевірку (раз на 12 годин): служба
                              systemd, dinit, openrc, runit, s6 чи autostart; без
@@ -119,6 +125,7 @@ fn main() -> ExitCode {
             }
             "--probe-nvenc" => return ExitCode::from(nvenc::probe_main() as u8),
             "--check-updates" => return updates::check_main(),
+            "--upgrade-system" => return run_script_command("upgrade-system"),
             "--watch" => return updates::watch_main(&service::exe_path()),
             "--notifier" => return service::main(&args[i + 1..]),
             "--script-path" => {
@@ -160,6 +167,34 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("obs-legacy: {e:#}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Команда скрипта просто в цьому терміналі (пароль sudo, питання pacman — як завжди).
+fn run_script_command(command: &str) -> ExitCode {
+    if !(io::stdin().is_terminal() && io::stdout().is_terminal()) {
+        eprintln!("obs-legacy: {}", tr!("потрібен термінал.", "a terminal is required."));
+        return ExitCode::FAILURE;
+    }
+    let script = match script::ensure_extracted() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("obs-legacy: {e:#}");
+            return ExitCode::FAILURE;
+        }
+    };
+    match std::process::Command::new("bash")
+        .arg(&script)
+        .arg(command)
+        .env("OBS_LEGACY_LANG", i18n::lang().code())
+        .status()
+    {
+        // Код виходу скрипта (10 — скасовано) — як є, щоб його бачили й інші програми.
+        Ok(s) => ExitCode::from(s.code().and_then(|c| u8::try_from(c).ok()).unwrap_or(1)),
+        Err(e) => {
+            eprintln!("obs-legacy: {e}");
             ExitCode::FAILURE
         }
     }

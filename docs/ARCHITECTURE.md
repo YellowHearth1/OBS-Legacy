@@ -31,6 +31,9 @@ TUI **вбудовує** скрипт (`include_str!` у `src/script.rs`) і п�
 | `update` | те саме, але після `check_driver_vs_headers` — `update_reasons` (див. «Оновлення й перезбирання»): нічого нового → «ОНОВЛЕНЬ НЕМАЄ», без збирання | так, якщо є що оновлювати |
 | `rebuild` | те саме, що `install`, але CMake OBS начисто (`configure_obs … fresh`) і спершу `clear_stale_git_locks` | так |
 | `package` | `build_set` без встановлення: лише набір пакетів у сховищі | лише якщо бракує пакетів для збірки |
+| `prepare` | як `update`, але без встановлення й без жодного питання (бракує пакетів для збірки → `die` з `fix deps`); так його запускає `--watch` (`AUTO_PREPARE`) | ні |
+| `upgrade-system` | `repo-sync` → пробне `pacman -Sup` на копії баз → за потреби спершу `update` (інші soname libav* у репозиторії) і «місток» (`pacman -Syu ffmpeg`: на час оновлення ffmpeg з репозиторію замість `ffmpeg-legacy-580xx`, коли той заблокував би оновлення чи втратив бібліотеку — `ffmpeg_libs_change`) → `pacman -Syu` → `update` дочірнім процесом | так |
+| `repo-sync` | власна копія баз синхронізації в `~/.local/state/obs-legacy/pacman` (`fakeroot pacman -Sy --disable-sandbox --dbpath`, `local` — посилання на `/var/lib/pacman/local`); `repo_version` бере новішу з двох баз | ні |
 | `status` | встановлені пакети, BUILDINFO, check-libs, набори в сховищі, оновлення OBS і плагінів | ні |
 | `rollback [НАБІР]` | `pacman -U` збереженого набору (питає підтвердження); поки пакетів немає — стара схема: симлінк `current` у /opt | так |
 | `uninstall` | `pacman -S ffmpeg` (замість `ffmpeg-legacy-580xx`), `pacman -R` інших `*-legacy-580xx`, залишки старої схеми | так |
@@ -108,7 +111,8 @@ OBS-Legacy» з релізу) має `--speed-limit 1 --speed-time 120`: з'єд
 
 - Система змінюється лише через pacman: `pacman -S --needed` (пакети для збірки) і `pacman -U` (пакети
   OBS-Legacy) — обидва після `confirm` і без `--noconfirm`, тож pacman ще й сам питає про заміни.
-  `pacman -Syu` скрипт не запускає. Файли чужих пакетів не перезаписуються: власників файлів нового пакета
+  `pacman -Syu` — лише в `upgrade-system`, яку людина запускає сама (`obs-legacy --upgrade-system`), і теж
+  без `--noconfirm`. Файли чужих пакетів не перезаписуються: власників файлів нового пакета
   скрипт додає в `conflicts` (pacman запропонує замінити), а файл без власника — зупинка з порадою.
 - Компіляція, тимчасове встановлення й makepkg — без root. `sudo`/`doas` потрібні лише для pacman і
   прибирання старої схеми (`/opt/obs-studio-nvenc`, `/usr/local/bin/obs`, хук у `/etc`).
@@ -267,9 +271,24 @@ PKGBUILD Arch сам робить `export PKG_CONFIG_PATH=/usr/lib/mbedtls2/pkgc
 ставиться. Будь-яка невдача ffmpeg — попередження, OBS ставиться без нього.
 
 Коли в репозиторії виходить новий ffmpeg, `pacman -Syu` наш пакет не чіпає (його немає в репозиторіях), а
-хук із пакета OBS пише «у репозиторії новий ffmpeg — перезбери». Якщо новий ffmpeg змінить sonames, pacman
-сам запропонує замінити `ffmpeg-legacy-580xx` репозиторним (NVENC в ffmpeg тоді зникне до перезбирання;
-власний NVENC OBS від цього не залежить).
+хук із пакета OBS пише «у репозиторії новий ffmpeg — перезбери». `ffmpeg_plan` збирає ffmpeg і тоді, коли
+встановленому бракує бібліотеки (`ffmpeg_missing_lib`: після оновлення системи, скажімо libjxl 0.12 → 0.13,
+версія в репозиторії та сама). Тег PKGBUILD Arch для версії Artix (`2:9.1-1.1`) — спершу точний, потім без
+припису до pkgrel (`2-9.1-1`). У BUILDINFO набору — `ffmpeg_arch=` (з якої версії репозиторію зібрано).
+
+Оновлення системи (`upgrade-system`) обходить дві пастки: pacman не дає прибрати бібліотеку, від якої
+залежить `ffmpeg-legacy-580xx`, або оновлення проходить, але ffmpeg (а з ним і OBS через libavcodec) уже
+не знаходить нову версію бібліотеки. В обох випадках на час оновлення ставиться ffmpeg з репозиторію (той
+самий soname libav*, тож OBS працює; NVENC в OBS — власний модуль), а після оновлення `update` збирає
+`ffmpeg-legacy-580xx` уже під нові бібліотеки. Якщо в репозиторії ffmpeg з іншим soname libav*, спершу
+`update` збирає й ставить OBS-Legacy під нього.
+
+**Готовий набір** (`ready_set`, замість колишнього `pending_set`): `install` і `update` (і `prepare`) перед
+збиранням шукають повний набір, новіший за встановлений, зібраний саме з того, що зібралося б зараз
+(`set_matches_target`: OBS, заголовки, профіль, рецепт, цільові версії плагінів `PLUGIN_TARGET` — плагін, що
+не зібрався з того самого коміту, може бути відсутній, — і `ffmpeg_arch` = версія в репозиторії), і
+перевіряють ldd-ом розпакований набір (`set_libs_ok`: набір міг зібратися до оновлення системи). Такий
+набір ставиться без збирання.
 
 ## Перехід зі старої схеми /opt
 
@@ -503,7 +522,7 @@ TUI запускає `bash <скрипт> <команда>` у PTY (cwd = `$HOME
 
 | Модуль | Роль |
 |---|---|
-| `main.rs` | аргументи (`--help`, `--version`, `--script-path`, `--probe-nvenc`, `--no-relaunch`, `--check-updates`, `--watch`, `--notifier …`), перезапуск у терміналі, ініціалізація ratatui, миша й bracketed paste |
+| `main.rs` | аргументи (`--help`, `--version`, `--script-path`, `--probe-nvenc`, `--no-relaunch`, `--check-updates`, `--upgrade-system` — команда скрипта просто в цьому терміналі, `--watch`, `--notifier …`), перезапуск у терміналі, ініціалізація ratatui, миша й bracketed paste |
 | `app.rs` | стан, `MENU` (основні кроки + розділ «Додатково», `Row`), екрани (`Intro`, `Home`, `Run`, `Plugins`, `Rollback`, `Settings`, `Reports`, `Report`, `Help`), діалоги, сповіщення, клавіатура й миша, фонові потоки (`Msg`), `key_to_bytes` для PTY |
 | `advice.rs` | порада «Що далі»: чиста функція від `SysInfo`, нових версій (`updates::Facts`), звітів, вибраних плагінів і стану сповіщень → тон, крок (перевірка/встановлення/запуск), текст, дія для Enter, друга кнопка, звіт для `o` |
 | `reports.rs` | список звітів, результат і головна проблема кожного (хвіст 64 КБ), текст для переглядача, класифікація рядків |
@@ -536,7 +555,7 @@ TUI запускає `bash <скрипт> <команда>` у PTY (cwd = `$HOME
 ### Значки
 
 Значки меню й станів підібрано так, щоб вони були в поширених моноширинних шрифтах (JetBrains Mono,
-DejaVu Sans Mono): ◎ ▼ ▶ ⊕ ⋯ ≡ ◫ ◷ ↩ ◈ ↪ ⌫ ✗ ? × ◆ ● ○ ✓ ⚠ ■ ⌨. Уникаємо ★ ↺ ↻ ☰ ⚿ ℹ — у JetBrains Mono їх
+DejaVu Sans Mono): ◎ ▼ ▲ ▶ ⊕ ⋯ ≡ ◫ ◷ ↩ ◈ ↪ ⌫ ✗ ? × ◆ ● ○ ✓ ⚠ ■ ⌨. Уникаємо ★ ↺ ↻ ☰ ⚿ ℹ — у JetBrains Mono їх
 немає.
 
 ### Перезапуск у терміналі
@@ -607,7 +626,17 @@ xfce4-terminal, mate-terminal, qterminal, lxterminal, terminator, tilix, urxvt, 
 | Нові релізи плагінів активної збірки | разом з OBS | `git ls-remote` репозиторію з каталогу; теги `v?X.Y…` — так само, як їх бере скрипт (`resolve_plugin_ref`) |
 | Новий ffmpeg у репозиторіях | разом з OBS | `pacman -Si ffmpeg` (локальна база, без мережі) проти `arch_version` з `/usr/share/obs-legacy/ffmpeg.txt` (`vercmp`); лише коли `ffmpeg-legacy-580xx` встановлено й «Збирати ffmpeg» не вимкнено. Те саме — у пораді «Що далі» й рядку «Оновлення» |
 | Новий OBS-Legacy | разом з OBS | теги origin теки з вихідними кодами (`source-dir`) або `YellowHearth1/OBS-Legacy`; порівняння з `CARGO_PKG_VERSION` |
+| Копія баз pacman | разом з OBS, перед перевіркою | команда скрипта `repo-sync` (без root): новий ffmpeg видно ще до `pacman -Syu` людини; `versions::repo_package_version` бере новішу з двох баз |
 | Бібліотеки пакетів OBS-Legacy | після кожної транзакції pacman | змінився mtime `/var/lib/pacman/local` і немає `db.lck` → `/usr/lib/obs-legacy/check-libs` (той, що й у pacman-хука; для старої схеми — `/usr/local/lib/…`); якщо хук вимкнено — не перевіряється |
+
+**Фонова підготовка пакетів** (`updates/prepare.rs`, `AUTO_PREPARE`, типово 1): якщо є причина — новий ffmpeg
+(`ffmpeg_new`; після транзакції pacman — `ffmpeg_new_local`, без мережі) чи бібліотек бракує (`check-libs`), —
+і її відбиток (`prepare::trigger`) ще не пробували (`prepared=` в `updates.env`: одна спроба на причину, без
+повторів по колу), pacman і скрипт вільні (`db.lck`, `flock` на `~/.cache/obs-studio-nvenc-artix/.lock`),
+`--watch` запускає `ionice -c 3 nice -n 19 bash <скрипт> prepare` і не чекає. Сповіщення: «готую» (замість
+окремих про ffmpeg і бібліотеки), потім «Пакети OBS-Legacy готові» (новіший за встановлений повний набір,
+`prepare::ready_label`) або «не вдалося» з порадою зі звіту `*-prepare.txt`. Скрипт пише в блокування
+`PID режим`, тож друге вікно, що натрапило на `prepare`, пояснює: «у фоні готуються пакети — дочекайся».
 
 Зафіксовані версії не дають сповіщень: `OBS_REF` ≠ `stable` — про OBS, `PLUGIN_REF_<id>` — про плагін.
 Оновлення OBS і плагінів збирає одне сповіщення (плагіни оновлюються разом з OBS). `updates::facts_from`

@@ -10,6 +10,7 @@ pub enum Action {
     Deps,
     Install,
     Rebuild,
+    UpgradeSystem,
     Launch,
     Plugins,
     Status,
@@ -171,6 +172,25 @@ pub const MENU: &[MenuItem] = &[
         sudo: true,
         changes_system: true,
         duration: ("30–90 хв", "30–90 min"),
+        advanced: true,
+    },
+    MenuItem {
+        action: Action::UpgradeSystem,
+        icon: "▲",
+        label: ("Оновити систему", "Upgrade the system"),
+        about: (
+            "pacman -Syu так, щоб пакети OBS-Legacy не заважали: спершу пробний прогін; якщо ffmpeg-legacy-580xx \
+             не дав би оновитися чи втратив би бібліотеку, на час оновлення його замінює ffmpeg з репозиторію \
+             (OBS працює й так), а після оновлення OBS-Legacy збирає його знову. Те саме в терміналі: \
+             obs-legacy --upgrade-system.",
+            "pacman -Syu so that the OBS-Legacy packages don't get in the way: a dry run first; if \
+             ffmpeg-legacy-580xx would block the upgrade or lose a library, the repository ffmpeg takes its place \
+             for the upgrade (OBS works with it too), and after the upgrade OBS-Legacy builds it again. The same in \
+             a terminal: obs-legacy --upgrade-system.",
+        ),
+        sudo: true,
+        changes_system: true,
+        duration: ("5–60 хв", "5–60 min"),
         advanced: true,
     },
     MenuItem {
@@ -386,6 +406,9 @@ impl App {
             }
             Action::Install => self.install_dialog(),
             Action::Rebuild => self.rebuild_dialog(),
+            Action::UpgradeSystem => {
+                self.start_script(action, &["upgrade-system"]);
+            }
             Action::Status => {
                 self.start_script(action, &["status"]);
             }

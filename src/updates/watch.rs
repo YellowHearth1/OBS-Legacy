@@ -6,18 +6,21 @@ use std::io::{self, Seek, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Child, Command, ExitCode, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-use super::notices::{Notice, libs_notice, notices};
+use super::notices::{Notice, fingerprint, libs_notice, notices, prepare_failed, prepare_ready, prepare_started};
+use super::prepare;
 use super::state::State;
-use super::{Facts, check_libs, gather, plugin_list};
+use super::{Facts, check_libs, ffmpeg_new_local, gather, plugin_list};
 use crate::cli;
 use crate::clock;
 use crate::notify;
 use crate::paths;
+use crate::reports;
+use crate::script;
 use crate::settings::Settings;
 use crate::versions::newer;
 
@@ -243,7 +246,17 @@ pub fn watch_main(exe: &Path) -> ExitCode {
     ));
     let st = State::load();
     let next = st.next_check(clock::now());
-    let mut watch = Watch { exe, st, next, pending: Vec::new() };
+    let libs = check_libs().filter(|p| !p.is_empty());
+    let mut watch = Watch {
+        exe,
+        st,
+        next,
+        pending: Vec::new(),
+        ffmpeg_new: ffmpeg_new_local(),
+        libs,
+        prep: None,
+        prep_key: String::new(),
+    };
     loop {
         let wait = watch.tick();
         thread::sleep(wait);
@@ -267,6 +280,13 @@ struct Watch<'a> {
     next: u64,
     /// Сповіщення, які ще не вдалося показати (немає графічної сесії).
     pending: Vec<Notice>,
+    /// Новий ffmpeg у репозиторії, з якого ffmpeg-legacy-580xx ще не зібрано.
+    ffmpeg_new: Option<String>,
+    /// Чого бракує пакетам OBS-Legacy після останньої транзакції pacman.
+    libs: Option<Vec<String>>,
+    /// Фонова підготовка пакетів (`prepare`), що зараз іде, і її причина.
+    prep: Option<Child>,
+    prep_key: String,
 }
 
 impl Watch<'_> {
@@ -276,8 +296,9 @@ impl Watch<'_> {
         crate::i18n::set(Settings::load().ui_lang());
         let libs = self.check_libs_after_pacman();
         let versions = self.check_versions();
+        let prepared = self.run_prepare();
         let delivered = self.deliver_pending();
-        if (libs || versions || delivered)
+        if (libs || versions || prepared || delivered)
             && let Err(e) = self.st.save()
         {
             log(&trf!("Не вдалося зберегти {}: {e}", "Couldn't save {}: {e}", State::path().display()));
@@ -292,7 +313,11 @@ impl Watch<'_> {
             return false;
         }
         self.st.set("pacman", m);
-        match check_libs() {
+        // pacman -Sy користувача міг принести новий ffmpeg — це видно й без мережі.
+        self.ffmpeg_new = ffmpeg_new_local();
+        let libs = check_libs();
+        self.libs = libs.clone().filter(|p| !p.is_empty());
+        match libs {
             Some(p) if p.is_empty() => self.st.remove("notified.libs"),
             Some(p) => {
                 log(&trf!(
@@ -315,7 +340,9 @@ impl Watch<'_> {
         if t < self.next {
             return false;
         }
+        sync_repo_copy();
         let facts = gather();
+        self.ffmpeg_new = facts.ffmpeg_new.clone();
         self.st.record_check(t, &facts);
         self.next = self.st.next_check(t);
         log(&trf!("Перевірка: {}", "Check: {}", facts.summary()));
@@ -323,6 +350,90 @@ impl Watch<'_> {
             queue(&mut self.pending, &self.st, n);
         }
         true
+    }
+
+    /// Фонова підготовка пакетів: дочекатися тієї, що йде, або почати нову, коли є причина
+    /// (новий ffmpeg, бракує бібліотек), її ще не пробували, а скрипт і pacman вільні. true — стан змінився.
+    fn run_prepare(&mut self) -> bool {
+        if let Some(child) = &mut self.prep {
+            return match child.try_wait() {
+                Ok(None) => false,
+                Ok(Some(status)) => {
+                    self.prep = None;
+                    self.finish_prepare(status.success());
+                    true
+                }
+                Err(e) => {
+                    log(&trf!("Фонова підготовка пакетів: {e}", "Background package preparation: {e}"));
+                    self.prep = None;
+                    false
+                }
+            };
+        }
+        let libs_fp = self.libs.as_deref().map(fingerprint);
+        let Some(key) = prepare::trigger(self.ffmpeg_new.as_deref(), libs_fp.as_deref()) else { return false };
+        if self.st.get("prepared") == Some(key.as_str())
+            || !prepare::enabled(&Settings::load())
+            || Path::new(PACMAN_LOCK).exists()
+            || prepare::script_busy()
+        {
+            return false;
+        }
+        let child = match script::ensure_extracted().and_then(|s| Ok(prepare::spawn(&s, "prepare")?)) {
+            Ok(c) => c,
+            Err(e) => {
+                log(&trf!("Не вдалося почати підготовку пакетів: {e:#}", "Couldn't start preparing packages: {e:#}"));
+                return false;
+            }
+        };
+        log(&trf!(
+            "Готую пакети у фоні (PID {}): {key}",
+            "Preparing packages in the background (PID {}): {key}",
+            child.id()
+        ));
+        // Одна спроба на причину: невдале збирання не повторюється по колу.
+        self.st.set("prepared", &key);
+        self.prep = Some(child);
+        self.prep_key = key.clone();
+        // Про новий ffmpeg і бібліотеки окремо не сповіщати: про них скаже ця підготовка.
+        if let Some(v) = &self.ffmpeg_new {
+            self.st.set("notified.ffmpeg", v);
+        }
+        if let Some(n) = self.libs.as_deref().and_then(libs_notice) {
+            n.mark(&mut self.st);
+        }
+        self.pending.retain(|n| !matches!(n.items.first().map(|i| i.0.as_str()), Some("ffmpeg" | "libs")));
+        let started = prepare_started(&key, self.ffmpeg_new.as_deref(), self.libs.is_some());
+        queue(&mut self.pending, &self.st, started);
+        true
+    }
+
+    /// Підготовка завершилася: сповістити про готовий набір чи про помилку (з порадою зі звіту).
+    fn finish_prepare(&mut self, success: bool) {
+        let key = std::mem::take(&mut self.prep_key);
+        if success {
+            match prepare::ready_label() {
+                Some(label) => {
+                    log(&trf!("Пакети готові: {label}", "Packages are ready: {label}"));
+                    queue(&mut self.pending, &self.st, prepare_ready(&label));
+                }
+                None => log(tr!("Підготовка: готувати нічого.", "Preparation: nothing to prepare.")),
+            }
+            return;
+        }
+        let report = reports::list().into_iter().find(|r| r.command == "prepare");
+        let problem = report.as_ref().and_then(|r| r.problem.as_ref());
+        log(&trf!(
+            "Підготовка пакетів не вдалася: {}",
+            "Preparing packages failed: {}",
+            problem.map_or("?", |p| p.text.as_str())
+        ));
+        let n = prepare_failed(
+            &key,
+            problem.map(|p| p.text.trim_end_matches('.')),
+            problem.and_then(|p| p.hints.first()).map(String::as_str),
+        );
+        queue(&mut self.pending, &self.st, n);
     }
 
     /// Показати сповіщення, що чекають. true — щось показано.
@@ -333,6 +444,27 @@ impl Watch<'_> {
         let before = self.pending.len();
         self.pending = deliver(std::mem::take(&mut self.pending), &mut self.st, Some(self.exe), false);
         self.pending.len() != before
+    }
+}
+
+/// Оновити власну копію баз pacman (команда скрипта `repo-sync`, без root): про новий ffmpeg видно
+/// ще до того, як людина запустить `pacman -Syu`. Не вдалося (мережа) — лишається системна база.
+fn sync_repo_copy() {
+    let Ok(script) = script::ensure_extracted() else { return };
+    let ok = Command::new("bash")
+        .arg(&script)
+        .arg("repo-sync")
+        .env("OBS_LEGACY_LANG", crate::i18n::lang().code())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    if !ok {
+        log(tr!(
+            "Не вдалося оновити копію баз pacman (repo-sync) — беру системну.",
+            "Couldn't refresh the pacman database copy (repo-sync) — using the system one."
+        ));
     }
 }
 

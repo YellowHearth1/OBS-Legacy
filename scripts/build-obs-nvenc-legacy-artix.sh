@@ -64,7 +64,7 @@ set -Eeuo pipefail
 shopt -s inherit_errexit 2>/dev/null || true
 umask 022
 
-readonly SCRIPT_VERSION="2026.11.19.1"
+readonly SCRIPT_VERSION="2026.11.21.1"
 # Номер рецепта збирання й пакування. Підвищувати, лише коли зміна в рушії вимагає
 # перезібрати вже встановлені пакети (прапорці, розкладка, залежності): тоді «Оновити»
 # збере їх знову. Зміни інтерфейсу й підказок його не чіпають.
@@ -213,6 +213,11 @@ FFMPEG_PKGBUILD_DIR="$BUILD_ROOT/ffmpeg-pkgbuild"
 GNUPG_DIR="$BUILD_ROOT/gnupg"
 # Набори зібраних пакетів (для встановлення й відкату).
 PKG_STORE="$STATE_DIR/packages"
+# Власна копія баз синхронізації pacman (repo-sync, як у checkupdates): про новий
+# ffmpeg у репозиторії відомо ще до того, як користувач запустить pacman -Syu.
+SYNC_DB="${OBS_LEGACY_SYNC_DB:-${XDG_STATE_HOME:-$HOME/.local/state}/obs-legacy/pacman}"
+# Скільки чекати на оновлення копії баз (мережа): pacman -Sy зазвичай укладається в хвилину.
+readonly REPO_SYNC_TIMEOUT=300
 VERSIONS_DIR="$INSTALL_ROOT/versions"
 CURRENT_LINK="$INSTALL_ROOT/current"
 ROOT_MARK="$INSTALL_ROOT/.$SELF_NAME"
@@ -281,9 +286,14 @@ DISTRO_ID='' DISTRO_NAME='' CPU_MODEL='' CPU_MARCH='' ISA_LEVEL='' CPU_FEATURES=
 GPU_NAME='' GPU_CC='' GPU_ARCH='' DRIVER_VERSION='' DRIVER_PKG=''
 MARCH_FLAGS='' OPT_CFLAGS='' OPT_CXXFLAGS='' OPT_LDFLAGS='' PROFILE_SIG='' JOBS=''
 # install — зібрати й поставити; update — те саме, але лише коли є що оновлювати;
-# rebuild — збирання OBS начисто (після обірваного збирання тощо).
+# rebuild — збирання OBS начисто (після обірваного збирання тощо); prepare — як update,
+# але лише зібрати набір і нічого не питати (фонова підготовка пакетів).
 INSTALL_MODE=install NOTHING_NEW=0
 declare -a UPDATE_REASONS=()
+# Що зібрало б оновлення для кожного вибраного плагіна: id → «версія<TAB>коміт».
+declare -A PLUGIN_TARGET=()
+# Готовий набір, який збігається з тим, що зібралося б зараз (ready_set).
+READY_SET=''
 # Пакети: номер збирання (pkgrel), набір у сховищі, ffmpeg.
 BUILD_NUMBER='' SET_DIR='' OBS_PKGVER=''
 FFMPEG_REPO_VER='' FFMPEG_PLAN='' FFMPEG_REASON='' FFMPEG_FILE='' FFMPEG_PKGBUILD_VER=''
@@ -475,6 +485,12 @@ Commands:
   rebuild            Rebuild from scratch (the OBS build cache is cleared) and install again —
                      if the last build was interrupted (a power cut) or OBS behaves strangely.
   package            The same as install, but only build the packages (no installation).
+  prepare            The same as update, but only build the packages and ask nothing (the
+                     background check runs it: a new ffmpeg, missing libraries).
+  upgrade-system     Upgrade the system (pacman -Syu) together with OBS-Legacy: first a dry run;
+                     if $FFMPEG_PKG stands in the way, it is replaced with the repository ffmpeg
+                     for the upgrade and built again afterwards.
+  repo-sync          Refresh our own copy of the pacman databases (no root, like checkupdates).
   status             Installed packages, hardware profile, saved package sets, updates.
   rollback [SET]     Install the previous (or the given) saved package set.
   uninstall          Remove the OBS-Legacy packages (and the old build in /opt, if one is left).
@@ -548,6 +564,12 @@ https://github.com/sl5net/build-obs-nvenc-legacy. Без гарантій — д
   rebuild            Перезібрати начисто (кеш збірки OBS очищається) і встановити знову — якщо
                      минуле збирання обірвалося (вимкнулося світло) чи OBS поводиться дивно.
   package            Те саме, що install, але лише зібрати пакети (без встановлення).
+  prepare            Те саме, що update, але лише зібрати пакети й нічого не питати (так його
+                     запускає фонова перевірка: новий ffmpeg, бракує бібліотек).
+  upgrade-system     Оновити систему (pacman -Syu) разом з OBS-Legacy: спершу пробний прогін;
+                     якщо $FFMPEG_PKG заважає, на час оновлення його замінює ffmpeg з
+                     репозиторію, а потім він збирається знову.
+  repo-sync          Оновити власну копію баз pacman (без root, як checkupdates).
   status             Встановлені пакети, профіль заліза, збережені набори, оновлення.
   rollback [НАБІР]   Поставити попередній (або вказаний) збережений набір пакетів.
   uninstall          Прибрати пакети OBS-Legacy (і стару збірку з /opt, якщо лишилася).
@@ -738,13 +760,28 @@ require_tools() {
   fi
 }
 
+# У файлі блокування — PID і режим того, хто його тримає: фонова підготовка пакетів
+# (prepare) пояснює це людині інакше, ніж друге вікно. «>>», а не «>»: відкриття не
+# має стирати запис того, хто вже тримає блокування.
 acquire_lock() {
+  local holder
   mkdir -p -- "$BUILD_ROOT"
-  exec 9>"$BUILD_ROOT/.lock"
-  flock -n 9 || die "$(t "Скрипт уже працює в іншому вікні (lock: $BUILD_ROOT/.lock)." \
-                         "The script is already running in another window (lock: $BUILD_ROOT/.lock).")" \
-    "$(t "Дочекайся, поки той запуск завершиться, або закрий його вікно і повтори." \
-         "Wait until that run finishes, or close its window, and try again.")"
+  exec 9>>"$BUILD_ROOT/.lock"
+  if ! flock -n 9; then
+    holder=$(cat -- "$BUILD_ROOT/.lock" 2>/dev/null || true)
+    if [[ "$holder" == *' prepare'* ]]; then
+      die "$(t "Зараз у фоні OBS-Legacy готує нові пакети (PID ${holder%% *})." \
+               "OBS-Legacy is preparing new packages in the background right now (PID ${holder%% *}).")" \
+        "$(t "Дочекайся сповіщення «Пакети OBS-Legacy готові» — тоді «Встановити / оновити OBS» поставить їх одразу, без збирання." \
+             "Wait for the “OBS-Legacy packages are ready” notification — then “Install / update OBS” installs them at once, without building.")"
+    fi
+    die "$(t "Скрипт уже працює в іншому вікні (lock: $BUILD_ROOT/.lock)." \
+             "The script is already running in another window (lock: $BUILD_ROOT/.lock).")" \
+      "$(t "Дочекайся, поки той запуск завершиться, або закрий його вікно і повтори." \
+           "Wait until that run finishes, or close its window, and try again.")"
+  fi
+  : > "$BUILD_ROOT/.lock"
+  printf '%s %s\n' "$$" "$INSTALL_MODE" >> "$BUILD_ROOT/.lock"
 }
 
 # Стара схема: збірки в /opt/obs-studio-nvenc (створені цим скриптом до пакетів).
@@ -1155,6 +1192,13 @@ install_dependencies() {
   if ((${#DEP_INSTALL[@]} == 0)); then
     ok "$(t "Усі потрібні пакети вже встановлені." "All required packages are already installed.")"
     return 0
+  fi
+  if [[ "$INSTALL_MODE" == prepare ]]; then
+    fix deps "$(t "Встановити пакети: ${DEP_INSTALL[*]}" "Install packages: ${DEP_INSTALL[*]}")"
+    die "$(t "Для збирання бракує пакетів: ${DEP_INSTALL[*]}. У фоні OBS-Legacy їх не ставить (потрібен пароль)." \
+             "Packages needed for the build are missing: ${DEP_INSTALL[*]}. In the background OBS-Legacy does not install them (a password is needed).")" \
+      "$(t "Відкрий OBS-Legacy й натисни «Виправити» (або $SELF_PATH deps) — далі пакети підготуються самі." \
+           "Open OBS-Legacy and press “Fix” (or $SELF_PATH deps) — after that the packages are prepared by themselves.")"
   fi
   printf "$(t 'Буде встановлено (pacman -S --needed, БЕЗ оновлення системи):\n' \
               'Will be installed (pacman -S --needed, WITHOUT a system upgrade):\n')" >&2
@@ -2985,7 +3029,7 @@ finalize_set() {
     for id in "${PLUGINS_OK[@]}"; do
       cat -- "$PLUGINS_DIR/$id/stage$PREFIX/share/obs-legacy/plugins/$id"
     done
-    if [[ -n "$FFMPEG_FILE" ]]; then printf 'ffmpeg=%s\n' "$FFMPEG_PKGBUILD_VER"; fi
+    if [[ -n "$FFMPEG_FILE" ]]; then printf 'ffmpeg=%s\nffmpeg_arch=%s\n' "$FFMPEG_PKGBUILD_VER" "$FFMPEG_REPO_VER"; fi
     printf 'packages=%s\n' "$(printf '%s ' "${SET_FILES[@]##*/}")"
   } > "$SET_DIR/BUILDINFO.txt"
   touch -- "$SET_DIR/.complete"
@@ -3135,14 +3179,52 @@ ffmpeg_info() {   # $1 = ключ → значення з відомостей �
   sed -n "s/^$1=//p" "$INFO_DIR/ffmpeg.txt" 2>/dev/null | head -n1 || true
 }
 
+# Найпізніший час зміни баз синхронізації в теці (секунди; 0 — баз немає).
+newest_db_mtime() {   # $1 = тека …/sync
+  local t
+  t=$(find "$1" -maxdepth 1 -name '*.db' -printf '%T@\n' 2>/dev/null | sort -n | tail -n1 || true)
+  printf '%s\n' "${t%%.*}" | grep -E '^[0-9]+$' || echo 0
+}
+
+# Версія пакета в репозиторіях — з тієї бази, що новіша: системної (її оновлює
+# pacman -Sy користувача) чи власної копії (repo-sync у фоні). Порожньо — немає.
+repo_version() {   # $1 = пакет
+  local -a db=()
+  if [[ -L "$SYNC_DB/local" ]] && (( $(newest_db_mtime "$SYNC_DB/sync") > $(newest_db_mtime /var/lib/pacman/sync) )); then
+    db=(--dbpath "$SYNC_DB")
+  fi
+  LC_ALL=C pacman "${db[@]}" -Si -- "$1" 2>/dev/null | sed -n 's/^Version *: *//p' | head -n1 || true
+}
+
+# Перша бібліотека, якої бракує встановленому ffmpeg-legacy-580xx (після оновлення
+# системи, наприклад нова libjxl); код 1 — усе на місці.
+ffmpeg_missing_lib() {
+  local f lib
+  while IFS= read -r f; do
+    case "$f" in */bin/*|*.so.*) ;; *) continue ;; esac
+    if [[ ! -f "$f" || -L "$f" ]] || ! is_elf "$f"; then continue; fi
+    lib=$(ldd_problems "$f")
+    if [[ -n "$lib" ]]; then
+      printf '%s\n' "${lib%%$'\n'*}"
+      return 0
+    fi
+  done < <(pacman -Qlq "$FFMPEG_PKG" 2>/dev/null || true)
+  return 1
+}
+
 # PKGBUILD Arch саме для версії ffmpeg з репозиторіїв (тег 2-9.0.2-2 для
 # 2:9.0.2-2), його версія й залежності (з .SRCINFO, без виконання коду).
+# Artix перезбирає пакети Arch з приписом до pkgrel: 2:9.1-1.1 — це тег Arch 2-9.1-1.
 prepare_ffmpeg_pkgbuild() {
-  local dir=$FFMPEG_PKGBUILD_DIR tag ref
+  local dir=$FFMPEG_PKGBUILD_DIR tag ref rel cand found=''
   plugin_prepare_repo "$dir" "$FFMPEG_PKGBUILD_REPO" || return 1
   tag=${FFMPEG_REPO_VER/:/-}
-  if git -C "$dir" show-ref --verify -q "refs/tags/$tag"; then
-    git -C "$dir" -c advice.detachedHead=false checkout -q --force --detach "refs/tags/$tag" || return 1
+  rel=${FFMPEG_REPO_VER##*-}
+  for cand in "$tag" "${tag%-*}-${rel%%.*}"; do
+    if git -C "$dir" show-ref --verify -q "refs/tags/$cand"; then found=$cand; break; fi
+  done
+  if [[ -n "$found" ]]; then
+    git -C "$dir" -c advice.detachedHead=false checkout -q --force --detach "refs/tags/$found" || return 1
   else
     ref=$(git -C "$dir" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main)
     git -C "$dir" -c advice.detachedHead=false checkout -q --force --detach "$ref" || return 1
@@ -3174,9 +3256,10 @@ ffmpeg_srcinfo_deps() {
 load_ffmpeg_deps() {   # $1 = offline (0/1)
   FFMPEG_DEPS=()
   [[ "$BUILD_FFMPEG" == 1 ]] || return 0
-  FFMPEG_REPO_VER=$(LC_ALL=C pacman -Si ffmpeg 2>/dev/null | sed -n 's/^Version *: *//p' | head -n1 || true)
+  FFMPEG_REPO_VER=$(repo_version ffmpeg)
   [[ -n "$FFMPEG_REPO_VER" ]] || return 0
-  if pacman -Q "$FFMPEG_PKG" >/dev/null 2>&1 && [[ "$(ffmpeg_info arch_version)" == "$FFMPEG_REPO_VER" ]]; then
+  if pacman -Q "$FFMPEG_PKG" >/dev/null 2>&1 && [[ "$(ffmpeg_info arch_version)" == "$FFMPEG_REPO_VER" ]] \
+     && ! ffmpeg_missing_lib >/dev/null; then
     return 0
   fi
   if [[ "${1:-0}" == 1 ]]; then
@@ -3188,7 +3271,7 @@ load_ffmpeg_deps() {   # $1 = offline (0/1)
 
 # Чи збирати ffmpeg: FFMPEG_PLAN = build | skip | off, FFMPEG_REASON — чому.
 ffmpeg_plan() {
-  local inst built
+  local inst built missing
   FFMPEG_PLAN=off FFMPEG_REASON='' FFMPEG_DEPS=()
   say "ffmpeg ($FFMPEG_PKG)"
   if [[ "$BUILD_FFMPEG" != 1 ]]; then
@@ -3196,7 +3279,7 @@ ffmpeg_plan() {
                 '  Not built (Settings → “Build ffmpeg” is off): the system ffmpeg stays.\n')" >&2
     return 0
   fi
-  FFMPEG_REPO_VER=$(LC_ALL=C pacman -Si ffmpeg 2>/dev/null | sed -n 's/^Version *: *//p' | head -n1 || true)
+  FFMPEG_REPO_VER=$(repo_version ffmpeg)
   if [[ -z "$FFMPEG_REPO_VER" ]]; then
     warn "$(t "ffmpeg немає в репозиторіях pacman — $FFMPEG_PKG не збираю." \
               "ffmpeg is not in the pacman repositories — not building $FFMPEG_PKG.")"
@@ -3209,6 +3292,9 @@ ffmpeg_plan() {
   elif [[ "$built" != "$FFMPEG_REPO_VER" ]]; then
     FFMPEG_PLAN=build FFMPEG_REASON="$(t "у репозиторії ffmpeg $FFMPEG_REPO_VER, а встановлений зібрано з ${built:-?}" \
                                          "the repository has ffmpeg $FFMPEG_REPO_VER, but the installed one is built from ${built:-?}")"
+  elif missing=$(ffmpeg_missing_lib); then
+    FFMPEG_PLAN=build FFMPEG_REASON="$(t "після оновлення системи йому бракує бібліотеки $missing" \
+                                         "after a system upgrade it is missing the library $missing")"
   elif [[ "$(ffmpeg_info profile)" != "$PROFILE_SIG" ]]; then
     FFMPEG_PLAN=build FFMPEG_REASON="$(t "змінився профіль заліза" "the hardware profile changed")"
   elif [[ "$FORCE_CLEAN_BUILD" == 1 ]]; then
@@ -3497,8 +3583,18 @@ plugin_target() {   # $1 = id
   printf '%s\t%s\n' "${line#*$'\t'}" "$(git -C "$src" rev-parse "$ref^{commit}")"
 }
 
+# PLUGIN_TARGET для всіх вибраних плагінів. Не вдалося (мережа) — запису немає.
+resolve_plugin_targets() {
+  local id line
+  PLUGIN_TARGET=()
+  for id in "${PLUGINS_SELECTED[@]}"; do
+    if line=$(plugin_target "$id"); then PLUGIN_TARGET[$id]=$line; fi
+  done
+}
+
 # Що зміниться порівняно зі встановленими пакетами — по рядку на причину; порожньо —
-# оновлювати нічого. Викликається, коли вже відомі цільові OBS, заголовки й профіль.
+# оновлювати нічого. Викликається, коли вже відомі цільові OBS, заголовки, профіль і
+# PLUGIN_TARGET.
 update_reasons() {
   local id inst line label commit f failed out
   if [[ ! -f "$INFO_DIR/BUILDINFO.txt" ]]; then
@@ -3523,7 +3619,8 @@ update_reasons() {
   fi
   for id in "${PLUGINS_SELECTED[@]}"; do
     inst=$(sed -n "s/^plugin\.$id=//p" "$INFO_DIR/plugins/$id" 2>/dev/null | head -n1 || true)
-    if ! line=$(plugin_target "$id"); then
+    line=${PLUGIN_TARGET[$id]:-}
+    if [[ -z "$line" ]]; then
       warn "$(t "Плагін $id: не вдалося дізнатися найновішу версію (мережа?) — зберу його знову." \
                 "Plugin $id: could not find out the newest version (network?) — building it again.")"
       printf "$(t 'плагін %s: не вдалося перевірити версію\n' 'plugin %s: could not check the version\n')" "$id"
@@ -3636,11 +3733,17 @@ build_set() {
   prepare_obs_source
   prepare_headers
   check_driver_vs_headers
+  resolve_plugin_targets
   mapfile -t UPDATE_REASONS < <(update_reasons)
-  if [[ "$INSTALL_MODE" == update ]]; then
-    report_update_plan
-    if (( NOTHING_NEW )); then return 0; fi
+  if [[ "$INSTALL_MODE" == update || "$INSTALL_MODE" == prepare ]]; then report_update_plan; fi
+  # Те, що треба зібрати, уже зібрано (у фоні чи минулого разу, коли встановлення
+  # скасували): ставимо готовий набір. Перезбирання начисто й «лише зібрати» — завжди збирають.
+  if [[ "$INSTALL_MODE" != rebuild && "$INSTALL_MODE" != package ]] && READY_SET=$(ready_set) \
+     && use_stored_set "$READY_SET"; then
+    return 0
   fi
+  READY_SET=''
+  if (( NOTHING_NEW )); then return 0; fi
   prepare_cef
   build_cmake_args
 
@@ -3715,24 +3818,80 @@ print_set_summary() {
   fi
 }
 
-# Набір, який зібрали, але не встановили (скасували на запитанні, обірвався pacman):
-# повний, новіший за встановлений і зібраний з того самого — OBS, заголовки, профіль,
-# рецепт і плагіни ті самі. Шукається, коли «Оновити» не знайшов нового, тобто
-# встановлене й так дорівнює тому, що зібралося б зараз.
-pending_set() {
-  local cur l info k want have
-  cur=$(installed_label) || return 1
-  want=$(cat -- "$INFO_DIR"/plugins/* 2>/dev/null | grep '^plugin\.' | sort || true)
+# Значення ключа з BUILDINFO (точний збіг назви ключа).
+buildinfo_get() {   # $1 = файл, $2 = ключ
+  awk -v k="$2=" 'index($0, k) == 1 { print substr($0, length(k) + 1); exit }' "$1" 2>/dev/null || true
+}
+
+# Чи зібрано набір саме з того, що зібралося б зараз: OBS, заголовки, профіль, рецепт,
+# плагіни (той, що минулого разу не зібрався з того самого коміту, може бути відсутній)
+# і ffmpeg з тієї версії, що в репозиторії.
+set_matches_target() {   # $1 = BUILDINFO набору
+  local info=$1 id line have failed ff
+  [[ "$(buildinfo_get "$info" obs_commit)" == "$OBS_COMMIT" \
+     && "$(buildinfo_get "$info" nv_headers_tag)" == "$NV_HEADERS_RESOLVED" \
+     && "$(buildinfo_get "$info" profile)" == "$PROFILE_SIG" \
+     && "$(buildinfo_get "$info" recipe | grep . || echo 1)" == "$RECIPE_VERSION" ]] || return 1
+  for id in "${PLUGINS_SELECTED[@]}"; do
+    line=${PLUGIN_TARGET[$id]:-}
+    [[ -n "$line" ]] || return 1
+    have=$(buildinfo_get "$info" "plugin.$id")
+    if [[ -n "$have" ]]; then
+      [[ "${have%% *}" == "${line%%$'\t'*}" && "${line#*$'\t'}" == "${have##* }"* ]] || return 1
+    else
+      failed=$(buildinfo_get "$info" "plugin_failed.$id")
+      [[ -n "$failed" && "${line#*$'\t'}" == "$failed"* ]] || return 1
+    fi
+  done
+  while IFS= read -r id; do
+    [[ " ${PLUGINS_SELECTED[*]} " == *" $id "* ]] || return 1
+  done < <(sed -n 's/^plugin\.\([^=]*\)=.*/\1/p' "$info")
+  # Набори до 2026.11.21.1 не записували, з якої версії репозиторію зібрано ffmpeg.
+  ff=$(buildinfo_get "$info" ffmpeg_arch)
+  if [[ -z "$ff" ]] && grep -q '^ffmpeg=' -- "$info"; then ff='?'; fi
+  case "$FFMPEG_PLAN" in
+    build) [[ "$ff" == "$FFMPEG_REPO_VER" ]] ;;
+    skip)  [[ -z "$ff" || "$ff" == "$(ffmpeg_info arch_version)" ]] ;;
+    *)     [[ -z "$ff" ]] ;;
+  esac
+}
+
+# Чи знайдуть пакети набору свої бібліотеки в цій системі: набір міг зібратися ще до
+# оновлення системи (скажімо, з libjxl, якої вже немає). Розпаковує набір у тимчасову
+# теку кешу й проганяє ldd (як verify_tree перед пакуванням).
+set_libs_ok() {   # $1 = тека набору
+  local tmp="$BUILD_ROOT/ready-check" f rc=0
+  if [[ -e "$tmp" ]]; then rm_cache_path "$tmp"; fi
+  mkdir -p -- "$tmp"
+  for f in "$1"/*-"$PKG_SUFFIX"-*.pkg.tar.*; do
+    if [[ ! -f "$f" || "$f" == *.sig ]]; then continue; fi
+    if ! bsdtar -xf "$f" -C "$tmp" --exclude '.PKGINFO' --exclude '.BUILDINFO' --exclude '.MTREE' \
+         --exclude '.INSTALL' 2>/dev/null; then
+      rc=1
+      break
+    fi
+  done
+  if (( rc == 0 )) && ! verify_tree "$tmp/usr" >/dev/null 2>&1; then rc=1; fi
+  rm_cache_path "$tmp"
+  return "$rc"
+}
+
+# Готовий набір замість збирання: повний, новіший за встановлений, зібраний з того,
+# що зібралося б зараз (set_matches_target), і з бібліотеками, які є в системі. Таким
+# буває набір, підготовлений у фоні (prepare), або той, встановлення якого скасували.
+ready_set() {
+  local cur l info
+  cur=$(installed_label || true)
   while IFS= read -r l; do
-    [[ "$l" > "$cur" ]] || break
+    [[ -z "$cur" || "$l" > "$cur" ]] || break
     info="$PKG_STORE/$l/BUILDINFO.txt"
     [[ -f "$PKG_STORE/$l/.complete" && -f "$info" ]] || continue
-    for k in obs_commit nv_headers_tag profile; do
-      [[ "$(sed -n "s/^$k=//p" "$info" | head -n1)" == "$(installed_info "$k")" ]] || continue 2
-    done
-    [[ "$(sed -n 's/^recipe=//p' "$info" | head -n1 | grep . || echo 1)" == "$RECIPE_VERSION" ]] || continue
-    have=$(grep '^plugin\.' -- "$info" | sort || true)
-    [[ "$have" == "$want" ]] || continue
+    set_matches_target "$info" || continue
+    if ! set_libs_ok "$PKG_STORE/$l"; then
+      printf "$(t '  Набір %s зібрано до оновлення системи — йому бракує бібліотек, тож він не підходить.\n' \
+                  '  The set %s was built before a system upgrade — it is missing libraries, so it does not fit.\n')" "$l" >&2
+      continue
+    fi
     printf '%s\n' "$l"
     return 0
   done < <(store_sets | sort -r)
@@ -3752,7 +3911,7 @@ use_stored_set() {   # $1 = набір
 }
 
 cmd_install() {   # $1 = install | update | rebuild
-  local previous old_ver pending='' from_store=0
+  local previous old_ver from_store=0
   INSTALL_MODE=${1:-install}
   preflight_common
   select_priv_tool
@@ -3767,13 +3926,21 @@ cmd_install() {   # $1 = install | update | rebuild
   if [[ "$INSTALL_MODE" == rebuild ]]; then clear_stale_git_locks; fi
   old_ver=$(installed_info obs_version)
   build_set
-  if (( NOTHING_NEW )) && pending=$(pending_set) && use_stored_set "$pending"; then
+  if [[ -n "$READY_SET" ]]; then
     say "$(t "Готовий набір, ще не встановлений" "A ready set that is not installed yet")"
-    printf "$(t '  %s зібрано з тих самих вихідних кодів і під той самий профіль, але не встановлено\n' \
-                '  %s was built from the same sources and for the same profile, but not installed\n')" "$pending" >&2
-    printf "$(t '  (минулого разу встановлення скасували чи воно обірвалося) — ставлю його без перезбирання.\n' \
-                '  (last time the installation was cancelled or interrupted) — installing it without rebuilding.\n')" >&2
+    printf "$(t '  %s зібрано саме з того, що зібралося б зараз, і всі його бібліотеки на місці\n' \
+                '  %s was built from exactly what would be built now, and all its libraries are in place\n')" "$READY_SET" >&2
+    printf "$(t '  (його підготувала фонова перевірка або минулого разу встановлення скасували).\n' \
+                '  (the background check prepared it, or last time the installation was cancelled).\n')" >&2
     NOTHING_NEW=0 from_store=1
+  fi
+  if (( NOTHING_NEW )) && [[ "$INSTALL_MODE" == prepare ]]; then
+    summary "$(t "нічого готувати — встановлено найновіше" "nothing to prepare — the newest is installed")"
+    return 0
+  fi
+  if [[ "$INSTALL_MODE" == prepare ]]; then
+    finish_prepare "$from_store"
+    return 0
   fi
   if (( NOTHING_NEW )); then
     printf "$(t '\n%sОНОВЛЕНЬ НЕМАЄ%s: усе вже найновіше, збирати й ставити нічого.\n' \
@@ -3825,6 +3992,183 @@ cmd_install() {   # $1 = install | update | rebuild
 
 # Оновити: зібрати й поставити лише тоді, коли є що оновлювати.
 cmd_update() { cmd_install update; }
+
+# Підготувати пакети заздалегідь: як update, але лише зібрати набір, нічого не
+# встановлювати й нічого не питати. Його запускає фонова перевірка OBS-Legacy, коли в
+# репозиторії вийшов новий ffmpeg чи після оновлення системи пакетам забракло бібліотек;
+# потім «Встановити / оновити OBS» ставить готовий набір одразу (ready_set).
+cmd_prepare() { cmd_install prepare; }
+
+finish_prepare() {   # $1 = 1, якщо набір уже був готовий (нічого не збиралося)
+  if (( ! $1 )); then
+    prune_store
+    cleanup_stages
+  fi
+  printf "$(t "\n%sПАКЕТИ ГОТОВІ%s: OBS %s зібрано під цей комп'ютер і запаковано (нічого не встановлено).\n" \
+              "\n%sPACKAGES READY%s: OBS %s is built for this computer and packed (nothing was installed).\n")" \
+    "$C_GRN$C_BLD" "$C_RST" "$(buildinfo_get "$SET_DIR/BUILDINFO.txt" obs_version)" >&2
+  printf "$(t '  Набір: %s\n' '  Set: %s\n')" "$SET_DIR" >&2
+  printf "$(t '  Встановити: obs-legacy --upgrade-system (разом з оновленням системи) або «Встановити / оновити OBS».\n' \
+              '  Install: obs-legacy --upgrade-system (together with the system upgrade) or “Install / update OBS”.\n')" >&2
+  summary "$(t "підготовлено набір $LABEL (ще не встановлено)" "prepared the set $LABEL (not installed yet)")"
+}
+
+# ---------------------------------------------------------------------------
+# Оновлення системи разом з OBS-Legacy. Пакети *-legacy-580xx зібрано проти
+# бібліотек, що стоять зараз, тож оновлення системи може (1) не пройти: pacman не
+# дасть прибрати бібліотеку, від якої залежить ffmpeg-legacy-580xx, — або (2) пройти,
+# але після нього ffmpeg-legacy-580xx (а з ним і OBS) не знайде нову версію бібліотеки
+# (libjxl.so.0.12 → 0.13). В обох випадках на час оновлення ffmpeg-legacy-580xx
+# замінює ffmpeg з репозиторію (той самий soname libav*, тож OBS і його NVENC працюють),
+# а після оновлення OBS-Legacy збирає ffmpeg-legacy-580xx уже під нові бібліотеки.
+# ---------------------------------------------------------------------------
+# repo-sync: оновити власну копію баз синхронізації pacman — без root, як checkupdates
+# (fakeroot і окремий --dbpath, local — посилання на справжню базу встановлених пакетів).
+sync_repo_copy() {
+  mkdir -p -- "$SYNC_DB"
+  if [[ -e "$SYNC_DB/local" && ! -L "$SYNC_DB/local" ]]; then
+    fail "$(t "$SYNC_DB/local — не посилання; копію баз не оновлено." "$SYNC_DB/local is not a link; the database copy was not updated.")"
+    return 1
+  fi
+  ln -sfn /var/lib/pacman/local "$SYNC_DB/local"
+  if ! timeout "$REPO_SYNC_TIMEOUT" fakeroot -- pacman -Sy --disable-sandbox --dbpath "$SYNC_DB" --logfile /dev/null \
+       >"$SYNC_DB/sync.log" 2>&1 </dev/null; then
+    tail -n 5 -- "$SYNC_DB/sync.log" | sed 's/^/  /' >&2
+    return 1
+  fi
+}
+
+cmd_repo_sync() {
+  preflight_common
+  require_tools fakeroot timeout
+  sync_repo_copy || die "$(t "Не вдалося оновити копію баз pacman ($SYNC_DB)." \
+                             "Could not update the copy of the pacman databases ($SYNC_DB).")" \
+    "$(t "Перевір інтернет і дзеркала в /etc/pacman.d/mirrorlist; журнал: $SYNC_DB/sync.log" \
+         "Check the internet and the mirrors in /etc/pacman.d/mirrorlist; log: $SYNC_DB/sync.log")"
+  ok "$(t "Копію баз pacman оновлено; ffmpeg у репозиторії: $(repo_version ffmpeg | grep . || echo немає)" \
+          "The pacman database copy is updated; ffmpeg in the repository: $(repo_version ffmpeg | grep . || echo none)")"
+}
+
+# Пробне pacman -Syu на свіжій копії баз (нічого не змінює й не потребує root). 0 —
+# пройде; інакше в UPGRADE_DRY_LOG — чому ні.
+upgrade_dry_run() {
+  UPGRADE_DRY_LOG="$BUILD_ROOT/upgrade-dry-run.log"
+  mkdir -p -- "$BUILD_ROOT"
+  LC_ALL=C pacman -Sup --noconfirm --dbpath "$SYNC_DB" --logfile /dev/null --print-format '%n' \
+    >"$BUILD_ROOT/upgrade-targets.txt" 2>"$UPGRADE_DRY_LOG" </dev/null
+}
+
+# Відомості pacman лише про перший знайдений пакет: -Si показує той самий пакет з
+# кожного репозиторію (world і extra), а -Syu поставить перший.
+pacman_first_info() {   # аргументи pacman (-Qi пакет або --dbpath … -Si пакет)
+  LC_ALL=C pacman "$@" 2>/dev/null | awk 'NF == 0 { exit } { print }' || true
+}
+
+# soname-и libav*, які надає пакет: «libavcodec.so=63 libavformat.so=63 …».
+libav_sonames() {   # аргументи pacman_first_info
+  pacman_first_info "$@" | grep -oE 'lib(av|sw)[a-z]+\.so=[0-9]+' | sort -u | tr '\n' ' ' || true
+}
+
+# Пакети, що дають бібліотеки ffmpeg-legacy-580xx і в оновленні змінять soname (за Provides:
+# libjxl.so=0.12 → 0.13). Друкує по пакету на рядок; порожньо — нічого не зламається.
+ffmpeg_libs_change() {
+  local f p old new
+  local -A owners=()
+  local -a libs=()
+  while IFS= read -r f; do
+    case "$f" in */bin/*|*.so.*) ;; *) continue ;; esac
+    if [[ ! -f "$f" || -L "$f" ]] || ! is_elf "$f"; then continue; fi
+    mapfile -t -O "${#libs[@]}" libs < <(LC_ALL=C ldd "$f" 2>/dev/null | awk '$2 == "=>" && $3 ~ /^\// { print $3 }')
+  done < <(pacman -Qlq "$FFMPEG_PKG" 2>/dev/null || true)
+  ((${#libs[@]})) || return 0
+  while IFS= read -r p; do
+    if [[ -n "$p" && "$p" != "$FFMPEG_PKG" ]]; then owners[$p]=1; fi
+  done < <(printf '%s\n' "${libs[@]}" | sort -u | xargs -r pacman -Qqo -- 2>/dev/null | sort -u || true)
+  for p in "${!owners[@]}"; do
+    grep -qxF -- "$p" "$BUILD_ROOT/upgrade-targets.txt" 2>/dev/null || continue
+    old=$(pacman_first_info -Qi -- "$p" | grep -oE '[^ ]+\.so=[^ ]+' | sort -u || true)
+    new=$(pacman_first_info --dbpath "$SYNC_DB" -Si -- "$p" | grep -oE '[^ ]+\.so=[^ ]+' | sort -u || true)
+    # Змінилося, якщо зникла хоч одна стара бібліотека (нові поруч зі старими не заважають).
+    if [[ -n "$(comm -23 <(printf '%s\n' "$old") <(printf '%s\n' "$new"))" ]]; then printf '%s\n' "$p"; fi
+  done
+}
+
+cmd_upgrade_system() {
+  local bridge=0 changed inst_so repo_so
+  preflight_common
+  select_priv_tool
+  require_tools fakeroot timeout ldd xargs
+  print_header "$(t "оновлення системи разом з OBS-Legacy" "system upgrade together with OBS-Legacy")"
+  say "$(t "Що принесе оновлення системи (пробний прогін, без змін)" "What the system upgrade brings (a dry run, no changes)")"
+  sync_repo_copy || die "$(t "Не вдалося дізнатися, що нового в репозиторіях." "Could not find out what is new in the repositories.")" \
+    "$(t "Перевір інтернет і дзеркала в /etc/pacman.d/mirrorlist; журнал: $SYNC_DB/sync.log" \
+         "Check the internet and the mirrors in /etc/pacman.d/mirrorlist; log: $SYNC_DB/sync.log")"
+  if pacman -Q "$FFMPEG_PKG" >/dev/null 2>&1; then
+    if upgrade_dry_run; then
+      mapfile -t changed < <(ffmpeg_libs_change)
+      if ((${#changed[@]})); then
+        warn "$(t "Оновлення замінить бібліотеки, з якими зібрано $FFMPEG_PKG: ${changed[*]} — після нього він (а з ним і OBS) не запуститься, доки його не перезібрати." \
+                  "The upgrade replaces libraries that $FFMPEG_PKG is built with: ${changed[*]} — after it, it (and OBS with it) will not start until it is rebuilt.")"
+        bridge=1
+      else
+        ok "$(t "Пакети OBS-Legacy оновленню не заважають." "The OBS-Legacy packages do not stand in the way of the upgrade.")"
+      fi
+    elif grep -q -- "-$PKG_SUFFIX" "$UPGRADE_DRY_LOG"; then
+      warn "$(t "pacman -Syu зараз не пройде через пакети OBS-Legacy:" "pacman -Syu would fail now because of the OBS-Legacy packages:")"
+      grep -E 'error|warning|::' "$UPGRADE_DRY_LOG" | head -n 8 | sed 's/^/  /' >&2 || true
+      bridge=1
+    else
+      fail "$(t "pacman -Syu зараз не пройде, і заважає не OBS-Legacy:" "pacman -Syu would fail now, and it is not OBS-Legacy that stands in the way:")"
+      head -n 12 -- "$UPGRADE_DRY_LOG" | sed 's/^/  /' >&2
+      die "$(t "Систему не оновлено." "The system was not upgraded.")" \
+        "$(t "Розв'яжи це так, як радить pacman вище (чи як зазвичай для свого дистрибутива), і запусти команду ще раз." \
+             "Solve it the way pacman suggests above (or as usual for your distribution) and run the command again.")"
+    fi
+  fi
+  if (( bridge )); then
+    inst_so=$(libav_sonames -Qi "$FFMPEG_PKG")
+    repo_so=$(libav_sonames --dbpath "$SYNC_DB" -Si ffmpeg)
+    if [[ -z "$repo_so" || "$inst_so" != "$repo_so" ]]; then
+      say "$(t "Спершу OBS-Legacy під новий ffmpeg" "First OBS-Legacy for the new ffmpeg")"
+      printf "$(t '  У репозиторії ffmpeg з іншими версіями бібліотек (%s, а в тебе %s): спершу збираю й ставлю OBS-Legacy під нього.\n' \
+                  '  The repository has an ffmpeg with other library versions (%s, you have %s): first building and installing OBS-Legacy for it.\n')" \
+        "${repo_so:-?}" "${inst_so:-?}" >&2
+      bash "$SELF_PATH" update || die "$(t "OBS-Legacy під новий ffmpeg не встановився — систему не оновлено." \
+                                           "OBS-Legacy for the new ffmpeg was not installed — the system was not upgraded.")" \
+        "$(t "Подивись звіт оновлення вище, виправ і запусти команду ще раз." "See the update report above, fix it and run the command again.")"
+      bridge=0
+      if ! upgrade_dry_run || [[ -n "$(ffmpeg_libs_change)" ]]; then bridge=1; fi
+      [[ "$(libav_sonames -Qi "$FFMPEG_PKG")" == "$repo_so" ]] || bridge=0
+    fi
+  fi
+  say "$(t "Оновлення системи (pacman -Syu)" "System upgrade (pacman -Syu)")"
+  if (( bridge )); then
+    printf "$(t '  На час оновлення %s заміниться на ffmpeg з репозиторію: OBS і NVENC у ньому працюють і з ним.\n' \
+                '  For the upgrade %s is replaced with ffmpeg from the repository: OBS and its NVENC work with it too.\n')" "$FFMPEG_PKG" >&2
+    printf "$(t '  pacman спитає, чи прибрати %s, — відповідай y. Після оновлення OBS-Legacy збере його знову.\n' \
+                '  pacman will ask whether to remove %s — answer y. After the upgrade OBS-Legacy builds it again.\n')" "$FFMPEG_PKG" >&2
+  fi
+  check_pacman_lock
+  priv_validate || die "$(t "Не вдалося отримати права адміністратора." "Could not get administrator rights.")" "$PRIV_HINT"
+  local -a extra=()
+  if (( bridge )); then extra=(ffmpeg); fi
+  if ! priv pacman -Syu "${extra[@]}"; then
+    die "$(t "pacman не оновив систему." "pacman did not upgrade the system.")" \
+      "$(t "Якщо ти відповів «n» — так і має бути; запусти команду ще раз, коли будеш готовий. Інакше дивись повідомлення pacman вище." \
+           "If you answered “n”, that is expected; run the command again when you are ready. Otherwise see the pacman messages above.")"
+  fi
+  ok "$(t "Систему оновлено." "The system is upgraded.")"
+  if ! installed_label >/dev/null; then
+    summary "$(t "систему оновлено (OBS-Legacy пакетами ще не встановлено)" "the system is upgraded (OBS-Legacy is not installed as packages yet)")"
+    return 0
+  fi
+  say "$(t "OBS-Legacy після оновлення системи" "OBS-Legacy after the system upgrade")"
+  if ! bash "$SELF_PATH" update; then
+    die "$(t "Систему оновлено, але OBS-Legacy не оновився." "The system is upgraded, but OBS-Legacy was not updated.")" \
+      "$(t "Подивись звіт вище й запусти «Встановити / оновити OBS» ще раз." "See the report above and run “Install / update OBS” again.")"
+  fi
+  summary "$(t "систему й OBS-Legacy оновлено: $(installed_summary)" "the system and OBS-Legacy are upgraded: $(installed_summary)")"
+}
 
 # Перезібрати начисто (кеш збірки OBS очищається) і поставити знову.
 cmd_rebuild() { cmd_install rebuild; }
@@ -4288,6 +4632,9 @@ main() {
     check)          run_logged cmd_check ;;
     install)        run_logged cmd_install ;;
     update)         run_logged cmd_update ;;
+    prepare)        run_logged cmd_prepare ;;
+    upgrade-system) run_logged cmd_upgrade_system ;;
+    repo-sync)      cmd_repo_sync ;;
     rebuild)        run_logged cmd_rebuild ;;
     package)        run_logged cmd_package ;;
     rollback)       run_logged cmd_rollback "$@" ;;

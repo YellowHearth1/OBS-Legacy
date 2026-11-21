@@ -10,6 +10,7 @@
 //! оновлення буде сповіщено ще раз).
 
 mod notices;
+mod prepare;
 mod state;
 mod watch;
 
@@ -130,7 +131,7 @@ pub fn plugin_list(list: &[PluginUpdate]) -> String {
 }
 
 /// Значення налаштування: змінна середовища має пріоритет, як і в скрипті.
-fn setting(settings: &Settings, key: &str) -> String {
+pub(crate) fn setting(settings: &Settings, key: &str) -> String {
     Settings::env_override(key).filter(|v| !v.is_empty()).or_else(|| settings.raw(key)).unwrap_or_default()
 }
 
@@ -223,6 +224,15 @@ pub fn facts_from(
         ffmpeg_built,
         ffmpeg_new,
     }
+}
+
+/// Новий ffmpeg у репозиторії (лише локальна база pacman, без мережі) — для перевірки після
+/// транзакції pacman: `pacman -Sy` користувача міг принести нову версію.
+pub fn ffmpeg_new_local() -> Option<String> {
+    let (builds, _) = builds::read_builds();
+    let active = builds.iter().find(|b| b.active);
+    let u = Updates { ffmpeg_repo: versions::repo_package_version("ffmpeg"), ..Default::default() };
+    facts_from(active, &u, &Settings::load(), &[], false).ffmpeg_new
 }
 
 /// Перевірити нові версії (мережа: git ls-remote до GitHub).

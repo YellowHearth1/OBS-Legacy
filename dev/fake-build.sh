@@ -23,6 +23,18 @@ here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 real="$here/../scripts/build-obs-nvenc-legacy-artix.sh"
 case "${1:-}" in
   plugins|help|version) exec bash "$real" "$@" ;;
+  repo-sync) printf '[OK] repo-sync: імітація / simulation\n' >&2; exit 0 ;;
+  prepare)
+    # Фонова підготовка: «готовий» набір — лише в окремій теці даних (як демо з INSTALL_ROOT).
+    if [[ -n "${XDG_DATA_HOME:-}" ]]; then
+      set_dir="$XDG_DATA_HOME/obs-studio-nvenc-artix/packages/$(date +%Y%m%d-%H%M%S)_33.0.1"
+      mkdir -p -- "$set_dir"
+      printf 'label=%s\nobs_version=33.0.1\n' "${set_dir##*/}" > "$set_dir/BUILDINFO.txt"
+      touch -- "$set_dir/.complete"
+    fi
+    printf 'Підсумок: підготовлено набір (імітація) / Summary: prepared a set (simulation)\n' >&2
+    exit 0
+    ;;
 esac
 
 # Мова — як у справжнього скрипта: OBS_LEGACY_LANG (його передає TUI), інакше локаль.

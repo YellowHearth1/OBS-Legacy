@@ -80,9 +80,49 @@ pub struct Updates {
     pub ffmpeg_repo: Option<String>,
 }
 
-/// Версія пакета в репозиторіях pacman (`pacman -Si`, локальна база синхронізації).
+/// Власна копія баз синхронізації pacman (команда скрипта `repo-sync`) — та сама тека, що й у скрипті.
+pub fn sync_db() -> std::path::PathBuf {
+    std::env::var_os("OBS_LEGACY_SYNC_DB")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| crate::paths::state_dir().join("pacman"))
+}
+
+/// Найпізніший час зміни баз синхронізації (*.db) у теці; 0 — баз немає.
+fn newest_db_mtime(dir: &std::path::Path) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "db"))
+        .filter_map(|e| e.metadata().ok())
+        .map(|m| m.mtime().max(0) as u64)
+        .max()
+        .unwrap_or(0)
+}
+
+/// `--dbpath` власної копії баз, якщо вона новіша за системну (як `repo_version` у скрипті).
+fn dbpath_args() -> Vec<std::ffi::OsString> {
+    let own = sync_db();
+    if own.join("local").is_symlink()
+        && newest_db_mtime(&own.join("sync")) > newest_db_mtime(std::path::Path::new("/var/lib/pacman/sync"))
+    {
+        vec!["--dbpath".into(), own.into_os_string()]
+    } else {
+        Vec::new()
+    }
+}
+
+/// Версія пакета в репозиторіях pacman (`pacman -Si`): з тієї бази синхронізації, що новіша, —
+/// системної чи власної копії. Перший запис — той, що поставить `pacman -Syu`.
 pub fn repo_package_version(name: &str) -> Option<String> {
-    let out = Command::new("pacman").args(["-Si", name]).env("LC_ALL", "C").stderr(Stdio::null()).output().ok()?;
+    let out = Command::new("pacman")
+        .args(dbpath_args())
+        .args(["-Si", name])
+        .env("LC_ALL", "C")
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
     String::from_utf8_lossy(&out.stdout)
         .lines()
         .find_map(|l| l.strip_prefix("Version").and_then(|r| r.split_once(':')).map(|(_, v)| v.trim().to_string()))

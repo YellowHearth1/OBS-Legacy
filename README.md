@@ -147,7 +147,14 @@ to the same places as the repo OBS (`/usr`), so pacman itself offers to replace 
   autostart, without sudo.
 - **Careful with your system.** The system changes only through pacman (`pacman -S` for build packages,
   `pacman -U` for the OBS-Legacy packages), only after you answer “y”, and never with `--noconfirm`. The
-  script never runs a full system upgrade (`pacman -Syu`); building and packaging run without root.
+  script runs a full system upgrade (`pacman -Syu`) only when you ask for it with
+  `obs-legacy --upgrade-system`; building and packaging run without root.
+- **System upgrades without getting stuck.** The OBS-Legacy packages are built against the libraries you
+  have now, so a system upgrade may refuse to go through or leave ffmpeg without a library. One command
+  handles it: `obs-legacy --upgrade-system` first does a dry run; if `ffmpeg-legacy-580xx` stands in the
+  way, it is swapped for the repository ffmpeg for the upgrade (OBS and its NVENC keep working) and built
+  again right after it. In the background OBS-Legacy also prepares new packages by itself when the
+  repositories get a new ffmpeg (**Settings → Prepare packages in advance**).
 
 ## Installation
 
@@ -304,9 +311,19 @@ heavy ones (x264, ffmpeg's hand-written assembly, Qt's drawing code) choose SIMD
 time anyway, and rebuilding the whole system is not worth it. CEF, the Browser Source engine, is the
 prebuilt archive from the OBS Project; only its debug information is stripped (about 2.1 GB → 550 MB).
 
-**What should I do after `pacman -Syu`?** Nothing, until you see a hint. After every system upgrade, the
-pacman hook from the OBS package checks the libraries of the OBS-Legacy packages and tells you when it is
-time to rebuild (**Install / update OBS**), and also when the repositories got a new ffmpeg.
+**How do I upgrade the system?** With one command: `obs-legacy --upgrade-system` (or **More → Upgrade the
+system** in the menu). It runs a dry run of
+`pacman -Syu` first and gets OBS-Legacy out of the way when needed: if the repositories have an ffmpeg
+with other library versions, it first builds and installs OBS-Legacy for it; if `ffmpeg-legacy-580xx`
+would block the upgrade or lose a library (say, a new libjxl), the repository ffmpeg takes its place for
+the upgrade (pacman asks to remove `ffmpeg-legacy-580xx` — answer y), and right after the upgrade
+OBS-Legacy builds it again for the new libraries. You never have to remove the packages by hand.
+
+**What should I do after a plain `pacman -Syu` (or an AUR helper)?** Nothing, until you see a hint. After
+every system upgrade, the pacman hook from the OBS package checks the libraries of the OBS-Legacy packages
+and tells you when it is time to rebuild (**Install / update OBS**), and also when the repositories got a
+new ffmpeg. With update notifications on, the background check builds the new packages by itself and tells
+you when they are ready; **Install / update OBS** then installs them at once, without building.
 
 **My driver is newer than 580xx.** Then NVENC works in the repo OBS too, and you most likely don't need
 OBS-Legacy. The program tells you so on the home screen.
@@ -389,6 +406,7 @@ applies to the script without it. An environment variable always takes priority 
 | `PLUGIN_REF_<id>` | — | pin a plugin version |
 | `CPU_TUNING` | `native` | which CPU to build for: `native` (this one, fastest), `generic` (portable, like the repo packages), `x86-64-v2` / `v3` / `v4` |
 | `BUILD_FFMPEG` | `1` | build `ffmpeg-legacy-580xx` (`0` — keep the system ffmpeg) |
+| `AUTO_PREPARE` | `1` | the background check builds new packages by itself (a new ffmpeg, missing libraries) and installs nothing (`0` — only notify) |
 | `KEEP_VERSIONS` | `2` | how many package sets to keep for rollback, including the installed one |
 | `INSTALL_PACMAN_HOOK` | `1` | put the library check after system upgrades (pacman hook) into the OBS package |
 | `UI_LANG` | `auto` | language of the program, the script and its reports: `auto` (the system locale), `en` or `uk` |
@@ -473,7 +491,9 @@ obs-legacy --notifier status
 ```
 
 Other commands: `--notifier enable [systemd|dinit|openrc|runit|s6|autostart]`, `--notifier disable`,
-`--notifier test` (a test notification) and `--check-updates` (check right now). The log is
+`--notifier test` (a test notification) and `--check-updates` (check right now). The background check
+also refreshes its own copy of the pacman databases (without root, like `checkupdates`) to see a new
+ffmpeg before you upgrade the system. The log is
 `~/.local/state/obs-legacy/updates.log`.
 
 Notifications are sent with `notify-send` (the `libnotify` package), or with `gdbus` if it is missing, to

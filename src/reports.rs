@@ -54,7 +54,7 @@ const MAX_REPORTS: usize = 200;
 const STAMP_LEN: usize = 15;
 
 /// Команди скрипта, що збирають OBS.
-pub const BUILD_COMMANDS: [&str; 3] = ["install", "update", "rebuild"];
+pub const BUILD_COMMANDS: [&str; 4] = ["install", "update", "rebuild", "upgrade-system"];
 
 pub fn dir() -> PathBuf {
     paths::cache_home().join("obs-studio-nvenc-artix").join("reports")
@@ -67,6 +67,8 @@ pub fn command_label(command: &str) -> &'static str {
         "update" => tr!("Оновлення OBS", "OBS update"),
         "rebuild" => tr!("Перезбирання OBS", "OBS rebuild"),
         "package" => tr!("Збирання пакетів", "Package build"),
+        "prepare" => tr!("Підготовка пакетів у фоні", "Preparing packages in the background"),
+        "upgrade-system" => tr!("Оновлення системи з OBS-Legacy", "System upgrade with OBS-Legacy"),
         "rollback" => tr!("Відкат", "Rollback"),
         "uninstall" => tr!("Видалення OBS-Legacy", "OBS-Legacy removal"),
         "deps" => tr!("Пакети для збірки", "Build dependencies"),

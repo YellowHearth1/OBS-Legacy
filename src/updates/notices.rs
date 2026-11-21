@@ -135,7 +135,7 @@ pub fn notices(f: &Facts) -> Vec<Notice> {
 }
 
 /// Відбиток списку проблем (FNV-1a): сповіщати знову, лише коли він змінився.
-fn fingerprint(problems: &[String]) -> String {
+pub(super) fn fingerprint(problems: &[String]) -> String {
     let mut sorted: Vec<&str> = problems.iter().map(String::as_str).collect();
     sorted.sort_unstable();
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
@@ -172,10 +172,85 @@ pub fn libs_notice(problems: &[String]) -> Option<Notice> {
     })
 }
 
+/// Як поставити готовий набір разом з оновленням системи.
+fn how_upgrade() -> &'static str {
+    tr!(
+        "Онови все однією командою в терміналі: obs-legacy --upgrade-system (або OBS-Legacy → «Встановити / \
+         оновити OBS» — набір поставиться одразу, без збирання).",
+        "Upgrade everything with one command in a terminal: obs-legacy --upgrade-system (or OBS-Legacy → “Install / \
+         update OBS” — the set is installed at once, without building)."
+    )
+}
+
+/// Фонова підготовка почалася: чому й скільки чекати. `key` — відбиток причин (prepare::trigger).
+pub fn prepare_started(key: &str, ffmpeg_new: Option<&str>, libs: bool) -> Notice {
+    let why = match (ffmpeg_new, libs) {
+        (_, true) => tr!(
+            "Після оновлення системи пакетам OBS-Legacy бракує бібліотек.",
+            "After the system upgrade the OBS-Legacy packages are missing libraries."
+        )
+        .to_string(),
+        (Some(v), false) => trf!("У репозиторії новий ffmpeg {v}.", "The repository has a new ffmpeg {v}."),
+        (None, false) => String::new(),
+    };
+    Notice {
+        items: vec![("prepare".into(), key.into())],
+        title: tr!("OBS-Legacy готує нові пакети", "OBS-Legacy is preparing new packages").into(),
+        body: trf!(
+            "{why} Збираю їх у фоні з найнижчим пріоритетом (до години); коли все буде готово, сповіщу. \
+             Нічого не встановлюю без тебе.",
+            "{why} Building them in the background at the lowest priority (up to an hour); I'll tell you when \
+             they're ready. Nothing is installed without you."
+        ),
+        urgent: false,
+    }
+}
+
+/// Набір зібрано — що робити далі.
+pub fn prepare_ready(label: &str) -> Notice {
+    Notice {
+        items: vec![("ready".into(), label.into())],
+        title: tr!("Пакети OBS-Legacy готові", "OBS-Legacy packages are ready").into(),
+        body: trf!(
+            "Набір {label} зібрано під твою систему. {}",
+            "The set {label} is built for your system. {}",
+            how_upgrade()
+        ),
+        urgent: false,
+    }
+}
+
+/// Підготовка не вдалася: що сталося й порада зі звіту.
+pub fn prepare_failed(key: &str, problem: Option<&str>, hint: Option<&str>) -> Notice {
+    let what = problem.unwrap_or(tr!("збирання зупинилося з помилкою", "the build stopped with an error"));
+    let hint = hint.map(|h| format!(" {h}")).unwrap_or_default();
+    Notice {
+        items: vec![("prepare_failed".into(), key.into())],
+        title: tr!("Не вдалося підготувати пакети OBS-Legacy", "Couldn't prepare the OBS-Legacy packages").into(),
+        body: trf!(
+            "{what}.{hint} Звіт: OBS-Legacy → Додатково → «Звіти».",
+            "{what}.{hint} Report: OBS-Legacy → More → “Reports”."
+        ),
+        urgent: false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::updates::{PluginUpdate, parse_libcheck};
+
+    #[test]
+    fn prepare_notices_explain_what_next() {
+        let started = prepare_started("ffmpeg=2:9.1-2", Some("2:9.1-2"), false);
+        assert!(started.body.contains("2:9.1-2"));
+        let ready = prepare_ready("20261122-100000_33.0.2");
+        assert!(ready.body.contains("--upgrade-system"));
+        let st = State::default();
+        assert!(ready.is_new(&st));
+        let failed = prepare_failed("libs=ab", Some("Бракує пакетів"), Some("Натисни «Виправити»."));
+        assert!(failed.body.starts_with("Бракує пакетів."));
+    }
 
     fn facts() -> Facts {
         Facts {

@@ -50,7 +50,7 @@ fn next_step(action: Action) -> Option<&'static str> {
             "Перевір систему ще раз (Enter) — тепер усі етапи мають бути ✓.",
             "Check the system again (Enter) — now every step should get a ✓."
         )),
-        Action::Install | Action::Rebuild => Some(tr!(
+        Action::Install | Action::Rebuild | Action::UpgradeSystem => Some(tr!(
             "Запускай OBS як завжди — з меню програм, командою obs або пунктом «Запустити OBS».",
             "Start OBS as usual — from the application menu, with the obs command or with “Launch OBS”."
         )),
