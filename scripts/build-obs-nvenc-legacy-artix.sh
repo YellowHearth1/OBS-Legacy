@@ -4152,7 +4152,9 @@ cmd_upgrade_system() {
   priv_validate || die "$(t "Не вдалося отримати права адміністратора." "Could not get administrator rights.")" "$PRIV_HINT"
   local -a extra=()
   if (( bridge )); then extra=(ffmpeg); fi
-  if ! priv pacman -Syu "${extra[@]}"; then
+  printf "$(t '  (вивід pacman — лише на екрані й у /var/log/pacman.log, не в цьому звіті)\n' \
+              '  (the pacman output goes only to the screen and /var/log/pacman.log, not to this report)\n')" >&2
+  if ! priv pacman -Syu "${extra[@]}" >&7 2>&7; then
     die "$(t "pacman не оновив систему." "pacman did not upgrade the system.")" \
       "$(t "Якщо ти відповів «n» — так і має бути; запусти команду ще раз, коли будеш готовий. Інакше дивись повідомлення pacman вище." \
            "If you answered “n”, that is expected; run the command again when you are ready. Otherwise see the pacman messages above.")"
@@ -4621,6 +4623,9 @@ EOF
 
 main() {
   local cmd=${1:-}
+  # fd 7 — справжній термінал, до труби run_logged (tee у звіт): pacman -Syu малює свої смужки
+  # прогресу лише тоді, коли його вивід іде в термінал.
+  exec 7>&2
   if (( $# > 0 )); then shift; fi
   cmd=${cmd#--}
   if [[ -z "$cmd" ]]; then
