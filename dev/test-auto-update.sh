@@ -139,6 +139,14 @@ run_wait=1 run "$me" > "$T/out/run.txt" 2>&1
 check "другий запуск чекає на перший і не ставить нічого сам" "grep -q 'previous run' '$T/out/run.txt' && [[ ! -e '$T/out/pacman.calls' ]]"
 exec 7>&-
 
+echo "use-package"
+reset_out
+( unset PKEXEC_UID DOAS_USER; SUDO_UID=$my_uid use_package ) > "$T/out/use.txt" 2>&1
+check "без копії в ~/.local/bin нічого не робить" "[[ ! -e '$T/out/program.calls' ]]"
+mkdir -p "$T/home/.local/bin" && touch "$T/home/.local/bin/obs-legacy"
+( unset PKEXEC_UID DOAS_USER; SUDO_UID=$my_uid use_package ) > "$T/out/use.txt" 2>&1
+check "копію від install.sh переймає програма з пакета" "grep -qx -- '--use-package' '$T/out/program.calls'"
+
 echo
 if ((fails)); then echo "НЕ ПРОЙДЕНО: $fails"; exit 1; fi
 echo "Усе пройдено."

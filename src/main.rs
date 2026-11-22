@@ -61,6 +61,9 @@ Options:
   --prepare       for package managers, after a system upgrade: build the OBS-Legacy
                   packages that need it (no root, no questions; waits for the background
                   check if it is already preparing them)
+  --repair        after a system upgrade: rebuild only what the new libraries broke, at
+                  the installed versions (the automatic update with the system runs it)
+  --auto-update-notice started|ok|failed [files]  the notification of that update
   --install-files for package managers: the ready packages to install, as lines
                   “install <file>” and “remove <package>”; installs nothing
   --missing-deps  for package managers: build dependencies that are not installed, as
@@ -99,6 +102,9 @@ Inspired by https://github.com/sl5net/build-obs-nvenc-legacy"
   --prepare       для пакетних менеджерів, після оновлення системи: зібрати пакети
                   OBS-Legacy, яким це треба (без root і без питань; дочекається фонової
                   перевірки, якщо вона вже їх готує)
+  --repair        після оновлення системи: перезібрати лише те, що зламали нові
+                  бібліотеки, тих самих версій (так його запускає автооновлення з системою)
+  --auto-update-notice started|ok|failed [файли]  сповіщення цього автооновлення
   --install-files для пакетних менеджерів: що поставити з готових пакетів — рядки
                   «install <файл>» і «remove <пакет>»; сам нічого не ставить
   --missing-deps  для пакетних менеджерів: пакети для збирання, яких немає, — рядки
@@ -157,6 +163,11 @@ fn main() -> ExitCode {
                 }
                 return run_script(&["prepare"]);
             }
+            "--repair" => {
+                updates::wait_script_free();
+                return run_script(&["repair"]);
+            }
+            "--auto-update-notice" => return updates::auto_update_notice(&args[i + 1..]),
             "--install-files" => return run_script(&["install-files"]),
             "--missing-deps" => return run_script(&["deps", "--missing"]),
             "--use-package" => return package_move::main(),

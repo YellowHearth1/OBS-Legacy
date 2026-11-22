@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
+use super::auto;
 use super::notices::{
     Notice, fingerprint, kept_notice, libs_notice, notices, prepare_failed, prepare_ready, prepare_ready_ffmpeg,
     prepare_started,
@@ -349,7 +350,8 @@ impl Watch<'_> {
                 "The OBS-Legacy packages run on kept library copies: {}",
                 self.kept.join("; ")
             ));
-            if let Some(n) = kept_notice(&self.kept) {
+            // Добудовувач з пакета obs-legacy сам перезбирає й ставить їх і сам про це сповіщає.
+            if let Some(n) = kept_notice(&self.kept).filter(|_| !auto::installed()) {
                 queue(&mut self.pending, &self.st, n);
             }
         }
@@ -363,7 +365,7 @@ impl Watch<'_> {
                     "Your OBS build is missing libraries: {}",
                     p.join("; ")
                 ));
-                if let Some(n) = libs_notice(&p) {
+                if let Some(n) = libs_notice(&p).filter(|_| !auto::installed()) {
                     queue(&mut self.pending, &self.st, n);
                 }
             }
@@ -393,14 +395,17 @@ impl Watch<'_> {
     }
 
     /// Чому зараз готувати пакети. Збережені копії й бібліотеки, яких бракує, — одразу; нові ffmpeg,
-    /// OBS і плагіни — лише після транзакції pacman, тобто разом з оновленням системи.
+    /// OBS і плагіни — лише після транзакції pacman, тобто разом з оновленням системи. Коли стоїть
+    /// добудовувач (`auto::installed`), бібліотеки — його справа: він лагодить і ставить у тій самій
+    /// транзакції, тож тут їх не збирати вдруге.
     fn reasons(&self) -> Reasons {
         let with_upgrade = |v: Option<String>| v.filter(|_| self.upgraded);
         let facts = self.facts.as_ref();
+        let auto = auto::installed();
         Reasons {
             ffmpeg: with_upgrade(self.ffmpeg_new.clone()),
-            libs: self.libs.as_deref().map(fingerprint),
-            kept: (!self.kept.is_empty()).then(|| fingerprint(&self.kept)),
+            libs: self.libs.as_deref().filter(|_| !auto).map(fingerprint),
+            kept: (!self.kept.is_empty() && !auto).then(|| fingerprint(&self.kept)),
             obs: with_upgrade(facts.and_then(Facts::obs_update).map(str::to_string)),
             plugins: with_upgrade(
                 facts.filter(|f| !f.plugin_updates.is_empty()).map(|f| plugin_list(&f.plugin_updates)),

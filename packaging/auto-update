@@ -14,6 +14,9 @@
 #      фоні), перевіряє кожен файл (у домашній теці цього користувача, його власність, пакет
 #      *-legacy-580xx), копіює в теку, куди пише лише root, і ставить копії «pacman -U --noconfirm»;
 #   4. сповіщає користувача.
+# Ще «auto-update use-package» (з obs-legacy.install, після встановлення пакета obs-legacy): якщо в
+# того, хто ставить пакет, є копія програми від install.sh у ~/.local/bin, програма з пакета переймає
+# її роботу («obs-legacy --use-package» від імені користувача) — без окремої команди.
 # Довіра — як в AUR-помічника (paru): зібране користувачем ставить root, і лише після транзакції
 # pacman, яку користувач сам запустив зі своїм паролем. Без такої транзакції тут нічого не діється.
 # Журнал — /var/log/obs-legacy/auto-update.log (читати може кожен).
@@ -59,6 +62,7 @@ if [[ "$loc" == uk* ]]; then
   m_done='Готово: пакети OBS-Legacy встановлено.'
   m_fail='pacman -U завершився з кодом %s — система не змінилася.'
   m_nosetpriv='Немає setpriv (util-linux) — не можу збирати від імені користувача.'
+  m_use_manual=':: OBS-Legacy: якщо програму ставив install.sh у ~/.local/bin, від свого імені запусти: /usr/bin/obs-legacy --use-package'
 else
   m_started='\n==> OBS-Legacy will rebuild in the background only the packages that need the new libraries and install them itself.\n    OBS works as before; a notification comes when it is done (log: %s).\n\n'
   m_nouser='OBS-Legacy: I do not know on whose behalf to rebuild the packages (pacman did not run through sudo, pkexec or doas) — open OBS-Legacy and press “Install / update OBS”.'
@@ -76,6 +80,7 @@ else
   m_done='Done: the OBS-Legacy packages are installed.'
   m_fail='pacman -U finished with code %s — the system did not change.'
   m_nosetpriv='setpriv (util-linux) is missing — cannot build on behalf of the user.'
+  m_use_manual=':: OBS-Legacy: if install.sh put the program into ~/.local/bin, run as that user: /usr/bin/obs-legacy --use-package'
 fi
 
 say() {   # формат, аргументи — рядок у журнал з часом
@@ -253,9 +258,25 @@ run() {   # $1 = користувач
   fi
 }
 
+# Після встановлення пакета obs-legacy (obs-legacy.install, від root): копію від install.sh у
+# ~/.local/bin того, хто ставить пакет, переймає програма з пакета. Ніколи не зупиняє pacman.
+use_package() {
+  local entry name uid gid home
+  if ! entry=$(target_user); then
+    if compgen -G '/home/*/.local/bin/obs-legacy' >/dev/null; then printf '%s\n' "$m_use_manual"; fi
+    return 0
+  fi
+  IFS=: read -r name uid gid home <<<"$entry"
+  [[ -e "$home/.local/bin/obs-legacy" && -x "$program" ]] || return 0
+  command -v setpriv >/dev/null 2>&1 || { printf '%s\n' "$m_use_manual"; return 0; }
+  cd / || return 0
+  as_user timeout 60 "$program" --use-package 2>&1 | sed 's/^/    /'
+}
+
 main() {
   case "${1:-}" in
     hook) hook ;;
+    use-package) use_package ;;
     run)
       install -d -m 755 -- "$log_dir" "$state" 2>/dev/null || exit 0
       if [[ -f "$log" ]] && (($(stat -c %s -- "$log" 2>/dev/null || echo 0) > log_max)); then

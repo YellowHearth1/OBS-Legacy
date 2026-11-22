@@ -68,6 +68,7 @@ pub fn command_label(command: &str) -> &'static str {
         "rebuild" => tr!("Перезбирання OBS", "OBS rebuild"),
         "package" => tr!("Збирання пакетів", "Package build"),
         "prepare" => tr!("Підготовка пакетів у фоні", "Preparing packages in the background"),
+        "repair" => tr!("Лагодження після оновлення системи", "Repair after a system upgrade"),
         "upgrade-system" => tr!("Оновлення системи з OBS-Legacy", "System upgrade with OBS-Legacy"),
         "rollback" => tr!("Відкат", "Rollback"),
         "uninstall" => tr!("Видалення OBS-Legacy", "OBS-Legacy removal"),

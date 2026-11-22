@@ -277,6 +277,23 @@ curl -fsSL https://github.com/YellowHearth1/OBS-Legacy/releases/latest/download/
       наприкінці виводу pacman — «збережені копії бібліотек більше не потрібні — прибрано».
 - [ ] `bash "$(obs-legacy --script-path)" status` показує збережені копії, поки вони є.
 
+## 6в. Автоматичне оновлення разом із системою (пакет `obs-legacy`)
+
+Потрібен пакет програми `obs-legacy` з добудовувачем (з 0.0.8): `pacman -Qo /usr/lib/obs-legacy/auto-update`.
+
+- [ ] Після `sudo pacman -U obs-legacy-…pkg.tar.zst` (або «Оновити з пакунка» в Мацаках), якщо програму раніше
+      ставив install.sh: у виводі pacman — рядки `obs-legacy --use-package`, потім `ls ~/.local/bin/obs-legacy`
+      каже «немає», а `obs-legacy --notifier status` — що служба запускає `/usr/bin/obs-legacy`.
+- [ ] Звичайне `sudo pacman -Syu`, що замінило бібліотеку пакетів OBS-Legacy: наприкінці виводу pacman —
+      «OBS-Legacy перезбере у фоні…», термінал звільняється одразу. Сповіщення «OBS-Legacy перезбирає пакети».
+- [ ] Журнал іде: `tail -f /var/log/obs-legacy/auto-update.log` — «Лагоджу пакети…», код 0, «Ставлю: …»,
+      «Готово». Звіт лагодження — `~/.cache/obs-studio-nvenc-artix/reports/*-repair.txt`.
+- [ ] Сповіщення «OBS-Legacy оновлено разом із системою»; `pacman -Q | grep legacy-580xx` — новий pkgrel,
+      `bash "$(obs-legacy --script-path)" status` — збережених копій немає; OBS записує через NVENC.
+- [ ] Звичайне `sudo pacman -S <будь-який пакет>`, коли нічого не зламано: у журналі — «Ставити нічого», за кілька
+      секунд, без мережі.
+- [ ] Те саме через `paru -Syu` і через «Оновити все» в Мацаках (у журналі — «Початок: користувач …» з твоїм іменем).
+
 ## 7. Видалення (наприкінці, за бажанням)
 
 - [ ] «Видалити OBS-Legacy»: `pacman -S ffmpeg` (pacman питає, чи замінити `ffmpeg-legacy-580xx`) і

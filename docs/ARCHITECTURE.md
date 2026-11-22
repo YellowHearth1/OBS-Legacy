@@ -33,6 +33,7 @@ TUI **вбудовує** скрипт (`include_str!` у `src/script.rs`) і п�
 | `rebuild` | те саме, що `install`, але CMake OBS начисто (`configure_obs … fresh`) і спершу `clear_stale_git_locks` | так |
 | `package` | `build_set` без встановлення: лише набір пакетів у сховищі | лише якщо бракує пакетів для збірки |
 | `prepare` | як `update`, але без встановлення й без жодного питання (бракує пакетів для збірки → `die` з `fix deps`); так його запускає `--watch` (`AUTO_PREPARE`) | ні |
+| `repair` | як `prepare`, але лише коли є збережені копії keep-libs чи бібліотек бракує (інакше одразу `Підсумок:` без мережі) і тих самих версій: `OBS_REF` = встановлений `obs_commit`, `NV_HEADERS_TAG` — встановлений, плагіни — встановлені (`repair_plugin_pin`: їхній коміт і мітка версії), ffmpeg — лише за `ffmpeg_needs_rebuild`; так його запускає добудовувач (див. «Автоматичне оновлення разом із системою») | ні |
 | `upgrade-system` | `repo-sync` → пробне `pacman -Sup` на копії баз → за потреби спершу `update` (інші soname libav* у репозиторії) і «місток» (`pacman -Syu ffmpeg`: на час оновлення ffmpeg з репозиторію замість `ffmpeg-legacy-580xx` — лише для пакетів без keep-libs, коли той заблокував би оновлення чи втратив бібліотеку, `ffmpeg_libs_change`) → `pacman -Syu` → `update` дочірнім процесом | так |
 | `install-files` | для пакетних менеджерів: найновіший повний набір, новіший за встановлений, з бібліотеками на місці (`set_libs_ok`) → на stdout `install <файл>` і `remove <пакет>` (`stale_plugin_packages`), перед тим `backup_obs_config`; нічого не ставить (див. «Пакетні менеджери й AUR-помічники») | ні |
 | `repo-sync` | власна копія баз синхронізації в `~/.local/state/obs-legacy/pacman` (`fakeroot pacman -Sy --disable-sandbox --dbpath`, `local` — посилання на `/var/lib/pacman/local`); `repo_version` бере новішу з двох баз | ні |
@@ -114,7 +115,9 @@ OBS-Legacy» з релізу) має `--speed-limit 1 --speed-time 120`: з'єд
 - Система змінюється лише через pacman: `pacman -S --needed` (пакети для збірки) і `pacman -U` (пакети
   OBS-Legacy) — обидва після `confirm` і без `--noconfirm`, тож pacman ще й сам питає про заміни.
   `pacman -Syu` — лише в `upgrade-system`, яку людина запускає сама (`obs-legacy --upgrade-system`), і теж
-  без `--noconfirm`. Файли чужих пакетів не перезаписуються: власників файлів нового пакета
+  без `--noconfirm`. Виняток — добудовувач з пакета `obs-legacy` (див. «Автоматичне оновлення разом із
+  системою»): після транзакції pacman, яку запустила людина, він ставить `pacman -U --noconfirm` копії пакетів
+  `*-legacy-580xx` зі сховища того, хто запустив оновлення. Файли чужих пакетів не перезаписуються: власників файлів нового пакета
   скрипт додає в `conflicts` (pacman запропонує замінити), а файл без власника — зупинка з порадою.
 - pacman-хуки пакета OBS змінюють лише своє: `keep-libs` кладе копії бібліотек у `/usr/lib/obs-legacy/kept-libs`
   (тека з пакета, у `ld.so.conf.d`) і список у `/var/lib/obs-legacy/kept-libs.tsv`, викликає `ldconfig`, ніколи
@@ -498,6 +501,11 @@ OBS-Legacy не зупиняють. Якщо стоїть `/usr/lib/obs-legacy/k
 програму» — не причина відкладати оновлення бібліотеки. Без keep-libs (старі пакети) — радити спершу
 «Встановити / оновити OBS» в OBS-Legacy.
 
+**Якщо стоїть пакет `obs-legacy` з добудовувачем** (`/usr/lib/obs-legacy/auto-update`, з 0.0.8), кроки 2–3 після
+транзакції pacman робить сам його хук (див. «Автоматичне оновлення разом із системою»): пакетному менеджеру їх
+робити не треба — інакше те саме збиралося б двічі (без шкоди: `--prepare` дочекається блокування рушія й не
+знайде, що ставити). Показати людині, що відбувається, можна з журналу `/var/log/obs-legacy/auto-update.log`.
+
 **Порядок «Оновити все»:**
 1. Системні пакети (`pacman -Syu`), за бажанням разом з пакетами для збирання OBS-Legacy, яких бракує:
    `obs-legacy --missing-deps` → рядки `repo <пакет>` (з репозиторіїв) і `norepo <пакет>` (там немає).
@@ -531,6 +539,53 @@ CEF, плагінів і їхнього пакування; якщо нова з
 збережених копіях чи без бібліотеки, `obs_relink_only` прибирає з кешу збирання лише скомпоновані файли (правила
 `*_LINKER` у build.ninja) — ninja перекомпоновує їх (37 файлів, ~1 хв), не компілюючи наново; начисто — лише коли кешу
 немає чи CMakeCache пам'ятає шлях до бібліотеки, якої вже немає.
+
+## Автоматичне оновлення разом із системою
+
+Щоб звичайне `sudo pacman -Syu`, `paru -Syu` чи «Оновити все» в Мацаках саме перезбирало й ставило пакети
+OBS-Legacy, коли оновлення зачепило їхні бібліотеки, — без окремої команди й без другого пароля. Живе в пакеті
+самої програми (`packaging/`), а не в пакеті OBS: хук має лежати в `/usr`, а пакет програми оновлюється з
+релізами, не чекаючи перезбирання OBS. Копія від install.sh у `~/.local/bin` цього не дає.
+
+- `packaging/90-obs-legacy-auto-update.hook` (`PostTransaction`, Install/Upgrade/Remove, `Target = *`; «90-» — після
+  `00-obs-legacy-keep-libs-post.hook`, тож `kept-libs.tsv` уже свіжий) → `/usr/lib/obs-legacy/auto-update hook`.
+- `hook` (root, усередині транзакції): виходить одразу, якщо це наш власний `pacman -U`
+  (`OBS_LEGACY_AUTO_UPDATE=1` — хуки бачать оточення pacman), пакетів OBS-Legacy немає (`BUILDINFO.txt`) чи
+  користувача не знайдено. Користувач: `SUDO_UID` → `PKEXEC_UID` → `DOAS_USER` → записаний минулого разу
+  (`/var/lib/obs-legacy/auto-update.user`) → єдиний з тих, у кого є `~/.local/share/obs-studio-nvenc-artix/packages`;
+  лише UID ≥ 1000, не nobody, рядок схожий на ім'я чи число. Тоді `setsid -f … run <користувач>` з усіма трьома
+  потоками на `/dev/null` (pacman читає вивід хука до кінця й інакше чекав би) і, якщо є збережені копії,
+  рядок для людини наприкінці виводу pacman. Код завжди 0.
+- `run` (root, уже окремо): журнал `/var/log/obs-legacy/auto-update.log` (0644; понад 1 МіБ — у `.old`);
+  `flock` на `/run/obs-legacy-auto-update.lock` (другий запуск чекає до 6 год); чекає, доки зникне `db.lck`
+  (`pacman-conf DBPath`, до 1 год). Далі від імені користувача — `setpriv --reuid --regid --init-groups --reset-env
+  --no-new-privs`, `XDG_RUNTIME_DIR=/run/user/<uid>`, `ionice -c 3 nice -n 19`, робоча тека `/`:
+  1. `obs-legacy --repair` (рушій `repair`): без потреби — вихід за секунди без мережі; інакше перезбирає лише
+     зламане (ffmpeg окремо, OBS перекомпоновкою). Код ≠ 0 — відбиток стану (`sha256` від `kept-libs.tsv` і
+     `BUILDINFO.txt`) у `/var/lib/obs-legacy/auto-update.failed`: з тим самим станом наступні транзакції лагодження
+     не повторюють (лише шукають готові пакети), доки щось не зміниться; сповіщення `failed`.
+  2. `obs-legacy --install-files` → рядки `install <файл>`: це може бути й набір, який фонова перевірка
+     підготувала для нової версії OBS чи плагінів, — тоді й він ставиться з цим оновленням. Файл береться, лише
+     якщо шлях абсолютний, справжній шлях — у домашній теці користувача, власник — він, назва
+     `*-legacy-580xx-*.pkg.tar.{zst,xz,gz}`; копія — у `/var/cache/obs-legacy/auto-update` (0700, root), і вже в копії
+     `.PKGINFO` (`bsdtar`) має `pkgname = *-legacy-580xx`. Рядки `remove` не виконуються (прибрати плагін —
+     «Встановити / оновити OBS»).
+  3. Знову чекає `db.lck`, тоді `OBS_LEGACY_AUTO_UPDATE=1 pacman -U --noconfirm -- <копії>` (ті самі назви, що вже
+     встановлені, тож питань про заміну немає; інакше `--noconfirm` відповість «ні» й транзакція не пройде).
+     keep-libs після неї прибирає копії, які більше не потрібні.
+  4. `obs-legacy --auto-update-notice started|ok|failed [файли]` — сповіщення в графічній сесії
+     (`updates::auto`, `notify::find_session`).
+- Довіра — як в AUR-помічника: зібране користувачем ставить root, і лише після транзакції, яку користувач сам
+  запустив з паролем. Перевірки файлів захищають від помилок, а не від шкідливого коду в обліковому записі
+  користувача (той і так міг би перехопити пароль sudo).
+- Фонова перевірка (`--watch`), коли добудовувач стоїть (`updates::auto::installed`), не готує пакети через
+  збережені копії чи брак бібліотек і не сповіщає про них — це робить добудовувач; нові версії готує, як і
+  раніше (`AUTO_PREPARE`), а сповіщення «Пакети готові» каже, що вони встановляться з наступним оновленням системи.
+- `use-package` (з `packaging/obs-legacy.install`, `post_install`/`post_upgrade`): якщо в того, хто ставить пакет,
+  є `~/.local/bin/obs-legacy` від install.sh, від його імені запускається `obs-legacy --use-package` (`timeout 60`);
+  користувача не знайдено — лише підказка з командою.
+- Тест без root — `dev/test-auto-update.sh` (і в CI): файл підключається (`source`), шляхи, pacman, obs-legacy,
+  `setsid`, `getent`, `id` і користувач підставляються.
 
 ## BUILDINFO.txt
 
@@ -697,14 +752,15 @@ xfce4-terminal, mate-terminal, qterminal, lxterminal, terminator, tilix, urxvt, 
 спершу `--notifier restart` (служба переписується на поточну програму) і перевірка, що файли служби більше не
 називають стару копію, — тоді видаляються стара програма, ярлики з позначкою install.sh (меню й робочий стіл),
 значок і позначки; налаштування, набори, звіти й розпакований скрипт лишаються. Не вдалося перевести службу —
-нічого не видаляється. `packaging/obs-legacy.install` після `pacman -U` нагадує про команду, коли в якійсь
-`/home/*/.local/bin` є копія; Мацаки запускають її самі після встановлення пакета.
+нічого не видаляється. `packaging/obs-legacy.install` після `pacman -U` запускає її сам від імені того, хто ставить
+пакет (`auto-update use-package`), а якщо користувача не знайдено — нагадує про команду.
 
 `packaging/PKGBUILD` збирає з архіву тегу (`archive/refs/tags/v<версія>.tar.gz`) звичайний пакет `obs-legacy`:
 `cargo fetch --locked`, `cargo build --frozen --release` **без** `target-cpu=native` (пакет ставиться на будь-який
 комп'ютер; під процесор програму збирає лише `install.sh`), `cargo test`, а в пакет — `/usr/bin/obs-legacy`,
-ярлик `packaging/obs-legacy.desktop` (`Exec=obs-legacy`), іконка, README і ліцензія. OBS, плагіни й ffmpeg у ньому
-немає: їх програма збирає вже на комп'ютері користувача. Залежності: `bash`, `gcc-libs`, `git`, `glibc`; решту
+ярлик `packaging/obs-legacy.desktop` (`Exec=obs-legacy`), іконка, README, ліцензія, а також добудовувач
+`/usr/lib/obs-legacy/auto-update` і його хук `90-obs-legacy-auto-update.hook`. OBS, плагіни й ffmpeg у ньому
+немає: їх програма збирає вже на комп'ютері користувача. Залежності: `bash`, `gcc-libs`, `git`, `glibc`, `libarchive` (`bsdtar`), `util-linux` (`setpriv`, `flock`); решту
 пакетів для збирання OBS ставить сама програма (`deps`).
 
 `.github/workflows/package.yml` збирає його в контейнері `archlinux:base-devel` (у `.BUILDINFO` — лише пакети

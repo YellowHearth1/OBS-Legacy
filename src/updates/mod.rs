@@ -9,6 +9,7 @@
 //! ~/.local/state/obs-legacy/updates.env (якщо файл видалити, про наявні
 //! оновлення буде сповіщено ще раз).
 
+mod auto;
 mod notices;
 mod prepare;
 mod state;
@@ -26,6 +27,7 @@ use crate::settings::Settings;
 use crate::system;
 use crate::versions::{self, Updates, newer};
 
+pub use auto::notice_main as auto_update_notice;
 pub use prepare::wait_script_free;
 pub use state::State;
 pub use watch::{check_main, log_path, running_pid, watch_main};
