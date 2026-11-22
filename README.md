@@ -186,12 +186,23 @@ with `obs-legacy-<version>-1-x86_64.pkg.tar.zst`, built from the release sources
 ([`packaging/PKGBUILD`](packaging/PKGBUILD)). No Rust needed: download it and install it with pacman.
 
 ```bash
-sudo pacman -U obs-legacy-0.0.6-1-x86_64.pkg.tar.zst
+sudo pacman -U obs-legacy-0.0.7-1-x86_64.pkg.tar.zst
 ```
 
 The program lands in `/usr/bin/obs-legacy` with an **OBS-Legacy** entry in the application menu. Turn on
 [update notifications](#update-notifications) (**More → Update notifications**) to hear about new versions;
 update with the package from the new release the same way.
+
+**Moving from `install.sh` to the package.** pacman never writes into home folders, so a copy that `install.sh`
+put in `~/.local/bin` would stay first in `PATH` and keep its menu entry and the notification service. After
+installing the package, run once as your user (Matsaky does it by itself; pacman reminds you):
+
+```bash
+/usr/bin/obs-legacy --use-package
+```
+
+It moves the notification service to the program from the package and only then removes the old copy, its menu
+entry and icon. The settings and the package sets stay.
 
 **From source** (needs `git` and Rust; if Rust is missing, the installer offers to install the `rust`
 package):
@@ -571,7 +582,8 @@ plan — [`docs/TESTING.md`](docs/TESTING.md).
 
 ## Versions
 
-The current version is **0.0.6**: OBS-Legacy keeps up with system upgrades. A plain `pacman -Syu` or
+The current version is **0.0.7**: moving from the `install.sh` copy to the pacman package is one command,
+`obs-legacy --use-package` (Matsaky runs it by itself). **0.0.6** made OBS-Legacy keep up with system upgrades. A plain `pacman -Syu` or
 `paru -Syu` no longer stops on its packages: the libraries they need are kept until the packages are rebuilt
 in the background, and only what the upgrade affected is rebuilt (ffmpeg alone, or OBS just relinked).
 Package managers and AUR helpers can take OBS-Legacy into their own “Upgrade all”, your own plugins can be

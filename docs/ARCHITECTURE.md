@@ -690,6 +690,16 @@ xfce4-terminal, mate-terminal, qterminal, lxterminal, terminator, tilix, urxvt, 
 
 ### Пакет програми
 
+**Перехід з install.sh на пакет** — `obs-legacy --use-package` (`src/package_move.rs`). pacman у домашні теки не
+пише, тож копія install.sh (`~/.local/bin/obs-legacy` + позначка `source-dir`/`release-install` у
+`~/.local/share/obs-legacy`) інакше лишилася б першою в PATH, її ярлик з позначкою install.sh затуляв би ярлик
+пакета, а служба сповіщень запускала б її. Команда працює лише з `/usr/…` (програма пакета) і не від root:
+спершу `--notifier restart` (служба переписується на поточну програму) і перевірка, що файли служби більше не
+називають стару копію, — тоді видаляються стара програма, ярлики з позначкою install.sh (меню й робочий стіл),
+значок і позначки; налаштування, набори, звіти й розпакований скрипт лишаються. Не вдалося перевести службу —
+нічого не видаляється. `packaging/obs-legacy.install` після `pacman -U` нагадує про команду, коли в якійсь
+`/home/*/.local/bin` є копія; Мацаки запускають її самі після встановлення пакета.
+
 `packaging/PKGBUILD` збирає з архіву тегу (`archive/refs/tags/v<версія>.tar.gz`) звичайний пакет `obs-legacy`:
 `cargo fetch --locked`, `cargo build --frozen --release` **без** `target-cpu=native` (пакет ставиться на будь-який
 комп'ютер; під процесор програму збирає лише `install.sh`), `cargo test`, а в пакет — `/usr/bin/obs-legacy`,

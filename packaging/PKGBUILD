@@ -54,6 +54,8 @@ check() {
   cargo test --frozen --release
 }
 
+install=obs-legacy.install
+
 package() {
   cd "$_srcdir"
   install -Dm755 target/release/obs-legacy "$pkgdir/usr/bin/obs-legacy"
