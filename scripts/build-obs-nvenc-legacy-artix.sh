@@ -64,7 +64,7 @@ set -Eeuo pipefail
 shopt -s inherit_errexit 2>/dev/null || true
 umask 022
 
-readonly SCRIPT_VERSION="2026.11.22.3"
+readonly SCRIPT_VERSION="2026.11.22.4"
 # Номер рецепта збирання й пакування. Підвищувати, лише коли зміна в рушії вимагає
 # перезібрати вже встановлені пакети (прапорці, розкладка, залежності): тоді «Оновити»
 # збере їх знову. Зміни інтерфейсу й підказок його не чіпають.
@@ -2436,6 +2436,13 @@ check_plugins() {
                 "Plugin $id: could not prepare the sources (install will build OBS without it).")"
     fi
   done
+}
+
+# Останній коміт головної гілки плагіна на сервері — для плагінів без тегів-релізів (для status).
+plugin_remote_head() {   # $1 = id
+  local repo
+  repo=$(plugin_field "$1" repo) || return 1
+  timeout 20 git ls-remote "$repo" HEAD 2>/dev/null | awk 'NR == 1 { print $1 }'
 }
 
 # Найновіший тег-реліз плагіна на сервері (для status).
@@ -4851,7 +4858,7 @@ cmd_package() {
 }
 
 cmd_status() {
-  local l mark latest built id ver active
+  local l mark latest built id ver active head commit
   local -a pkgs=()
   preflight_common
   print_header "$(t "стан" "status")"
@@ -4923,10 +4930,19 @@ cmd_status() {
       say "$(t "Оновлення плагінів" "Plugin updates")"
       for id in "${PLUGINS_SELECTED[@]}"; do
         ver=$(sed -n "s/^plugin\.$id=\([^ ]*\).*/\1/p" "$INFO_DIR/plugins/$id" 2>/dev/null || true)
+        commit=$(sed -n "s/^plugin\.$id=[^ ]* \([0-9a-f]*\).*/\1/p" "$INFO_DIR/plugins/$id" 2>/dev/null || true)
         latest=$(plugin_latest_remote "$id" || true)
+        head=''
+        # Без тегів-релізів плагін збирається з головної гілки: порівнюємо коміти.
+        if [[ -n "$ver" && -z "$latest" && -n "$commit" ]]; then head=$(plugin_remote_head "$id" || true); fi
         if [[ -z "$ver" ]]; then
           warn "$(t "$id: не встановлено — з'явиться після $(install_action)." \
                     "$id: not installed — it will appear after $(install_action).")"
+        elif [[ -n "$head" && "$head" == "$commit"* ]]; then
+          ok "$(t "$id: найновіший коміт гілки $ver (${commit:0:12})." "$id: the newest commit of the $ver branch (${commit:0:12}).")"
+        elif [[ -n "$head" ]]; then
+          say "$(t "$id: нові коміти в гілці $ver (встановлено ${commit:0:12}, тепер ${head:0:12}). Оновлення: $(install_action)" \
+                   "$id: new commits on the $ver branch (installed ${commit:0:12}, now ${head:0:12}). To update: $(install_action)")"
         elif [[ -z "$latest" ]]; then
           printf "$(t '  %s: %s (не вдалося перевірити оновлення)\n' \
                       '  %s: %s (could not check for updates)\n')" "$id" "$ver" >&2

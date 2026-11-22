@@ -56,6 +56,8 @@ pacman() {
     done
     return 0
   fi
+  # Встановлені пакети (take_file): усі, крім перелічених в ABSENT. Запит, не дія.
+  if [[ "$1" == -Q ]]; then [[ " ${ABSENT:-} " != *" ${3:-} "* ]]; return; fi
   printf '%s|%s\n' "${OBS_LEGACY_AUTO_UPDATE:-}" "$*" >> "$T/out/pacman.calls"
   return "${PACMAN_RC:-0}"
 }
@@ -75,6 +77,9 @@ good=$T/home/store/obs-studio-legacy-580xx-33.0.3-14-x86_64.pkg.tar.gz
 ff=$T/home/store/ffmpeg-legacy-580xx-2:9.1-1.3-x86_64.pkg.tar.gz
 mkpkg "$good" obs-studio-legacy-580xx
 mkpkg "$ff" ffmpeg-legacy-580xx
+# Плагін, якого зараз немає в системі (власник замінив його своїм пакетом).
+gone=$T/home/store/obs-gradient-source-legacy-580xx-0.6.4-14-x86_64.pkg.tar.gz
+mkpkg "$gone" obs-gradient-source-legacy-580xx
 mkpkg "$T/outside-legacy-580xx-1-1-x86_64.pkg.tar.gz" outside-legacy-580xx
 ln -s "$T/outside-legacy-580xx-1-1-x86_64.pkg.tar.gz" "$T/home/store/link-legacy-580xx-1-1-x86_64.pkg.tar.gz"
 mkpkg "$T/home/store/notes.txt" obs-studio-legacy-580xx
@@ -82,6 +87,7 @@ mkpkg "$T/home/store/evil-legacy-580xx-1-1-x86_64.pkg.tar.gz" coreutils
 cat > "$T/files" <<EOF
 install $good
 install $ff
+install $gone
 install $T/outside-legacy-580xx-1-1-x86_64.pkg.tar.gz
 install $T/home/store/link-legacy-580xx-1-1-x86_64.pkg.tar.gz
 install $T/home/store/notes.txt
@@ -123,13 +129,14 @@ echo "run"
 reset_out
 touch "$T/db.lck"
 ( sleep 2; rm -f "$T/db.lck" ) &
-run "$me" > "$T/out/run.txt" 2>&1
+ABSENT=obs-gradient-source-legacy-580xx run "$me" > "$T/out/run.txt" 2>&1
 wait
 check "чекає, доки pacman звільнить базу, і лагодить" "grep -qx -- '--repair' '$T/out/program.calls'"
 check "ставить лише справжні пакети з теки користувача, одним pacman -U" \
   "[[ \$(wc -l < '$T/out/pacman.calls') == 1 ]] && grep -q '^1|-U --noconfirm -- .*/obs-studio-legacy-580xx-33.0.3-14-x86_64.pkg.tar.gz .*/ffmpeg-legacy-580xx-2:9.1-1.3-x86_64.pkg.tar.gz\$' '$T/out/pacman.calls'"
 check "ставить копії з теки root, а не файли користувача" "! grep -q '$T/home' '$T/out/pacman.calls'"
-check "відкидає 5 чужих рядків (поза текою, посилання, назва, .PKGINFO, відносний)" "[[ \$(grep -c 'Skipping' '$T/out/run.txt') == 5 ]]"
+check "відкидає 5 чужих рядків (поза текою, посилання, назва, .PKGINFO, відносний)" "[[ \$(grep -c 'is not an OBS-Legacy package' '$T/out/run.txt') == 5 ]]"
+check "пакет, якого зараз немає в системі, не ставить знову" "grep -q 'obs-gradient-source-legacy-580xx.*is not installed now' '$T/out/run.txt' && ! grep -q 'gradient-source' '$T/out/pacman.calls'"
 check "remove не виконує" "grep -q 'Leaving obs-waveform-legacy-580xx installed' '$T/out/run.txt' && ! grep -q -- '-R' '$T/out/pacman.calls'"
 check "сповіщає про успіх" "grep -q -- '--auto-update-notice ok obs-studio-legacy-580xx' '$T/out/program.calls'"
 check "у журналі — звіт лагодження" "grep -q '    Звіт: ' '$T/out/run.txt'"
