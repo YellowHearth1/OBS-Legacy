@@ -20,6 +20,7 @@ mod launcher;
 mod logo;
 mod notify;
 mod nvenc;
+mod package_move;
 mod paths;
 mod reports;
 mod runner;
@@ -64,6 +65,9 @@ Options:
                   “install <file>” and “remove <package>”; installs nothing
   --missing-deps  for package managers: build dependencies that are not installed, as
                   lines “repo <package>” (add them to the transaction) and “norepo <package>”
+  --use-package   after installing the obs-legacy pacman package: the program from the
+                  package takes over from the copy install.sh put in ~/.local/bin (the
+                  notification service, the menu shortcut); that copy is removed
   --notifier status          update notifications: on or off, the last check
   --notifier enable [service] turn on the background check (every 12 hours): a
                              systemd, dinit, openrc, runit, s6 or autostart service;
@@ -99,6 +103,9 @@ Inspired by https://github.com/sl5net/build-obs-nvenc-legacy"
                   «install <файл>» і «remove <пакет>»; сам нічого не ставить
   --missing-deps  для пакетних менеджерів: пакети для збирання, яких немає, — рядки
                   «repo <пакет>» (додати в транзакцію) і «norepo <пакет>»
+  --use-package   після встановлення пакета obs-legacy: програма з пакета переймає роботу
+                  в копії, яку install.sh поставив у ~/.local/bin (служба сповіщень, ярлик
+                  у меню); ту копію прибрано
   --notifier status          сповіщення про оновлення: чи ввімкнено, остання перевірка
   --notifier enable [служба] увімкнути фонову перевірку (раз на 12 годин): служба
                              systemd, dinit, openrc, runit, s6 чи autostart; без
@@ -152,6 +159,7 @@ fn main() -> ExitCode {
             }
             "--install-files" => return run_script(&["install-files"]),
             "--missing-deps" => return run_script(&["deps", "--missing"]),
+            "--use-package" => return package_move::main(),
             "--watch" => return updates::watch_main(&service::exe_path()),
             "--notifier" => return service::main(&args[i + 1..]),
             "--script-path" => {
