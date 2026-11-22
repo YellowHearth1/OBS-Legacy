@@ -495,10 +495,11 @@ Commands:
                      if the last build was interrupted (a power cut) or OBS behaves strangely.
   package            The same as install, but only build the packages (no installation).
   prepare            The same as update, but only build the packages and ask nothing (the
-                     background check runs it: a new ffmpeg, missing libraries).
-  upgrade-system     Upgrade the system (pacman -Syu) together with OBS-Legacy: first a dry run;
-                     if $FFMPEG_PKG stands in the way, it is replaced with the repository ffmpeg
-                     for the upgrade and built again afterwards.
+                     background check and package managers run it after a system upgrade).
+  install-files      For package managers: the ready set to install, as lines
+                     “install <package file>” and “remove <package>”; installs nothing.
+  upgrade-system     Upgrade the system (pacman -Syu) together with OBS-Legacy: first a dry run,
+                     then the upgrade, then update.
   repo-sync          Refresh our own copy of the pacman databases (no root, like checkupdates).
   status             Installed packages, hardware profile, saved package sets, updates.
   rollback [SET]     Install the previous (or the given) saved package set.
@@ -574,10 +575,11 @@ https://github.com/sl5net/build-obs-nvenc-legacy. Без гарантій — д
                      минуле збирання обірвалося (вимкнулося світло) чи OBS поводиться дивно.
   package            Те саме, що install, але лише зібрати пакети (без встановлення).
   prepare            Те саме, що update, але лише зібрати пакети й нічого не питати (так його
-                     запускає фонова перевірка: новий ffmpeg, бракує бібліотек).
-  upgrade-system     Оновити систему (pacman -Syu) разом з OBS-Legacy: спершу пробний прогін;
-                     якщо $FFMPEG_PKG заважає, на час оновлення його замінює ffmpeg з
-                     репозиторію, а потім він збирається знову.
+                     запускають фонова перевірка й пакетні менеджери після оновлення системи).
+  install-files      Для пакетних менеджерів: що поставити з готового набору — рядки
+                     «install <файл пакета>» і «remove <пакет>»; сам нічого не ставить.
+  upgrade-system     Оновити систему (pacman -Syu) разом з OBS-Legacy: спершу пробний прогін,
+                     потім оновлення, потім update.
   repo-sync          Оновити власну копію баз pacman (без root, як checkupdates).
   status             Встановлені пакети, профіль заліза, збережені набори, оновлення.
   rollback [НАБІР]   Поставити попередній (або вказаний) збережений набір пакетів.
@@ -4342,6 +4344,31 @@ finish_prepare() {   # $1 = 1, якщо набір уже був готовий 
   summary "$(t "підготовлено набір $LABEL (ще не встановлено)" "prepared the set $LABEL (not installed yet)")"
 }
 
+# Для пакетних менеджерів і AUR-помічників (Мацаки тощо; docs/ARCHITECTURE.md → «Пакетні
+# менеджери»): що поставити з готового набору, який зібрав prepare. На stdout — рядки
+# «install <файл пакета>» і «remove <пакет>» (наші плагіни, яких немає в наборі); порожньо —
+# ставити нічого. Сам нічого не встановлює: пакети ставить пакетний менеджер у своїй транзакції
+# (pacman -U), а перед тим тут робиться копія налаштувань OBS, як перед install.
+cmd_install_files() {
+  local cur l p
+  require_tools bsdtar ldd
+  cur=$(installed_label || true)
+  while IFS= read -r l; do
+    [[ -z "$cur" || "$l" > "$cur" ]] || break
+    [[ -f "$PKG_STORE/$l/.complete" ]] || continue
+    if ! set_libs_ok "$PKG_STORE/$l"; then
+      printf "$(t '  Набір %s зібрано до оновлення системи — йому бракує бібліотек, пропускаю.\n' \
+                  '  The set %s was built before a system upgrade — it is missing libraries, skipping it.\n')" "$l" >&2
+      continue
+    fi
+    use_stored_set "$l" || continue
+    backup_obs_config
+    for p in "${SET_FILES[@]}"; do printf 'install %s\n' "$p"; done
+    while IFS= read -r p; do printf 'remove %s\n' "$p"; done < <(stale_plugin_packages "${SET_FILES[@]}")
+    return 0
+  done < <(store_sets | sort -r)
+}
+
 # ---------------------------------------------------------------------------
 # Оновлення системи разом з OBS-Legacy. Пакети *-legacy-580xx зібрано проти
 # бібліотек, що стоять зараз, тож оновлення системи може (1) не пройти: pacman не
@@ -4993,6 +5020,7 @@ main() {
     prepare)        run_logged cmd_prepare ;;
     upgrade-system) run_logged cmd_upgrade_system ;;
     repo-sync)      cmd_repo_sync ;;
+    install-files)  cmd_install_files ;;
     rebuild)        run_logged cmd_rebuild ;;
     package)        run_logged cmd_package ;;
     rollback)       run_logged cmd_rollback "$@" ;;

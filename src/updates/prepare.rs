@@ -67,6 +67,20 @@ pub fn script_busy() -> bool {
     unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) != 0 }
 }
 
+/// Дочекатися, поки скрипт звільниться (фонова підготовка чи збирання у вікні TUI). true — чекали.
+/// Для `obs-legacy --prepare`: пакетний менеджер після оновлення системи не має падати через те, що
+/// фонова перевірка саме готує ті самі пакети, — тоді його `prepare` швидко знайде готовий набір.
+pub fn wait_script_free() -> bool {
+    let Ok(file) = OpenOptions::new().read(true).open(script_lock()) else { return false };
+    // SAFETY: flock на власному дескрипторі; спершу без очікування — чи зайнято взагалі.
+    let busy = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } != 0;
+    if busy {
+        // SAFETY: як вище; тепер чекаємо, доки скрипт відпустить блокування (знімається, щойно файл закрито).
+        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH) };
+    }
+    busy
+}
+
 /// Запустити команду скрипта у фоні з найнижчим пріоритетом (процесор і диск): збирання триває
 /// годину й не повинне заважати людині. Вивід не потрібен — скрипт сам пише звіт.
 pub fn spawn(script: &Path, command: &str) -> io::Result<Child> {

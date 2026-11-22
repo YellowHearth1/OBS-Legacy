@@ -330,6 +330,13 @@ OBS-Legacy, pacman says so at the end, and with update notifications on, the bac
 rebuild by itself and tells you when the packages are ready. Without notifications, run **Install / update
 OBS**; `bash "$(obs-legacy --script-path)" status` lists the kept copies.
 
+**Does it work with package managers and AUR helpers (Matsaky, paru…)?** Yes: a system upgrade from any of
+them goes through, and the background check rebuilds what needs it. A package manager can also take
+OBS-Legacy into its own “Upgrade all”, in the right order: system packages, then `obs-legacy --prepare`
+(builds as your user, asks nothing), then installing what `obs-legacy --install-files` lists, then AUR plugins
+for OBS. The details for developers are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (“Пакетні менеджери й
+AUR-помічники”).
+
 **My driver is newer than 580xx.** Then NVENC works in the repo OBS too, and you most likely don't need
 OBS-Legacy. The program tells you so on the home screen.
 

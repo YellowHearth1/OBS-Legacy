@@ -26,6 +26,7 @@ use crate::settings::Settings;
 use crate::system;
 use crate::versions::{self, Updates, newer};
 
+pub use prepare::wait_script_free;
 pub use state::State;
 pub use watch::{check_main, log_path, running_pid, watch_main};
 

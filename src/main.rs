@@ -55,9 +55,15 @@ application menu or a file manager), it opens a terminal window itself.
 Options:
   --script-path   print the path of the build script (it also runs without the TUI)
   --check-updates check for new versions of OBS, plugins and OBS-Legacy now
-  --upgrade-system upgrade the system (pacman -Syu) together with OBS-Legacy: first a dry
-                  run; if ffmpeg-legacy-580xx stands in the way, it is swapped for the
-                  repository ffmpeg for the upgrade and built again right after it
+  --upgrade-system upgrade the system (pacman -Syu) together with OBS-Legacy: a dry run,
+                  the upgrade, then the OBS-Legacy packages are built and installed if needed
+  --prepare       for package managers, after a system upgrade: build the OBS-Legacy
+                  packages that need it (no root, no questions; waits for the background
+                  check if it is already preparing them)
+  --install-files for package managers: the ready packages to install, as lines
+                  “install <file>” and “remove <package>”; installs nothing
+  --missing-deps  for package managers: build dependencies that are not installed, as
+                  lines “repo <package>” (add them to the transaction) and “norepo <package>”
   --notifier status          update notifications: on or off, the last check
   --notifier enable [service] turn on the background check (every 12 hours): a
                              systemd, dinit, openrc, runit, s6 or autostart service;
@@ -84,9 +90,15 @@ Inspired by https://github.com/sl5net/build-obs-nvenc-legacy"
 Параметри:
   --script-path   показати шлях до скрипта збирання (його можна запускати й без TUI)
   --check-updates перевірити нові версії OBS, плагінів і OBS-Legacy зараз
-  --upgrade-system оновити систему (pacman -Syu) разом з OBS-Legacy: спершу пробний
-                  прогін; якщо ffmpeg-legacy-580xx заважає, на час оновлення його замінює
-                  ffmpeg з репозиторію, а одразу після оновлення він збирається знову
+  --upgrade-system оновити систему (pacman -Syu) разом з OBS-Legacy: пробний прогін,
+                  оновлення, потім за потреби збирання й встановлення пакетів OBS-Legacy
+  --prepare       для пакетних менеджерів, після оновлення системи: зібрати пакети
+                  OBS-Legacy, яким це треба (без root і без питань; дочекається фонової
+                  перевірки, якщо вона вже їх готує)
+  --install-files для пакетних менеджерів: що поставити з готових пакетів — рядки
+                  «install <файл>» і «remove <пакет>»; сам нічого не ставить
+  --missing-deps  для пакетних менеджерів: пакети для збирання, яких немає, — рядки
+                  «repo <пакет>» (додати в транзакцію) і «norepo <пакет>»
   --notifier status          сповіщення про оновлення: чи ввімкнено, остання перевірка
   --notifier enable [служба] увімкнути фонову перевірку (раз на 12 годин): служба
                              systemd, dinit, openrc, runit, s6 чи autostart; без
@@ -126,6 +138,20 @@ fn main() -> ExitCode {
             "--probe-nvenc" => return ExitCode::from(nvenc::probe_main() as u8),
             "--check-updates" => return updates::check_main(),
             "--upgrade-system" => return run_script_command("upgrade-system"),
+            "--prepare" => {
+                if updates::wait_script_free() {
+                    eprintln!(
+                        "obs-legacy: {}",
+                        tr!(
+                            "фонова підготовка пакетів завершилася — перевіряю, що лишилося.",
+                            "the background preparation of packages has finished — checking what is left."
+                        )
+                    );
+                }
+                return run_script(&["prepare"]);
+            }
+            "--install-files" => return run_script(&["install-files"]),
+            "--missing-deps" => return run_script(&["deps", "--missing"]),
             "--watch" => return updates::watch_main(&service::exe_path()),
             "--notifier" => return service::main(&args[i + 1..]),
             "--script-path" => {
@@ -178,6 +204,11 @@ fn run_script_command(command: &str) -> ExitCode {
         eprintln!("obs-legacy: {}", tr!("потрібен термінал.", "a terminal is required."));
         return ExitCode::FAILURE;
     }
+    run_script(&[command])
+}
+
+/// Команда скрипта з тим самим stdin/stdout/stderr (термінал, PTY чи труба пакетного менеджера).
+fn run_script(args: &[&str]) -> ExitCode {
     let script = match script::ensure_extracted() {
         Ok(p) => p,
         Err(e) => {
@@ -187,7 +218,7 @@ fn run_script_command(command: &str) -> ExitCode {
     };
     match std::process::Command::new("bash")
         .arg(&script)
-        .arg(command)
+        .args(args)
         .env("OBS_LEGACY_LANG", i18n::lang().code())
         .status()
     {
