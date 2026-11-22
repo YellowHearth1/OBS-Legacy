@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck -S warning scripts/build-obs-nvenc-legacy-artix.sh install.sh dev/fake-build.sh
+      - run: shellcheck -S warning scripts/build-obs-nvenc-legacy-artix.sh install.sh dev/fake-build.sh dev/test-keep-libs.sh
       - run: bash scripts/build-obs-nvenc-legacy-artix.sh plugins --tsv
       # Обидві мови: довідка, каталог, установник і імітатор доходять до кінця й говорять своєю мовою.
       # Вивід — спершу в змінну: «… | grep -q» з pipefail дає хибну помилку (SIGPIPE).

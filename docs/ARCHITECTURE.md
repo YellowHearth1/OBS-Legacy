@@ -12,6 +12,7 @@
 | Установник | `install.sh`, `assets/obs-legacy.svg` | У теці з вихідними кодами збирає TUI (`--target-dir` репозиторію) і прибирає `target/`; без неї (`curl … \| bash`) завантажує з релізу готовий `obs-legacy-x86_64` і звіряє SHA-256. Далі однаково: `~/.local/bin`, ярлик у меню й на робочий стіл, пропонує ввімкнути сповіщення |
 | Сповіщення | `src/updates.rs`, `src/notify.rs`, `src/service.rs` | Фонова перевірка оновлень (`obs-legacy --watch`) і сповіщення на робочому столі; служба користувача systemd, dinit, OpenRC, runit, s6 або автозапуск сесії (див. «Сповіщення про оновлення») |
 | Імітатор | `dev/fake-build.sh` | Друкує те саме, що рушій (разом зі звітом), але нічого не робить — для розробки інтерфейсу |
+| Тест keep-libs | `dev/test-keep-libs.sh` | Хук збереження бібліотек без root: генерує його з рушія, «ховає» бібліотеку з кешу ldconfig і перевіряє pre/post (на машині з пакетами OBS-Legacy; без них — пропускає) |
 | Скріншоти | `dev/screenshot.py` | PNG зі знімка `tmux capture-pane -e -p -N` (Pillow) — для `docs/screenshots/` |
 | Іконка й банер | `dev/make-assets.py`, `assets/third-party/` | `assets/obs-legacy.svg` і `assets/banner.png` (1280×640, шапка README і прев'ю репозиторію) з іконки «graphics-card» Phosphor Icons (MIT) і шрифту JetBrains Mono (OFL), текст — кривими. Без логотипів NVIDIA й OBS: це чужі торгові марки, а їхні правила забороняють використання без ліцензії |
 | Пакет програми | `packaging/PKGBUILD`, `packaging/obs-legacy.desktop`, `.github/workflows/package.yml` | Готовий пакет pacman самої програми (`obs-legacy-<версія>-1-x86_64.pkg.tar.zst`) для кожного релізу — див. «Пакет програми» |
@@ -465,8 +466,8 @@ pacman-хука.
   (`set_libs_ok`), не вважається готовим, а `verify_tree` не пропустить такий файл у пакет.
 - Хто чекає на копії: `kept_libs ffmpeg|obs` у скрипті (`ffmpeg_needs_rebuild`, рядок в `update_reasons`),
   `updates::kept_libs` у TUI (фонова підготовка й сповіщення), `status`.
-- Тест без root: файл можна підключити (`source`) — `main` тоді не виконується; теки, список і `ldmap`
-  підставляються.
+- Тест без root — `dev/test-keep-libs.sh`: файл підключається (`source`, `main` тоді не виконується), теки,
+  список і `ldmap` підставляються, бібліотека чужого пакета «зникає» з кешу ldconfig.
 
 **check-libs**:
 `/usr/share/libalpm/hooks/obs-legacy.hook` спрацьовує на `Upgrade`/`Remove` будь-якого пакета

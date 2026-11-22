@@ -2855,8 +2855,11 @@ pre() {
 # потрібне пакетам OBS-Legacy (прямо чи через іншу збережену копію).
 post() {
   local -A want=()
-  local s f changed=0 had=0
-  for f in "$kept"/* "$staged"/*; do
+  local s f changed=0 had=0 had_kept=0
+  for f in "$kept"/*; do
+    if [[ -f "$f" ]]; then had=1 had_kept=1; break; fi
+  done
+  for f in "$staged"/*; do
     if [[ -f "$f" ]]; then had=1; break; fi
   done
   if ((had == 0)); then rm -rf -- "$staged" "$list"; return 0; fi
@@ -2899,7 +2902,7 @@ post() {
     for s in "${!want[@]}"; do printf '      %s (%s)\n' "$s" "${want[$s]}"; done | sort
     # shellcheck disable=SC2059 # формат — з m_next вище
     printf "$m_next" "$hint"
-  elif ((changed)); then
+  elif ((changed && had_kept)); then
     printf '\n==> %s\n\n' "$m_gone"
   fi
 }
@@ -3482,13 +3485,18 @@ version_no_rel() {   # $1 = версія pacman
   printf '%s\n' "${1%-*}"
 }
 
-# Бібліотеки, які зберіг keep-libs (їх забрало оновлення системи), через пробіл:
-# ffmpeg — потрібні ffmpeg-legacy-580xx, obs — решті пакетів OBS-Legacy. Порожньо — немає.
-kept_libs() {   # $1 = ffmpeg | obs
+# Бібліотеки, які зберіг keep-libs (їх забрало оновлення системи), через пробіл: ffmpeg —
+# потрібні ffmpeg-legacy-580xx, set — решті пакетів OBS-Legacy (OBS і плагіни), obs — самому
+# пакету OBS. Порожньо — немає.
+kept_libs() {   # $1 = ffmpeg | set | obs
   [[ -r "$KEPT_LIBS_LIST" ]] || return 0
-  awk -F'\t' -v want="$1" -v ff="$FFMPEG_PKG" '
+  awk -F'\t' -v want="$1" -v ff="$FFMPEG_PKG" -v obs="$OBS_PKG" '
     { n = split($2, a, " "); hit = 0
-      for (i = 1; i <= n; i++) if ((want == "ffmpeg") == (a[i] == ff)) hit = 1
+      for (i = 1; i <= n; i++) {
+        if (want == "ffmpeg" && a[i] == ff) hit = 1
+        if (want == "set" && a[i] != ff) hit = 1
+        if (want == "obs" && a[i] == obs) hit = 1
+      }
       if (hit) { printf "%s%s", sep, $1; sep = " " } }
     END { if (sep != "") print "" }' "$KEPT_LIBS_LIST" 2>/dev/null || true
 }
@@ -3963,7 +3971,7 @@ update_reasons() {
                           'the packages are missing libraries after a system upgrade')"
     fi
   fi
-  out=$(kept_libs obs)
+  out=$(kept_libs set)
   if [[ -n "$out" ]]; then
     printf "$(t 'після оновлення системи OBS працює на збережених старих бібліотеках: %s\n' \
                 'after a system upgrade OBS runs on kept old libraries: %s\n')" "$out"
@@ -4066,6 +4074,13 @@ build_set() {
   if [[ "$INSTALL_MODE" == rebuild ]]; then
     printf "$(t '  Перезбирання начисто: кеш збірки OBS буде очищено.\n' \
                 '  Clean rebuild: the OBS build cache will be cleared.\n')" >&2
+    configure_obs "$BUILD_DIR" "$PREFIX" fresh
+  elif [[ -n "$(kept_libs obs)" ]]; then
+    # Після заміни бібліотеки (libx264.so.165 → .166) ninja може не перекомпонувати OBS: це
+    # бачить лише ldd, і пакет не пройшов би перевірку. Начисто — напевно з новою бібліотекою.
+    printf "$(t '  OBS працює на збережених копіях бібліотек (%s): збираю начисто, щоб він узяв нові.\n' \
+                '  OBS runs on kept library copies (%s): building from scratch so that it takes the new ones.\n')" \
+      "$(kept_libs obs)" >&2
     configure_obs "$BUILD_DIR" "$PREFIX" fresh
   else
     configure_obs "$BUILD_DIR" "$PREFIX" reuse
