@@ -152,7 +152,8 @@ to the same places as the repo OBS (`/usr`), so pacman itself offers to replace 
   package change only their own folder of kept library copies (`/usr/lib/obs-legacy/kept-libs`). The one
   exception is the automatic update with the system (only with the `obs-legacy` pacman package): after a
   pacman transaction that you started with your password, it installs the rebuilt OBS-Legacy packages with
-  `pacman -U --noconfirm` — only `*-legacy-580xx` packages built in your own folder.
+  `pacman -U --noconfirm` — only `*-legacy-580xx` packages built in your own folder, and only ones that
+  are installed now: a plugin you removed or replaced with another package comes back only when you ask.
 - **System upgrades never get stuck.** Upgrade the usual way: `sudo pacman -Syu`, `paru -Syu` or any
   other helper. The OBS-Legacy packages don't pin exact library versions, so pacman never refuses an
   upgrade because of them. When an upgrade replaces a library that OBS or ffmpeg is built with (say, a new

@@ -56,6 +56,7 @@ if [[ "$loc" == uk* ]]; then
   m_repair='Лагоджу пакети (obs-legacy --repair від імені %s)…'
   m_repair_rc='obs-legacy --repair завершився з кодом %s.'
   m_bad='Пропускаю %s: це не пакет OBS-Legacy з теки користувача.'
+  m_absent='Пропускаю %s: такого пакета зараз немає в системі (його прибрали чи замінили іншим) — поставити його знову можна в OBS-Legacy, «Встановити / оновити OBS».'
   m_keep='Лишаю встановленим %s (прибрати — «Встановити / оновити OBS» в OBS-Legacy).'
   m_none='Ставити нічого.'
   m_install='Ставлю: %s'
@@ -74,6 +75,7 @@ else
   m_repair='Repairing the packages (obs-legacy --repair as %s)…'
   m_repair_rc='obs-legacy --repair finished with code %s.'
   m_bad='Skipping %s: it is not an OBS-Legacy package from the user’s folder.'
+  m_absent='Skipping %s: this package is not installed now (it was removed or replaced by another one) — to install it again: “Install / update OBS” in OBS-Legacy.'
   m_keep='Leaving %s installed (to remove it: “Install / update OBS” in OBS-Legacy).'
   m_none='Nothing to install.'
   m_install='Installing: %s'
@@ -204,7 +206,10 @@ fingerprint() {
 }
 
 # Рядок «install <файл>» від користувача → копія в $dest, якщо це пакет OBS-Legacy з його теки.
-# Перевіряється вже копія (її користувач не підмінить): назва пакета в .PKGINFO.
+# Перевіряється вже копія (її користувач не підмінить): назва пакета в .PKGINFO. Код 2 — пакета з
+# такою назвою зараз немає в системі: його прибрали чи замінили (скажімо, своїм пакетом плагіна).
+# Повернути його — рішення людини, а не фонового pacman -U --noconfirm: на конфлікті «вилучити
+# інший пакет?» --noconfirm відповідає «ні», і зупинилося б оновлення всього набору.
 take_file() {   # $1 = шлях, $2 = тека копій
   local real rhome base name
   [[ "$1" == /* ]] || return 1
@@ -217,6 +222,7 @@ take_file() {   # $1 = шлях, $2 = тека копій
   cp -- "$real" "$2/$base" 2>/dev/null && chmod 0644 -- "$2/$base" || return 1
   name=$(bsdtar -xOf "$2/$base" .PKGINFO 2>/dev/null | sed -n 's/^pkgname = //p' | head -n1 || true)
   if [[ "$name" != *-"$suffix" ]]; then rm -f -- "$2/$base"; return 1; fi
+  if ! pacman -Q -- "$name" >/dev/null 2>&1; then rm -f -- "$2/$base"; return 2; fi
   printf '%s\n' "$2/$base"
 }
 
@@ -263,8 +269,12 @@ run() {   # $1 = користувач
   while IFS= read -r line; do
     case "$line" in
       'install '*)
-        if copy=$(take_file "${line#install }" "$dest"); then copies+=("$copy") names+=("${copy##*/}")
-        else say "$m_bad" "${line#install }"; fi ;;
+        copy=$(take_file "${line#install }" "$dest")
+        case $? in
+          0) copies+=("$copy") names+=("${copy##*/}") ;;
+          2) say "$m_absent" "${line#install }" ;;
+          *) say "$m_bad" "${line#install }" ;;
+        esac ;;
       'remove '*) say "$m_keep" "${line#remove }" ;;
     esac
   done < <(as_user "$program" --install-files 2>/dev/null)
