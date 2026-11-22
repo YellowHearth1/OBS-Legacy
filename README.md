@@ -197,7 +197,7 @@ with `obs-legacy-<version>-1-x86_64.pkg.tar.zst`, built from the release sources
 download it and install it with pacman.
 
 ```bash
-sudo pacman -U obs-legacy-0.0.7-1-x86_64.pkg.tar.zst
+sudo pacman -U obs-legacy-0.0.8-1-x86_64.pkg.tar.zst
 ```
 
 The program lands in `/usr/bin/obs-legacy` with an **OBS-Legacy** entry in the application menu. The first
@@ -605,8 +605,13 @@ plan — [`docs/TESTING.md`](docs/TESTING.md).
 
 ## Versions
 
-The current version is **0.0.7**: moving from the `install.sh` copy to the pacman package is one command,
-`obs-legacy --use-package` (Matsaky runs it by itself). **0.0.6** made OBS-Legacy keep up with system upgrades. A plain `pacman -Syu` or
+The current version is **0.0.8**: OBS-Legacy now keeps its own packages working through system upgrades by
+itself. After a `pacman -Syu` or `paru -Syu` that replaces a library they need, the `obs-legacy` package
+rebuilds only the affected OBS-Legacy packages in the background and installs them — no extra command and no
+second password. The one command now installs the program as that pacman package (and takes over an older copy
+in `~/.local/bin`), **More → Update OBS-Legacy** updates the package from the latest release, and update
+notifications are on by default. **0.0.7** made moving from the `install.sh` copy to the pacman package one
+command, `obs-legacy --use-package` (Matsaky runs it by itself). **0.0.6** made OBS-Legacy keep up with system upgrades. A plain `pacman -Syu` or
 `paru -Syu` no longer stops on its packages: the libraries they need are kept until the packages are rebuilt
 in the background, and only what the upgrade affected is rebuilt (ffmpeg alone, or OBS just relinked).
 Package managers and AUR helpers can take OBS-Legacy into their own “Upgrade all”, your own plugins can be
