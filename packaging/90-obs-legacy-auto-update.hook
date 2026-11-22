@@ -1,0 +1,16 @@
+# OBS-Legacy: after a pacman transaction, rebuilds in the background only the OBS-Legacy packages
+# (*-legacy-580xx) that the upgrade broke and installs them by itself (/usr/lib/obs-legacy/auto-update).
+# The hook only starts that process and returns at once: it never stops or slows down pacman.
+# Українською: після транзакції pacman перезбирає у фоні лише ті пакети OBS-Legacy, які зламало
+# оновлення, і сам їх ставить. Хук лише запускає цей процес і ніколи не зупиняє pacman.
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Package
+Target = *
+
+[Action]
+Description = OBS-Legacy: checking whether the OBS packages need a rebuild...
+When = PostTransaction
+Exec = /usr/lib/obs-legacy/auto-update hook

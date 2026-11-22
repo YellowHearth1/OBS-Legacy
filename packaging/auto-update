@@ -1,0 +1,273 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2059,SC1112 # формати — у змінних m_*; англійські лапки “…” навмисні
+# OBS-Legacy: автоматичне оновлення пакетів OBS-Legacy (*-legacy-580xx) разом із системою.
+#
+# Хук pacman 90-obs-legacy-auto-update.hook після кожної транзакції викликає «auto-update hook».
+# Якщо пакети OBS-Legacy встановлено, той запускає «auto-update run <користувач>» окремим
+# процесом (setsid) і одразу повертає керування: pacman на нього не чекає й ніколи через нього
+# не зупиняється. Окремий процес:
+#   1. чекає, доки pacman звільнить свою базу (db.lck);
+#   2. від імені того, хто запустив оновлення (sudo, pkexec, doas), — ніколи не від root —
+#      запускає «obs-legacy --repair»: той перезбирає лише те, що зламало оновлення бібліотек
+#      (збережені копії keep-libs чи бібліотеки, яких бракує), тих самих версій;
+#   3. питає «obs-legacy --install-files», що поставити (набір від --repair чи підготовлений у
+#      фоні), перевіряє кожен файл (у домашній теці цього користувача, його власність, пакет
+#      *-legacy-580xx), копіює в теку, куди пише лише root, і ставить копії «pacman -U --noconfirm»;
+#   4. сповіщає користувача.
+# Довіра — як в AUR-помічника (paru): зібране користувачем ставить root, і лише після транзакції
+# pacman, яку користувач сам запустив зі своїм паролем. Без такої транзакції тут нічого не діється.
+# Журнал — /var/log/obs-legacy/auto-update.log (читати може кожен).
+set -u
+
+program=/usr/bin/obs-legacy
+info=/usr/share/obs-legacy/BUILDINFO.txt
+kept_list=/var/lib/obs-legacy/kept-libs.tsv
+state=/var/lib/obs-legacy
+log_dir=/var/log/obs-legacy
+log=$log_dir/auto-update.log
+work=/var/cache/obs-legacy/auto-update
+run_lock=/run/obs-legacy-auto-update.lock
+suffix=legacy-580xx
+# Звичайні користувачі (як UID_MIN у /etc/login.defs); 65534 — nobody.
+min_uid=1000
+nobody_uid=65534
+# Скільки чекати: pacman звільнить базу (с), попередній запуск цього ж процесу закінчиться (с).
+db_wait=3600
+run_wait=21600
+# Журнал більший за це (байти) — стара частина переходить у auto-update.log.old.
+log_max=1048576
+self=$(realpath -e -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")
+
+loc=${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}
+if [[ -z "$loc" && -r /etc/locale.conf ]]; then
+  loc=$(sed -n 's/^LANG=//p' /etc/locale.conf 2>/dev/null | tr -d "\"'" | head -n1 || true)
+fi
+if [[ "$loc" == uk* ]]; then
+  m_started='\n==> OBS-Legacy перезбере у фоні лише ті пакети, яким потрібні нові бібліотеки, і сам їх поставить.\n    OBS працює як і раніше; коли все буде готово, прийде сповіщення (журнал: %s).\n\n'
+  m_nouser='OBS-Legacy: не знаю, від чийого імені перезбирати пакети (pacman запущено не через sudo, pkexec чи doas) — відкрий OBS-Legacy й натисни «Встановити / оновити OBS».'
+  m_start='Початок: користувач %s.'
+  m_busy='Попередній запуск ще працює — чекаю на нього.'
+  m_busy_gone='Попередній запуск не закінчився за %s год — виходжу.'
+  m_lock='pacman не звільнив базу (%s) за %s хв — виходжу. Наступне оновлення системи спробує знову.'
+  m_skip='Минуле лагодження цих самих пакетів не вдалося — не повторюю його, лише шукаю готові пакети.'
+  m_repair='Лагоджу пакети (obs-legacy --repair від імені %s)…'
+  m_repair_rc='obs-legacy --repair завершився з кодом %s.'
+  m_bad='Пропускаю %s: це не пакет OBS-Legacy з теки користувача.'
+  m_keep='Лишаю встановленим %s (прибрати — «Встановити / оновити OBS» в OBS-Legacy).'
+  m_none='Ставити нічого.'
+  m_install='Ставлю: %s'
+  m_done='Готово: пакети OBS-Legacy встановлено.'
+  m_fail='pacman -U завершився з кодом %s — система не змінилася.'
+  m_nosetpriv='Немає setpriv (util-linux) — не можу збирати від імені користувача.'
+else
+  m_started='\n==> OBS-Legacy will rebuild in the background only the packages that need the new libraries and install them itself.\n    OBS works as before; a notification comes when it is done (log: %s).\n\n'
+  m_nouser='OBS-Legacy: I do not know on whose behalf to rebuild the packages (pacman did not run through sudo, pkexec or doas) — open OBS-Legacy and press “Install / update OBS”.'
+  m_start='Start: user %s.'
+  m_busy='The previous run is still working — waiting for it.'
+  m_busy_gone='The previous run did not finish in %s h — leaving.'
+  m_lock='pacman did not release its database (%s) in %s min — leaving. The next system upgrade will try again.'
+  m_skip='The last repair of these same packages failed — not repeating it, only looking for ready packages.'
+  m_repair='Repairing the packages (obs-legacy --repair as %s)…'
+  m_repair_rc='obs-legacy --repair finished with code %s.'
+  m_bad='Skipping %s: it is not an OBS-Legacy package from the user’s folder.'
+  m_keep='Leaving %s installed (to remove it: “Install / update OBS” in OBS-Legacy).'
+  m_none='Nothing to install.'
+  m_install='Installing: %s'
+  m_done='Done: the OBS-Legacy packages are installed.'
+  m_fail='pacman -U finished with code %s — the system did not change.'
+  m_nosetpriv='setpriv (util-linux) is missing — cannot build on behalf of the user.'
+fi
+
+say() {   # формат, аргументи — рядок у журнал з часом
+  local msg
+  printf -v msg "$@"
+  printf '%s %s\n' "$(date '+%F %T')" "$msg"
+}
+
+db_lock_path() {
+  local db
+  db=$(pacman-conf DBPath 2>/dev/null | head -n1 || true)
+  db=${db:-/var/lib/pacman/}
+  printf '%s/db.lck\n' "${db%/}"
+}
+
+# Звичайний користувач (ім'я чи UID) → «ім'я:uid:gid:тека». Код 1 — не такий (root, системний,
+# nobody, без домашньої теки) або рядок не схожий на ім'я (захист від «-s» у getent).
+user_entry() {   # $1 = ім'я або uid
+  local e name uid gid home
+  [[ "$1" =~ ^[0-9]+$ || "$1" =~ ^[a-z_][a-z0-9_.-]*\$?$ ]] || return 1
+  e=$(getent passwd "$1" 2>/dev/null | head -n1) || return 1
+  IFS=: read -r name _ uid gid _ home _ <<<"$e"
+  [[ "$uid" =~ ^[0-9]+$ && "$gid" =~ ^[0-9]+$ ]] || return 1
+  if ((uid < min_uid || uid == nobody_uid)) || [[ ! -d "$home" ]]; then return 1; fi
+  printf '%s:%s:%s:%s\n' "$name" "$uid" "$gid" "$home"
+}
+
+# Від чийого імені збирати: хто запустив pacman (sudo, pkexec, doas) → той, хто запускав минулого
+# разу → єдиний користувач, у якого є сховище наборів OBS-Legacy.
+target_user() {
+  local who name uid home
+  local -a found=()
+  for who in "${SUDO_UID:-}" "${PKEXEC_UID:-}" "${DOAS_USER:-}"; do
+    if [[ -n "$who" ]] && user_entry "$who"; then return 0; fi
+  done
+  if [[ -r "$state/auto-update.user" ]]; then
+    who=$(head -n1 -- "$state/auto-update.user" 2>/dev/null || true)
+    if [[ -n "$who" ]] && user_entry "$who"; then return 0; fi
+  fi
+  while IFS=: read -r name _ uid _ _ home _; do
+    if [[ "$uid" =~ ^[0-9]+$ ]] && ((uid >= min_uid && uid != nobody_uid)) \
+       && [[ -d "$home/.local/share/obs-studio-nvenc-artix/packages" ]]; then
+      found+=("$name")
+    fi
+  done < <(getent passwd 2>/dev/null || true)
+  ((${#found[@]} == 1)) && user_entry "${found[0]}"
+}
+
+# Викликає хук pacman (від root, усередині транзакції): лише запустити run окремо й вийти.
+hook() {
+  local entry
+  # Наш власний pacman -U (крок 3) — не запускати себе по колу.
+  [[ "${OBS_LEGACY_AUTO_UPDATE:-}" != 1 ]] || return 0
+  [[ -f "$info" && -x "$program" && "$(id -u)" == 0 ]] || return 0
+  if ! entry=$(target_user); then
+    if [[ -s "$kept_list" ]]; then printf '%s\n' "$m_nouser"; fi
+    return 0
+  fi
+  mkdir -p -- "$state" 2>/dev/null \
+    && printf '%s\n' "${entry%%:*}" > "$state/auto-update.user.tmp" 2>/dev/null \
+    && mv -f -- "$state/auto-update.user.tmp" "$state/auto-update.user" 2>/dev/null
+  # Усі три потоки — геть від pacman: він читає вивід хука до кінця, тож інакше чекав би.
+  setsid -f "$self" run "${entry%%:*}" </dev/null >/dev/null 2>&1 || return 0
+  if [[ -s "$kept_list" ]]; then printf "$m_started" "$log"; fi
+}
+
+# Чекати, доки pacman звільнить базу: хук ще всередині транзакції.
+wait_pacman() {
+  local lock waited=0
+  lock=$(db_lock_path)
+  while [[ -e "$lock" ]]; do
+    if ((waited >= db_wait)); then say "$m_lock" "$lock" "$((db_wait / 60))"; return 1; fi
+    sleep 2
+    waited=$((waited + 2))
+  done
+}
+
+# Команда від імені користувача: чисте оточення (setpriv --reset-env: HOME, PATH, USER…), без
+# права підвищувати привілеї (sudo всередині не спрацює), з найнижчим пріоритетом процесора й диска.
+as_user() {   # команда…
+  local -a pre=(nice -n 19)
+  if command -v ionice >/dev/null 2>&1; then pre=(ionice -c 3 "${pre[@]}"); fi
+  setpriv --reuid="$uid" --regid="$gid" --init-groups --reset-env --no-new-privs -- \
+    env XDG_RUNTIME_DIR="/run/user/$uid" "${pre[@]}" "$@"
+}
+
+# Що саме зламано зараз: збережені копії й встановлений набір. Те саме після невдачі — не лагодити знову.
+fingerprint() {
+  cat -- "$kept_list" "$info" 2>/dev/null | sha256sum | cut -c1-16
+}
+
+# Рядок «install <файл>» від користувача → копія в $dest, якщо це пакет OBS-Legacy з його теки.
+# Перевіряється вже копія (її користувач не підмінить): назва пакета в .PKGINFO.
+take_file() {   # $1 = шлях, $2 = тека копій
+  local real rhome base name
+  [[ "$1" == /* ]] || return 1
+  real=$(realpath -e -- "$1" 2>/dev/null) || return 1
+  rhome=$(realpath -e -- "$home" 2>/dev/null) || return 1
+  [[ "$real" == "$rhome"/* && -f "$real" ]] || return 1
+  [[ "$(stat -c %u -- "$real" 2>/dev/null)" == "$uid" ]] || return 1
+  base=${real##*/}
+  [[ "$base" =~ ^[A-Za-z0-9@._+-]+-${suffix}-[A-Za-z0-9:._+-]+\.pkg\.tar\.(zst|xz|gz)$ ]] || return 1
+  cp -- "$real" "$2/$base" 2>/dev/null && chmod 0644 -- "$2/$base" || return 1
+  name=$(bsdtar -xOf "$2/$base" .PKGINFO 2>/dev/null | sed -n 's/^pkgname = //p' | head -n1 || true)
+  if [[ "$name" != *-"$suffix" ]]; then rm -f -- "$2/$base"; return 1; fi
+  printf '%s\n' "$2/$base"
+}
+
+notify() {   # ok | failed | started, далі — подробиці
+  as_user "$program" --auto-update-notice "$@" >/dev/null 2>&1 || true
+}
+
+# Окремий процес (від root, уже поза транзакцією): полагодити, поставити, сповістити.
+run() {   # $1 = користувач
+  local entry name uid gid home rc fp repair=1 failed=0 line copy dest
+  local -a copies=() names=()
+  entry=$(user_entry "$1") || return 0
+  IFS=: read -r name uid gid home <<<"$entry"
+  # Робоча тека, яку може читати будь-хто: команди від імені користувача починають звідси.
+  cd / || return 0
+  say "$m_start" "$name"
+  command -v setpriv >/dev/null 2>&1 || { say '%s' "$m_nosetpriv"; return 0; }
+  exec 8>>"$run_lock" || return 0
+  if ! flock -n 8; then
+    say '%s' "$m_busy"
+    flock -w "$run_wait" 8 || { say "$m_busy_gone" "$((run_wait / 3600))"; return 0; }
+  fi
+  wait_pacman || return 0
+  fp=$(fingerprint)
+  if [[ "$(cat -- "$state/auto-update.failed" 2>/dev/null || true)" == "$fp" ]]; then
+    repair=0
+    say '%s' "$m_skip"
+  fi
+  rm -rf -- "$work" && install -d -m 700 -- "$work" || return 0
+  if ((repair)); then
+    if [[ -s "$kept_list" ]]; then notify started; fi
+    say "$m_repair" "$name"
+    as_user "$program" --repair > "$work/repair.out" 2>&1
+    rc=$?
+    say "$m_repair_rc" "$rc"
+    LC_ALL=C sed -n 's/\x1b\[[0-9;]*m//g; /^\(Звіт\|Report\|Підсумок\|Summary\):/s/^/    /p' "$work/repair.out" 2>/dev/null
+    if ((rc != 0)); then
+      printf '%s\n' "$fp" > "$state/auto-update.failed"
+      failed=1
+    fi
+  fi
+  dest=$work/packages
+  install -d -m 700 -- "$dest" || return 0
+  while IFS= read -r line; do
+    case "$line" in
+      'install '*)
+        if copy=$(take_file "${line#install }" "$dest"); then copies+=("$copy") names+=("${copy##*/}")
+        else say "$m_bad" "${line#install }"; fi ;;
+      'remove '*) say "$m_keep" "${line#remove }" ;;
+    esac
+  done < <(as_user "$program" --install-files 2>/dev/null)
+  if ((${#copies[@]} == 0)); then
+    say '%s' "$m_none"
+    if ((failed)); then notify failed; fi
+    rm -rf -- "$work"
+    return 0
+  fi
+  wait_pacman || return 0
+  say "$m_install" "${names[*]}"
+  OBS_LEGACY_AUTO_UPDATE=1 pacman -U --noconfirm -- "${copies[@]}" 2>&1 | sed 's/^/    /'
+  rc=${PIPESTATUS[0]}
+  rm -rf -- "$work"
+  if ((rc == 0)); then
+    rm -f -- "$state/auto-update.failed"
+    say '%s' "$m_done"
+    notify ok "${names[*]}"
+  else
+    say "$m_fail" "$rc"
+    notify failed
+  fi
+}
+
+main() {
+  case "${1:-}" in
+    hook) hook ;;
+    run)
+      install -d -m 755 -- "$log_dir" "$state" 2>/dev/null || exit 0
+      if [[ -f "$log" ]] && (($(stat -c %s -- "$log" 2>/dev/null || echo 0) > log_max)); then
+        mv -f -- "$log" "$log.old"
+      fi
+      exec >>"$log" 2>&1
+      chmod 0644 -- "$log" 2>/dev/null
+      run "${2:-}"
+      ;;
+  esac
+  exit 0
+}
+
+# Тести підключають цей файл (source) і підставляють шляхи й команди.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi
