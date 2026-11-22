@@ -216,6 +216,9 @@ setup_notifier() {   # $1 = update|ask
               '  Every 12 hours OBS-Legacy will check in the background whether a new OBS, plugins or the program itself are out,\n')" >&2
   printf "$(t '  а після оновлень системи — чи власному OBS не бракує бібліотек. Без sudo; вимкнути можна в меню.\n' \
               '  and after system upgrades — whether your own OBS is missing libraries. No sudo; you can turn it off in the menu.\n')" >&2
+  # Відповідь запам'ятовується: тоді меню не вмикатиме сповіщення само (obs-legacy вмикає їх типово).
+  mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/obs-legacy" \
+    && : > "${XDG_STATE_HOME:-$HOME/.local/state}/obs-legacy/notifier-decided" || true
   if confirm_yes "$(t "Увімкнути сповіщення?" "Turn on notifications?")"; then
     "$bin" --notifier enable || warn "$(t "Не вдалося ввімкнути сповіщення — спробуй пізніше: obs-legacy → Додатково → «Сповіщення про оновлення»." \
                                           "Could not turn on notifications — try later: obs-legacy → More → “Update notifications”.")"

@@ -1,15 +1,11 @@
-# Повідомлення pacman: програму вже ставили install.sh у домашню теку (~/.local/bin). pacman туди не
-# пише, тож ту копію й її ярлик прибирає сама програма з пакета — від імені користувача.
-_obs_legacy_home_copy() {
-  local f
-  for f in /home/*/.local/bin/obs-legacy; do
-    if [ -e "$f" ]; then
-      echo ":: OBS-Legacy: ${f%/.local/bin/obs-legacy} has a copy installed by install.sh. As that user, run:"
-      echo "     /usr/bin/obs-legacy --use-package"
-      echo "   (Українською: щоб працювала програма з пакета, від свого імені запусти цю команду.)"
-    fi
-  done
+# Після встановлення чи оновлення пакета: якщо програму вже ставив install.sh у домашню теку
+# (~/.local/bin), pacman туди не пише, тож ту копію, її ярлик і службу сповіщень переймає сама
+# програма з пакета — від імені того, хто ставить пакет (/usr/lib/obs-legacy/auto-update use-package).
+_obs_legacy_use_package() {
+  if [ -x /usr/lib/obs-legacy/auto-update ]; then
+    /usr/lib/obs-legacy/auto-update use-package || true
+  fi
 }
 
-post_install() { _obs_legacy_home_copy; }
-post_upgrade() { _obs_legacy_home_copy; }
+post_install() { _obs_legacy_use_package; }
+post_upgrade() { _obs_legacy_use_package; }

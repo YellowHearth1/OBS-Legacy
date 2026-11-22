@@ -3,6 +3,7 @@
 
 use std::path::Path;
 
+use super::auto;
 use super::prepare::Reasons;
 use super::state::State;
 use super::{Facts, RELEASES, SelfInstall, plugin_list};
@@ -202,6 +203,14 @@ pub fn libs_notice(problems: &[String]) -> Option<Notice> {
 
 /// Як поставити готовий набір.
 fn how_install_ready() -> &'static str {
+    if auto::installed() {
+        return tr!(
+            "Він встановиться сам під час наступного оновлення системи (sudo pacman -Syu, paru чи Мацаки) — \
+             або одразу: OBS-Legacy → «Встановити / оновити OBS».",
+            "It installs itself with the next system upgrade (sudo pacman -Syu, paru or Matsaky) — \
+             or right now: OBS-Legacy → “Install / update OBS”."
+        );
+    }
     tr!(
         "Постав його: OBS-Legacy → «Встановити / оновити OBS» — набір поставиться одразу, без збирання.",
         "Install it: OBS-Legacy → “Install / update OBS” — the set is installed at once, without building."

@@ -35,7 +35,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck -S warning scripts/build-obs-nvenc-legacy-artix.sh install.sh dev/fake-build.sh dev/test-keep-libs.sh
+      - run: |
+          shellcheck -S warning scripts/build-obs-nvenc-legacy-artix.sh install.sh dev/fake-build.sh \
+            dev/test-keep-libs.sh packaging/auto-update dev/test-auto-update.sh
+      # Тест автооновлення читає .PKGINFO пакетів через bsdtar (у pacman він є завжди).
+      - run: command -v bsdtar || (sudo apt-get update -q && sudo apt-get install -y -q libarchive-tools)
+      - run: bash dev/test-auto-update.sh
       - run: bash scripts/build-obs-nvenc-legacy-artix.sh plugins --tsv
       # Обидві мови: довідка, каталог, установник і імітатор доходять до кінця й говорять своєю мовою.
       # Вивід — спершу в змінну: «… | grep -q» з pipefail дає хибну помилку (SIGPIPE).

@@ -15,7 +15,7 @@ pkgdesc='Terminal menu that builds and installs OBS Studio with working NVENC fo
 arch=('x86_64')
 url='https://github.com/YellowHearth1/OBS-Legacy'
 license=('Apache-2.0')
-depends=('bash' 'gcc-libs' 'git' 'glibc')
+depends=('bash' 'gcc-libs' 'git' 'glibc' 'libarchive' 'util-linux')
 makedepends=('cargo')
 options=('!debug')
 optdepends=(
@@ -59,6 +59,10 @@ install=obs-legacy.install
 package() {
   cd "$_srcdir"
   install -Dm755 target/release/obs-legacy "$pkgdir/usr/bin/obs-legacy"
+  # Автооновлення разом із системою: хук pacman і добудовувач (docs/ARCHITECTURE.md).
+  install -Dm755 packaging/auto-update "$pkgdir/usr/lib/obs-legacy/auto-update"
+  install -Dm644 packaging/90-obs-legacy-auto-update.hook \
+    "$pkgdir/usr/share/libalpm/hooks/90-obs-legacy-auto-update.hook"
   install -Dm644 "$srcdir/obs-legacy.desktop" "$pkgdir/usr/share/applications/obs-legacy.desktop"
   install -Dm644 assets/obs-legacy.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/obs-legacy.svg"
   install -Dm644 README.md README.uk.md -t "$pkgdir/usr/share/doc/$pkgname/"

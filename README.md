@@ -149,15 +149,21 @@ to the same places as the repo OBS (`/usr`), so pacman itself offers to replace 
   `pacman -U` for the OBS-Legacy packages), only after you answer “y”, and never with `--noconfirm`. The
   script runs a full system upgrade (`pacman -Syu`) only when you ask for it with
   `obs-legacy --upgrade-system`; building and packaging run without root. The pacman hooks of the OBS
-  package change only their own folder of kept library copies (`/usr/lib/obs-legacy/kept-libs`).
+  package change only their own folder of kept library copies (`/usr/lib/obs-legacy/kept-libs`). The one
+  exception is the automatic update with the system (only with the `obs-legacy` pacman package): after a
+  pacman transaction that you started with your password, it installs the rebuilt OBS-Legacy packages with
+  `pacman -U --noconfirm` — only `*-legacy-580xx` packages built in your own folder.
 - **System upgrades never get stuck.** Upgrade the usual way: `sudo pacman -Syu`, `paru -Syu` or any
   other helper. The OBS-Legacy packages don't pin exact library versions, so pacman never refuses an
   upgrade because of them. When an upgrade replaces a library that OBS or ffmpeg is built with (say, a new
   libjxl), a pacman hook keeps a copy of the old one, so OBS and ffmpeg keep working — the same idea as
-  preserved libraries in Gentoo. Within a minute after the upgrade the background check starts rebuilding
-  the packages for the new library and tells you when they are ready; once they are installed, the old
-  copies go away by themselves. New releases of OBS, the plugins or ffmpeg are built the same way, together
-  with your next system upgrade (**Settings → Prepare packages in advance**).
+  preserved libraries in Gentoo. Right after the upgrade OBS-Legacy rebuilds only the packages that need
+  the new library, at the same versions, and — if OBS-Legacy itself is installed as the `obs-legacy` pacman
+  package — installs them by itself: no extra command and no second password. With a copy from install.sh,
+  the background check rebuilds them and tells you when to install them. Once they are installed, the old
+  copies go away by themselves. New releases of OBS, the plugins or ffmpeg are built in the background
+  together with your next system upgrade (**Settings → Prepare packages in advance**), and the package
+  installs them with a later one.
 
 ## Installation
 
@@ -189,9 +195,10 @@ with `obs-legacy-<version>-1-x86_64.pkg.tar.zst`, built from the release sources
 sudo pacman -U obs-legacy-0.0.7-1-x86_64.pkg.tar.zst
 ```
 
-The program lands in `/usr/bin/obs-legacy` with an **OBS-Legacy** entry in the application menu. Turn on
-[update notifications](#update-notifications) (**More → Update notifications**) to hear about new versions;
-update with the package from the new release the same way.
+The program lands in `/usr/bin/obs-legacy` with an **OBS-Legacy** entry in the application menu. The first
+time you open it, it turns on [update notifications](#update-notifications) by itself, so you hear about a new
+OBS and a new OBS-Legacy (turn them off in **More → Update notifications**); update with the package from the
+new release the same way.
 
 **Moving from `install.sh` to the package.** pacman never writes into home folders, so a copy that `install.sh`
 put in `~/.local/bin` would stay first in `PATH` and keep its menu entry and the notification service. After
@@ -327,9 +334,9 @@ prebuilt archive from the OBS Project; only its debug information is stripped (a
 
 **How do I upgrade the system?** As usual: `sudo pacman -Syu` or your AUR helper. OBS-Legacy does not
 stand in the way. If the upgrade takes away a library that OBS or ffmpeg is built with, the hook keeps a
-copy of the old one and says so at the end of the pacman output, and the background check (update
-notifications) rebuilds the packages right after the upgrade and tells you when to install them
-(**Install / update OBS** then installs the ready set at once). To do it all in one go in a terminal —
+copy of the old one and says so at the end of the pacman output, and right after the upgrade OBS-Legacy
+rebuilds the packages that need it and installs them by itself (with the `obs-legacy` package; with a copy
+from install.sh the background check rebuilds them and tells you to press **Install / update OBS**). To do it all in one go in a terminal —
 upgrade, build and install — run `obs-legacy --upgrade-system` (or **More → Upgrade the system**): after
 `pacman -Syu` it builds and installs the OBS-Legacy packages if they need it. You never have to remove the
 packages by hand. The rare exception is a new major ffmpeg (other `libavcodec` versions): if other
@@ -337,14 +344,18 @@ programs already need it, pacman asks whether to replace `ffmpeg-legacy-580xx` w
 answer y; OBS keeps working on the kept copies until it is rebuilt.
 
 **What should I do after a plain `pacman -Syu` (or an AUR helper)?** Nothing. If the upgrade touched
-OBS-Legacy, pacman says so at the end, and with update notifications on, the background check starts the
-rebuild by itself and tells you when the packages are ready. Without notifications, run **Install / update
-OBS**; `bash "$(obs-legacy --script-path)" status` lists the kept copies.
+OBS-Legacy, pacman says so at the end, and the packages are rebuilt and installed in the background; a
+notification tells you when it is done (the log is `/var/log/obs-legacy/auto-update.log`). This needs
+OBS-Legacy installed as the `obs-legacy` pacman package. With a copy from install.sh, the background check
+(update notifications) rebuilds and tells you when the packages are ready, and **Install / update OBS**
+installs them. If the automatic update fails, a notification says so — then run **Install / update OBS**;
+`bash "$(obs-legacy --script-path)" status` lists the kept copies.
 
 **Does it work with package managers and AUR helpers (Matsaky, paru…)?** Yes: a system upgrade from any of
 them goes through, and the background check rebuilds what needs it — and only that: when an upgrade takes a
 library from ffmpeg alone, only `ffmpeg-legacy-580xx` is rebuilt, and OBS running on kept libraries is just
-relinked instead of compiled again. A package manager can also take
+relinked instead of compiled again. With the `obs-legacy` package all of it happens within the same upgrade,
+so the package manager has nothing to add. Without it, a package manager can take
 OBS-Legacy into its own “Upgrade all”, in the right order: system packages, then `obs-legacy --prepare`
 (builds as your user, asks nothing), then installing what `obs-legacy --install-files` lists, then AUR plugins
 for OBS. The details for developers are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (“Пакетні менеджери й
@@ -469,8 +480,8 @@ Installed with the one command: `curl -fsSL https://github.com/YellowHearth1/OBS
 
 ### Update notifications
 
-**More → Update notifications** turns on a background check;
-the installer offers it too. It looks for:
+A background check is on by default: the first start of the menu turns it on (the installer asks
+instead), and **More → Update notifications** turns it off or on again. It looks for:
 
 - a newer OBS, new releases of the plugins in your build, a newer ffmpeg in the repositories (then
   `ffmpeg-legacy-580xx` needs a rebuild) and a new OBS-Legacy — every 12 hours;

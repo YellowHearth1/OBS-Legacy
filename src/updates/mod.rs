@@ -9,6 +9,7 @@
 //! ~/.local/state/obs-legacy/updates.env (якщо файл видалити, про наявні
 //! оновлення буде сповіщено ще раз).
 
+mod auto;
 mod notices;
 mod prepare;
 mod state;
@@ -26,6 +27,7 @@ use crate::settings::Settings;
 use crate::system;
 use crate::versions::{self, Updates, newer};
 
+pub use auto::notice_main as auto_update_notice;
 pub use prepare::wait_script_free;
 pub use state::State;
 pub use watch::{check_main, log_path, running_pid, watch_main};
@@ -269,18 +271,42 @@ pub fn facts_offline(u: &Updates) -> Facts {
 /// пакети OBS-Legacy ще працюють на копіях — їх треба перезібрати під нові.
 const KEPT_LIBS_LIST: &str = "/var/lib/obs-legacy/kept-libs.tsv";
 
-/// «libjxl.so.0.12 (ffmpeg-legacy-580xx)» на кожну збережену бібліотеку; порожньо — нічого.
+/// «libjxl.so.0.12 (ffmpeg-legacy-580xx)» на кожну збережену бібліотеку, потрібну пакетам набору;
+/// порожньо — нічого.
 pub fn kept_libs() -> Vec<String> {
-    fs::read_to_string(KEPT_LIBS_LIST).map(|t| parse_kept(&t)).unwrap_or_default()
+    let Ok(text) = fs::read_to_string(KEPT_LIBS_LIST) else {
+        return Vec::new();
+    };
+    parse_kept(&text, &set_packages())
 }
 
-/// Рядки списку keep-libs: «бібліотека<TAB>пакети через пробіл».
-pub fn parse_kept(text: &str) -> Vec<String> {
+/// Пакети встановленого набору (OBS, плагіни, ffmpeg) — власники його файлів у /usr/share/obs-legacy,
+/// як `set_packages` у скрипті. Лише їх набір перезбирає; інший пакет з тією самою припискою (чужий чи
+/// забутий) — ні, тож його збережені бібліотеки не привід перезбирати.
+fn set_packages() -> Vec<String> {
+    let dir = system::info_dir();
+    let mut files = vec![dir.join("BUILDINFO.txt"), dir.join("ffmpeg.txt")];
+    if let Ok(entries) = fs::read_dir(dir.join("plugins")) {
+        files.extend(entries.flatten().map(|e| e.path()));
+    }
+    files.retain(|f| f.is_file());
+    if files.is_empty() {
+        return Vec::new();
+    }
+    let out =
+        Command::new("pacman").arg("-Qqo").arg("--").args(&files).env("LC_ALL", "C").stderr(Stdio::null()).output();
+    out.map(|o| String::from_utf8_lossy(&o.stdout).split_whitespace().map(str::to_string).collect()).unwrap_or_default()
+}
+
+/// Рядки списку keep-libs: «бібліотека<TAB>пакети через пробіл» — лише ті, що потрібні пакетам `set`
+/// (рядок без пакетів лишається: невідомо чий — краще показати).
+pub fn parse_kept(text: &str, set: &[String]) -> Vec<String> {
     text.lines()
         .filter_map(|l| {
             let (so, by) = l.split_once('\t').unwrap_or((l, ""));
             let (so, by) = (so.trim(), by.trim());
-            (!so.is_empty()).then(|| if by.is_empty() { so.to_string() } else { format!("{so} ({by})") })
+            let ours = by.is_empty() || by.split_whitespace().any(|p| set.iter().any(|s| s == p));
+            (!so.is_empty() && ours).then(|| if by.is_empty() { so.to_string() } else { format!("{so} ({by})") })
         })
         .collect()
 }
@@ -321,15 +347,19 @@ mod tests {
 
     #[test]
     fn kept_list_lines() {
-        let text = "libjxl.so.0.12\tffmpeg-legacy-580xx\nlibx264.so.165\tobs-studio-legacy-580xx ffmpeg-legacy-580xx\n\nbare.so.1\n";
+        let text = "libjxl.so.0.12\tffmpeg-legacy-580xx\nlibx264.so.165\tobs-studio-legacy-580xx ffmpeg-legacy-580xx\n\
+                    \nbare.so.1\nlibolt.so.1\tolt-probe-legacy-580xx\n";
+        let set: Vec<String> = ["obs-studio-legacy-580xx", "ffmpeg-legacy-580xx"].map(String::from).into();
         assert_eq!(
-            parse_kept(text),
+            parse_kept(text, &set),
             [
                 "libjxl.so.0.12 (ffmpeg-legacy-580xx)",
                 "libx264.so.165 (obs-studio-legacy-580xx ffmpeg-legacy-580xx)",
                 "bare.so.1"
             ]
         );
-        assert!(parse_kept("").is_empty());
+        assert!(parse_kept("", &set).is_empty());
+        // Пакет не з набору (чужий чи забутий плагін): набір його не перезбере — не привід.
+        assert!(parse_kept("libolt.so.1\tolt-probe-legacy-580xx\n", &set).is_empty());
     }
 }

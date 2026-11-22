@@ -4,7 +4,7 @@
 use std::process::{Command, Stdio};
 use std::thread;
 
-use super::{App, Screen};
+use super::{App, Screen, ToastKind};
 use crate::catalog::{self, PluginInfo};
 use crate::reports::{self, ReportInfo};
 use crate::service;
@@ -21,7 +21,8 @@ pub(super) enum Msg {
     /// Пакети для збірки, яких бракує (None — скрипт не відповів).
     Deps(Option<MissingDeps>),
     /// Сповіщення про оновлення: Some(служба) — увімкнено.
-    Notifier(Option<service::Backend>),
+    /// Служба сповіщень; `true` — її щойно ввімкнено типово (перший запуск).
+    Notifier(Option<service::Backend>, bool),
 }
 
 /// Пакети для збірки, яких бракує.
@@ -58,7 +59,15 @@ impl App {
         thread::spawn(move || {
             let info = system::gather(&exe, &tag);
             let _ = tx.send(Msg::Sys(Box::new(info)));
-            let _ = tx.send(Msg::Notifier(service::installed().first().map(|p| p.backend)));
+            let installed = service::installed().first().map(|p| p.backend);
+            let msg = match installed {
+                Some(b) => Msg::Notifier(Some(b), false),
+                None => match service::enable_by_default() {
+                    Some(b) => Msg::Notifier(Some(b), true),
+                    None => Msg::Notifier(None, false),
+                },
+            };
+            let _ = tx.send(msg);
         });
     }
 
@@ -157,7 +166,17 @@ impl App {
                     changed = true;
                 }
                 Msg::Deps(None) => {}
-                Msg::Notifier(n) => {
+                Msg::Notifier(n, just_enabled) => {
+                    if just_enabled && let Some(b) = n {
+                        self.toast(
+                            ToastKind::Ok,
+                            trf!(
+                                "Сповіщення про оновлення ввімкнено ({}) — вимкнути в «Додатково».",
+                                "Update notifications are on ({}) — turn them off in “More”.",
+                                b.label()
+                            ),
+                        );
+                    }
                     self.notifier = Some(n);
                     changed = true;
                 }
