@@ -63,7 +63,7 @@ git clone https://github.com/YellowHearth1/OBS-Legacy.git && cd OBS-Legacy
 Пакет — з релізу на GitHub (те саме ставить одна команда з розділу 1б):
 
 ```bash
-sudo pacman -U obs-legacy-0.0.7-1-x86_64.pkg.tar.zst
+sudo pacman -U obs-legacy-0.0.8-1-x86_64.pkg.tar.zst
 ```
 
 - [ ] `pacman -Qi obs-legacy` — версія релізу; `command -v obs-legacy` → `/usr/bin/obs-legacy`.
