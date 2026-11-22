@@ -16,13 +16,11 @@ mod state;
 mod watch;
 
 use std::fs;
-use std::path::Path;
 use std::process::{Command, Stdio};
 
 use crate::builds::{self, BuildInfo};
 use crate::catalog::{self, PluginInfo};
-use crate::script;
-use crate::service;
+use crate::script::{self, SelfSource};
 use crate::settings::Settings;
 use crate::system;
 use crate::versions::{self, Updates, newer};
@@ -38,11 +36,11 @@ pub const SELF_REPO: &str = "https://github.com/YellowHearth1/OBS-Legacy.git";
 /// Релізи з готовою програмою: пакет obs-legacy, obs-legacy-x86_64 і install.sh до них.
 pub const RELEASES: &str = "https://github.com/YellowHearth1/OBS-Legacy/releases";
 
+/// Найновіший реліз: GitHub переадресовує звідси на сторінку його тега.
+pub const LATEST_RELEASE: &str = "https://github.com/YellowHearth1/OBS-Legacy/releases/latest";
+
 /// install.sh з найновішого релізу: ставить готову програму з того самого релізу.
 pub const INSTALLER_URL: &str = "https://github.com/YellowHearth1/OBS-Legacy/releases/latest/download/install.sh";
-
-/// Куди ставить програму пакет pacman (packaging/PKGBUILD).
-const PACKAGE_EXE: &str = "/usr/bin/obs-legacy";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginUpdate {
@@ -57,7 +55,7 @@ pub struct PluginUpdate {
 pub enum SelfInstall {
     /// Оновлюється з меню («Оновити OBS-Legacy»): з теки з вихідними кодами чи з релізу.
     Menu,
-    /// Пакет pacman (`/usr/bin/obs-legacy`): оновлення — новим пакетом з релізу.
+    /// Пакет pacman (`/usr/bin/obs-legacy`): теж з меню, але новим пакетом з релізу через pacman.
     Package,
     /// Зібрано вручну: оновлювати так само — git pull і ./install.sh.
     #[default]
@@ -182,7 +180,7 @@ pub fn facts_from(
     u: &Updates,
     settings: &Settings,
     catalog: &[PluginInfo],
-    self_menu: bool,
+    self_source: Option<&SelfSource>,
 ) -> Facts {
     let obs_ref = setting(settings, "OBS_REF");
     let tracked = tracked_plugins(active, settings, catalog);
@@ -219,12 +217,10 @@ pub fn facts_from(
         plugin_updates,
         self_version: env!("CARGO_PKG_VERSION").to_string(),
         self_latest: u.self_latest.clone(),
-        self_install: if self_menu {
-            SelfInstall::Menu
-        } else if service::exe_path() == Path::new(PACKAGE_EXE) {
-            SelfInstall::Package
-        } else {
-            SelfInstall::Manual
+        self_install: match self_source {
+            Some(SelfSource::Package) => SelfInstall::Package,
+            Some(SelfSource::Git(_) | SelfSource::Release) => SelfInstall::Menu,
+            None => SelfInstall::Manual,
         },
         ffmpeg_built,
         ffmpeg_new,
@@ -237,7 +233,7 @@ pub fn ffmpeg_new_local() -> Option<String> {
     let (builds, _) = builds::read_builds();
     let active = builds.iter().find(|b| b.active);
     let u = Updates { ffmpeg_repo: versions::repo_package_version("ffmpeg"), ..Default::default() };
-    facts_from(active, &u, &Settings::load(), &[], false).ffmpeg_new
+    facts_from(active, &u, &Settings::load(), &[], None).ffmpeg_new
 }
 
 /// Перевірити нові версії (мережа: git ls-remote до GitHub).
@@ -254,7 +250,7 @@ pub fn gather_with_updates() -> (Facts, Updates) {
     let repos: Vec<(String, String)> =
         tracked_plugins(active, &settings, &catalog).into_iter().map(|(id, _, _, repo)| (id, repo)).collect();
     let u = versions::check_updates(&repos, Some(&self_repo()));
-    (facts_from(active, &u, &settings, &catalog, script::self_source().is_some()), u)
+    (facts_from(active, &u, &settings, &catalog, script::self_source().as_ref()), u)
 }
 
 /// Факти з уже відомих версій (без мережі): після транзакції pacman встановлене могло змінитися
@@ -264,7 +260,7 @@ pub fn facts_offline(u: &Updates) -> Facts {
     let active = builds.iter().find(|b| b.active);
     let catalog = script::ensure_extracted().ok().and_then(|s| catalog::load(&s).ok()).unwrap_or_default();
     let u = Updates { ffmpeg_repo: versions::repo_package_version("ffmpeg"), ..u.clone() };
-    facts_from(active, &u, &Settings::load(), &catalog, script::self_source().is_some())
+    facts_from(active, &u, &Settings::load(), &catalog, script::self_source().as_ref())
 }
 
 /// Список бібліотек, які зберіг хук keep-libs (скрипт, KEPT_LIBS_LIST): у системі їх уже немає, а

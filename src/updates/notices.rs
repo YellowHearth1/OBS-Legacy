@@ -6,7 +6,7 @@ use std::path::Path;
 use super::auto;
 use super::prepare::Reasons;
 use super::state::State;
-use super::{Facts, RELEASES, SelfInstall, plugin_list};
+use super::{Facts, SelfInstall, plugin_list};
 use crate::notify;
 
 /// Одне сповіщення.
@@ -105,17 +105,19 @@ pub fn notices(f: &Facts) -> Vec<Notice> {
         });
     }
     if let Some(latest) = f.self_update() {
-        let file = format!("obs-legacy-{}-1-x86_64.pkg.tar.zst", latest.trim_start_matches('v'));
         let how = match f.self_install {
             SelfInstall::Menu => tr!(
                 "Онови: OBS-Legacy → Додатково → «Оновити OBS-Legacy».",
                 "Update: OBS-Legacy → More → “Update OBS-Legacy”."
             )
             .to_string(),
-            SelfInstall::Package => trf!(
-                "Завантаж пакет {file} з {RELEASES} і постав: sudo pacman -U {file}",
-                "Download the {file} package from {RELEASES} and install it: sudo pacman -U {file}"
-            ),
+            SelfInstall::Package => tr!(
+                "Онови: OBS-Legacy → Додатково → «Оновити OBS-Legacy» — програма завантажить пакет з релізу, \
+                 перевірить його контрольну суму й поставить через pacman.",
+                "Update: OBS-Legacy → More → “Update OBS-Legacy” — the program downloads the package from \
+                 the release, checks its checksum and installs it with pacman."
+            )
+            .to_string(),
             SelfInstall::Manual => tr!(
                 "Онови так само, як встановлював: git pull і ./install.sh у теці з вихідними кодами.",
                 "Update the way you installed it: git pull and ./install.sh in the source folder."
@@ -412,7 +414,9 @@ mod tests {
         let n = notices(&Facts { self_latest: Some("v0.0.2".into()), self_install: SelfInstall::Manual, ..facts() });
         assert!(n[0].body.contains("./install.sh"));
         let n = notices(&Facts { self_latest: Some("v0.0.3".into()), self_install: SelfInstall::Package, ..facts() });
-        assert!(n[0].body.contains("sudo pacman -U obs-legacy-0.0.3-1-x86_64.pkg.tar.zst"));
+        // Пакет pacman теж оновлюється з меню, а не вручну.
+        assert!(n[0].body.contains("«Оновити OBS-Legacy»") && n[0].body.contains("pacman"));
+        assert!(!n[0].body.contains("sudo pacman -U"));
     }
 
     #[test]

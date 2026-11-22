@@ -108,17 +108,31 @@ user_entry() {   # $1 = ім'я або uid
   printf '%s:%s:%s:%s\n' "$name" "$uid" "$gid" "$home"
 }
 
+# Чи може користувач і так ставати root: група wheel, якій на Arch і Artix дають sudo й doas.
+is_admin() {   # $1 = ім'я
+  local group
+  for group in $(id -nG -- "$1" 2>/dev/null); do
+    if [[ "$group" == wheel ]]; then return 0; fi
+  done
+  return 1
+}
+
 # Від чийого імені збирати: хто запустив pacman (sudo, pkexec, doas) → той, хто запускав минулого
-# разу → єдиний користувач, у якого є сховище наборів OBS-Legacy.
+# разу → єдиний користувач, у якого є сховище наборів OBS-Legacy. Два запасні варіанти (pacman
+# запущено, скажімо, з «su -») — лише для адміністратора: інакше звичайний користувач без права
+# sudo міг би так підкласти root свій пакет.
 target_user() {
-  local who name uid home
+  local who name uid home entry
   local -a found=()
   for who in "${SUDO_UID:-}" "${PKEXEC_UID:-}" "${DOAS_USER:-}"; do
     if [[ -n "$who" ]] && user_entry "$who"; then return 0; fi
   done
   if [[ -r "$state/auto-update.user" ]]; then
     who=$(head -n1 -- "$state/auto-update.user" 2>/dev/null || true)
-    if [[ -n "$who" ]] && user_entry "$who"; then return 0; fi
+    if [[ -n "$who" ]] && entry=$(user_entry "$who") && is_admin "${entry%%:*}"; then
+      printf '%s\n' "$entry"
+      return 0
+    fi
   fi
   while IFS=: read -r name _ uid _ _ home _; do
     if [[ "$uid" =~ ^[0-9]+$ ]] && ((uid >= min_uid && uid != nobody_uid)) \
@@ -126,7 +140,7 @@ target_user() {
       found+=("$name")
     fi
   done < <(getent passwd 2>/dev/null || true)
-  ((${#found[@]} == 1)) && user_entry "${found[0]}"
+  ((${#found[@]} == 1)) && is_admin "${found[0]}" && user_entry "${found[0]}"
 }
 
 # Викликає хук pacman (від root, усередині транзакції): лише запустити run окремо й вийти.

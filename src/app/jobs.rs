@@ -64,13 +64,65 @@ pub(super) fn self_update_args(src: &SelfSource) -> Vec<String> {
                 "[ERROR] Could not download install.sh from the release."
             )
             .into(),
-            trf!(
-                "[ПОРАДА] Перевір інтернет і чи відкривається {}, і спробуй ще раз.",
-                "[HINT] Check the internet connection and that {} opens, then try again.",
-                updates::RELEASES
-            ),
+            download_hint(),
+        ],
+        // Пакет — локальним файлом: `pacman -U <URL>` не працює з `SigLevel = Required`, бо підписів
+        // (.sig) у релізах немає; цілість пакета перевіряє його .sha256 з того самого релізу.
+        // Версію дає переадресація releases/latest на сторінку тега, а назву файла — package.yml
+        // (obs-legacy-<версія>-1-x86_64.pkg.tar.zst).
+        SelfSource::Package => vec![
+            "-c".into(),
+            "set -e; echo \"==> $3\"; \
+             tag=$(curl -fsSIL --retry 3 --connect-timeout 20 --speed-limit 1 --speed-time 120 \
+             -o /dev/null -w '%{url_effective}' \"$1\") || tag=; tag=${tag##*/}; \
+             case $tag in v[0-9]*) ;; *) echo \"$7\"; echo \"$8\"; exit 1;; esac; \
+             file=\"obs-legacy-${tag#v}-1-x86_64.pkg.tar.zst\"; url=\"${1%/latest}/download/$tag/$file\"; \
+             mkdir -p \"$2\"; cd \"$2\"; rm -f -- obs-legacy-*.pkg.tar.zst obs-legacy-*.pkg.tar.zst.sha256; \
+             echo \"==> $4: $url\"; \
+             { curl -fsSL --retry 3 --connect-timeout 20 --speed-limit 1 --speed-time 120 -o \"$file\" \"$url\" \
+             && curl -fsSL --retry 3 --connect-timeout 20 --speed-limit 1 --speed-time 120 \
+             -o \"$file.sha256\" \"$url.sha256\"; } || { echo \"$7\"; echo \"$8\"; exit 1; }; \
+             echo \"==> $5\"; sha256sum -c \"$file.sha256\" || { rm -f -- \"$file\"; echo \"$9\"; exit 1; }; \
+             echo \"==> $6: $2/$file\"; \
+             if command -v sudo >/dev/null 2>&1; then exec sudo pacman -U \"$2/$file\"; fi; \
+             exec doas pacman -U \"$2/$file\""
+                .into(),
+            "obs-legacy-update".into(),
+            updates::LATEST_RELEASE.into(),
+            package_cache_dir().display().to_string(),
+            tr!("Шукаю найновіший реліз", "Looking for the latest release").into(),
+            tr!("Завантажую пакет", "Downloading the package").into(),
+            tr!("Перевіряю контрольну суму", "Checking the checksum").into(),
+            tr!("Ставлю пакет через pacman", "Installing the package with pacman").into(),
+            tr!(
+                "[ПОМИЛКА] Не вдалося завантажити пакет obs-legacy з релізу.",
+                "[ERROR] Could not download the obs-legacy package from the release."
+            )
+            .into(),
+            download_hint(),
+            tr!(
+                "[ПОМИЛКА] Контрольна сума не збігається: завантажений пакет пошкоджено, його видалено. \
+                 Спробуй ще раз.",
+                "[ERROR] The checksum does not match: the downloaded package is damaged and has been deleted. \
+                 Try again."
+            )
+            .into(),
         ],
     }
+}
+
+/// Куди «Оновити OBS-Legacy» завантажує пакет з релізу (лишається там лише найновіший).
+pub(super) fn package_cache_dir() -> std::path::PathBuf {
+    paths::cache_home().join("obs-legacy")
+}
+
+/// Порада, коли не вдалося завантажити щось із релізу.
+fn download_hint() -> String {
+    trf!(
+        "[ПОРАДА] Перевір інтернет і чи відкривається {}, і спробуй ще раз.",
+        "[HINT] Check the internet connection and that {} opens, then try again.",
+        updates::RELEASES
+    )
 }
 
 /// Розмір псевдотермінала до першого кадру: вікно виводу — це екран без смуг, рамок і відступів.
@@ -232,7 +284,7 @@ mod tests {
 
     #[test]
     fn self_update_command_takes_texts_as_arguments() {
-        for src in [SelfSource::Git(PathBuf::from("/home/u/OBS-Legacy")), SelfSource::Release] {
+        for src in [SelfSource::Git(PathBuf::from("/home/u/OBS-Legacy")), SelfSource::Release, SelfSource::Package] {
             let args = self_update_args(&src);
             assert_eq!(args[0], "-c");
             let script = &args[1];
@@ -242,5 +294,41 @@ mod tests {
             let used = (1..=9).filter(|n| script.contains(&format!("${n}"))).max().unwrap_or(0);
             assert_eq!(args.len(), 3 + used, "{args:?}");
         }
+    }
+
+    #[test]
+    fn package_update_installs_a_checked_local_file() {
+        let args = self_update_args(&SelfSource::Package);
+        let script = &args[1];
+        // Не `pacman -U <URL>`: з `SigLevel = Required` pacman вимагає підпис, якого в релізі немає.
+        assert!(script.contains("sha256sum -c \"$file.sha256\""), "{script}");
+        assert!(script.contains("sudo pacman -U \"$2/$file\"") && script.contains("doas pacman -U \"$2/$file\""));
+        assert!(!script.contains("pacman -U \"$url"));
+        assert_eq!(args[3], updates::LATEST_RELEASE);
+        assert_eq!(args[4], package_cache_dir().display().to_string());
+    }
+
+    /// Справжній реліз через мережу: завантаження й перевірка суми, а замість sudo/doas — підставні
+    /// команди, що лише записують, що їм передали (pacman не запускається).
+    /// `cargo test package_update_from_real_release -- --ignored`
+    #[test]
+    #[ignore = "мережа: завантажує пакет з найновішого релізу на GitHub"]
+    fn package_update_from_real_release() {
+        let root = std::env::temp_dir().join(format!("obs-legacy-pkg-test-{}", std::process::id()));
+        let (bin, cache, log) = (root.join("bin"), root.join("cache"), root.join("root-cmd.txt"));
+        std::fs::create_dir_all(&bin).unwrap();
+        for name in ["sudo", "doas"] {
+            let fake = format!("#!/bin/sh\nprintf '%s\\n' \"$*\" > '{}'\n", log.display());
+            crate::atomic::write(&bin.join(name), fake.as_bytes(), 0o755).unwrap();
+        }
+        let mut args = self_update_args(&SelfSource::Package);
+        args[4] = cache.display().to_string();
+        let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+        let status = Command::new("bash").args(&args).env("PATH", path).status().unwrap();
+        let called = std::fs::read_to_string(&log).unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(status.success());
+        let file = called.trim().strip_prefix("pacman -U ").expect("pacman -U <файл>");
+        assert!(file.starts_with(&args[4]) && file.ends_with("-1-x86_64.pkg.tar.zst"), "{file}");
     }
 }

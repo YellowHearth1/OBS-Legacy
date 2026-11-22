@@ -5,7 +5,7 @@
 use std::env;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
@@ -37,11 +37,33 @@ pub enum SelfSource {
     Git(PathBuf),
     /// Готова програма з релізу (install.sh поза вихідними кодами): install.sh з найновішого релізу.
     Release,
+    /// Пакет pacman (`/usr/bin/obs-legacy`): пакет з найновішого релізу, поставлений локальним
+    /// файлом через `pacman -U`.
+    Package,
 }
 
-/// Як оновлювати саму програму, якщо це вміє меню. Пакет pacman (/usr/bin/obs-legacy) — ні:
-/// його оновлює pacman.
+/// Куди ставить програму пакет pacman (packaging/PKGBUILD).
+pub const PACKAGE_EXE: &str = "/usr/bin/obs-legacy";
+
+impl SelfSource {
+    /// Чи «Оновити OBS-Legacy» ставить пакет pacman (тоді знадобиться пароль sudo/doas): пакет — завжди,
+    /// копія з релізу — там, де є pacman, бо install.sh з релізу переводить її на пакет.
+    pub fn updates_with_pacman(&self) -> bool {
+        match self {
+            Self::Package => true,
+            Self::Release => crate::paths::find_in_path("pacman").is_some(),
+            Self::Git(_) => false,
+        }
+    }
+}
+
+/// Як оновлювати саму програму з меню; None — лише вручну (зібрано без install.sh).
 pub fn self_source() -> Option<SelfSource> {
+    // Запущено копію з пакета: її оновлює лише новий пакет, навіть якщо десь лишився клон, з
+    // якого колись ставив install.sh (його --update поставив би іншу копію в ~/.local/bin).
+    if crate::service::exe_path() == Path::new(PACKAGE_EXE) {
+        return Some(SelfSource::Package);
+    }
     if let Some(dir) = source_dir() {
         return Some(SelfSource::Git(dir));
     }
@@ -76,6 +98,12 @@ pub fn ensure_extracted() -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn package_and_git_updates_do_not_depend_on_this_machine() {
+        assert!(SelfSource::Package.updates_with_pacman());
+        assert!(!SelfSource::Git(PathBuf::from("/home/u/OBS-Legacy")).updates_with_pacman());
+    }
 
     #[test]
     fn script_version_is_parsed() {
