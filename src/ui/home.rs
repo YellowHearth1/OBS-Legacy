@@ -176,12 +176,15 @@ fn draw_about(f: &mut Frame, app: &App, area: Rect, row: Row) {
                 if !item.duration().is_empty() {
                     lines.extend(fact(tr!("Час", "Time"), item.duration(), Style::new()));
                 }
-                lines.extend(if item.sudo {
+                // Пакет pacman оновлюється через sudo pacman -U, а не в домашній теці.
+                let by_pacman =
+                    action == crate::app::Action::SelfUpdate && app.self_source == Some(script::SelfSource::Package);
+                lines.extend(if item.sudo || by_pacman {
                     fact(tr!("Пароль", "Password"), tr!("знадобиться", "needed"), t.warn())
                 } else {
                     fact(tr!("Пароль", "Password"), tr!("не потрібен", "not needed"), Style::new())
                 });
-                lines.extend(if item.changes_system {
+                lines.extend(if item.changes_system || by_pacman {
                     fact(tr!("Система", "System"), tr!("змінюється", "is changed"), t.warn())
                 } else {
                     fact(tr!("Система", "System"), tr!("не змінюється", "stays as is"), t.ok())

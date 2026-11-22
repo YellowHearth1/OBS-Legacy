@@ -462,8 +462,11 @@ applies to the script without it. An environment variable always takes priority 
   scratch.
 - **Update the program itself** — **More → Update OBS-Legacy**, or `git pull && ./install.sh --update` in the
   repository folder. Installed with the one command? The same menu item fetches the ready-made program from
-  the latest release, or just run the command again. Installed from the ready package? Install the package
-  from the new release: `sudo pacman -U obs-legacy-<version>-1-x86_64.pkg.tar.zst`.
+  the latest release, or just run the command again. Installed from the ready package? The same menu item
+  downloads `obs-legacy-<version>-1-x86_64.pkg.tar.zst` and its `.sha256` from the latest release into
+  `~/.cache/obs-legacy`, checks the checksum and installs that local file with `sudo pacman -U` (it asks for
+  the sudo/doas password). A local file is used on purpose: release packages have no `.sig` signature, so
+  `pacman -U <URL>` fails with `SigLevel = Required`. The update notification points to this menu item too.
 - **Roll back** — **More → Roll back to another build**: installs a saved package set with `pacman -U`,
   no rebuild.
 - **Uninstall** — **More → Remove OBS-Legacy**: `pacman -R` of the

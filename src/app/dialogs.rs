@@ -469,7 +469,7 @@ impl App {
         });
     }
 
-    /// «Оновити OBS-Legacy»: з вихідних кодів (git pull і збирання) чи готова програма з релізу.
+    /// «Оновити OBS-Legacy»: з вихідних кодів (git pull і збирання), готова програма чи пакет pacman з релізу.
     pub(super) fn self_update_dialog(&mut self) {
         let lines = match &self.self_source {
             Some(SelfSource::Git(dir)) => vec![
@@ -487,6 +487,20 @@ impl App {
                 )
                 .into(),
                 tr!("Твій OBS і налаштування не зміняться.", "Your OBS and settings stay as they are.").into(),
+            ],
+            Some(SelfSource::Package) => vec![
+                tr!(
+                    "Пакет pacman з найновішого релізу на GitHub: завантажити, перевірити контрольну суму \
+                     й поставити через sudo pacman -U.",
+                    "The pacman package from the latest release on GitHub: download it, check its checksum \
+                     and install it with sudo pacman -U."
+                )
+                .into(),
+                tr!(
+                    "Знадобиться пароль sudo/doas. Твій OBS і налаштування не зміняться.",
+                    "The sudo/doas password is needed. Your OBS and settings stay as they are."
+                )
+                .into(),
             ],
             None => return,
         };

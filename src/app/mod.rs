@@ -238,7 +238,7 @@ impl App {
         let u = self.updates.as_ref()?;
         let active = self.sys.as_ref().and_then(SysInfo::active_build);
         let catalog = self.catalog.as_deref().unwrap_or_default();
-        Some(updates::facts_from(active, u, &self.settings, catalog, self.self_source.is_some()))
+        Some(updates::facts_from(active, u, &self.settings, catalog, self.self_source.as_ref()))
     }
 
     /// Що змінилося між кадрами: сповіщення внизу згасає, завдання видає новий вивід чи завершується.

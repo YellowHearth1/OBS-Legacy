@@ -230,10 +230,11 @@ pub const MENU: &[MenuItem] = &[
         label: ("Оновити OBS-Legacy", "Update OBS-Legacy"),
         about: (
             "Завантажує нову версію самої програми з GitHub і ставить її: з вихідних кодів — git pull і \
-             збирання, з релізу — готову програму. Твій OBS не зміниться. Після оновлення перезапусти програму.",
+             збирання, з релізу — готову програму, з пакета pacman — новий пакет через sudo pacman -U. Твій OBS \
+             не зміниться. Після оновлення перезапусти програму.",
             "Downloads the new version of the program itself from GitHub and installs it: from source — git pull \
-             and a build, from a release — the ready-made program. Your OBS stays as it is. Restart the program \
-             afterwards.",
+             and a build, from a release — the ready-made program, as a pacman package — the new package with \
+             sudo pacman -U. Your OBS stays as it is. Restart the program afterwards.",
         ),
         sudo: false,
         changes_system: false,

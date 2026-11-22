@@ -732,7 +732,7 @@ xfce4-terminal, mate-terminal, qterminal, lxterminal, terminator, tilix, urxvt, 
 Поставлена однією командою (`curl … | bash`, `install.sh` без вихідних кодів поруч) програма — той самий
 бінарник, що в пакеті, з релізу (`obs-legacy-x86_64` + `.sha256`). `install.sh` пише тег релізу в
 `release-install` і прибирає `source-dir` (і навпаки: збирання з вихідних кодів прибирає `release-install`,
-тож діє останній спосіб). `script::self_source()` повертає `SelfSource::Git(тека)` чи `SelfSource::Release`;
+тож діє останній спосіб). `script::self_source()` повертає `SelfSource::Git(тека)` чи `SelfSource::Release` (або `Package`, див. нижче);
 другий — лише коли запущено саме `~/.local/bin/obs-legacy`. Для `Release` пункт меню завантажує
 `releases/latest/download/install.sh` і запускає його з `--prebuilt --update` (`--prebuilt` — щоб тимчасова
 тека не вважалася теками з вихідними кодами), а сповіщення радить той самий пункт меню.
@@ -742,9 +742,18 @@ xfce4-terminal, mate-terminal, qterminal, lxterminal, terminator, tilix, urxvt, 
 `OBS_LEGACY_TAG` вибирає інший реліз, `OBS_LEGACY_DOWNLOAD_URL` — теку з тими самими файлами замість релізу
 (перевірки, `file://…`).
 
-Поставлену готовим пакетом програму (`/usr/bin/obs-legacy`, теки з вихідними кодами немає) меню не
-оновлює: сповіщення про новий OBS-Legacy (`Facts::self_package`) радить завантажити пакет з релізу й
-поставити його `sudo pacman -U`. `install.sh` попереджає, якщо пакет `obs-legacy` уже стоїть: копія в
+Поставлену готовим пакетом програму (запущено саме `script::PACKAGE_EXE` = `/usr/bin/obs-legacy`)
+`self_source()` визначає першою — `SelfSource::Package`, навіть якщо десь лишилася `source-dir`: копію з
+пакета оновлює лише новий пакет. Пункт меню (`self_update_args`, PTY) питає `releases/latest` лише
+заголовками (`curl -I`, переадресація на сторінку тега дає версію), завантажує
+`obs-legacy-<версія>-1-x86_64.pkg.tar.zst` і `.sha256` (назва — з `package.yml`) у `~/.cache/obs-legacy`
+(`package_cache_dir`; старі файли там спершу видаляються), перевіряє `sha256sum -c` (не збіглося — файл
+видаляється) і ставить локальний файл `sudo pacman -U` (або `doas`). Не `pacman -U <URL>`: підписів `.sig`
+у релізах немає, а з `SigLevel = Required` pacman їх вимагає. `facts_from` отримує `Option<&SelfSource>`:
+`Package` → `SelfInstall::Package`, і сповіщення радить той самий пункт меню (з поясненням, що ставить
+pacman); опис пункту в меню для пакета показує «Пароль: знадобиться» і «Система: змінюється». Тест
+`package_update_from_real_release` (`--ignored`, мережа) проганяє команду на справжньому релізі з
+підставними sudo/doas. `install.sh` попереджає, якщо пакет `obs-legacy` уже стоїть: копія в
 `~/.local/bin` його перекрила б.
 
 ### Пакет програми

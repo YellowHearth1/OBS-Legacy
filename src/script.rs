@@ -5,7 +5,7 @@
 use std::env;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
@@ -37,11 +37,21 @@ pub enum SelfSource {
     Git(PathBuf),
     /// Готова програма з релізу (install.sh поза вихідними кодами): install.sh з найновішого релізу.
     Release,
+    /// Пакет pacman (`/usr/bin/obs-legacy`): пакет з найновішого релізу, поставлений локальним
+    /// файлом через `pacman -U`.
+    Package,
 }
 
-/// Як оновлювати саму програму, якщо це вміє меню. Пакет pacman (/usr/bin/obs-legacy) — ні:
-/// його оновлює pacman.
+/// Куди ставить програму пакет pacman (packaging/PKGBUILD).
+pub const PACKAGE_EXE: &str = "/usr/bin/obs-legacy";
+
+/// Як оновлювати саму програму з меню; None — лише вручну (зібрано без install.sh).
 pub fn self_source() -> Option<SelfSource> {
+    // Запущено копію з пакета: її оновлює лише новий пакет, навіть якщо десь лишився клон, з
+    // якого колись ставив install.sh (його --update поставив би іншу копію в ~/.local/bin).
+    if crate::service::exe_path() == Path::new(PACKAGE_EXE) {
+        return Some(SelfSource::Package);
+    }
     if let Some(dir) = source_dir() {
         return Some(SelfSource::Git(dir));
     }
