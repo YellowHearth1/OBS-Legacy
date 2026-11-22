@@ -557,7 +557,9 @@ OBS-Legacy, коли оновлення зачепило їхні бібліот
   (`OBS_LEGACY_AUTO_UPDATE=1` — хуки бачать оточення pacman), пакетів OBS-Legacy немає (`BUILDINFO.txt`) чи
   користувача не знайдено. Користувач: `SUDO_UID` → `PKEXEC_UID` → `DOAS_USER` → записаний минулого разу
   (`/var/lib/obs-legacy/auto-update.user`) → єдиний з тих, у кого є `~/.local/share/obs-studio-nvenc-artix/packages`;
-  лише UID ≥ 1000, не nobody, рядок схожий на ім'я чи число. Тоді `setsid -f … run <користувач>` з усіма трьома
+  лише UID ≥ 1000, не nobody, рядок схожий на ім'я чи число. Два запасні варіанти (pacman запущено без sudo, pkexec
+  чи doas, напр. з `su -`) — лише для члена групи `wheel` (`is_admin`): той і так може стати root, а звичайний
+  користувач без права sudo інакше міг би підкласти root свій пакет. Тоді `setsid -f … run <користувач>` з усіма трьома
   потоками на `/dev/null` (pacman читає вивід хука до кінця й інакше чекав би) і, якщо є збережені копії,
   рядок для людини наприкінці виводу pacman. Код завжди 0.
 - `run` (root, уже окремо): журнал `/var/log/obs-legacy/auto-update.log` (0644; понад 1 МіБ — у `.old`);

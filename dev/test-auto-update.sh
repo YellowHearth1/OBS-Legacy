@@ -60,6 +60,8 @@ pacman() {
   return "${PACMAN_RC:-0}"
 }
 getent() { :; }
+# Адміністратор (wheel) — «я», доки ADMIN не 0.
+is_admin() { [[ "$1" == "$me" && "${ADMIN:-1}" == 1 ]]; }
 id() { if [[ "${1:-}" == -u ]]; then echo 0; else command id "$@"; fi; }
 
 mkpkg() {   # файл, назва пакета
@@ -104,6 +106,9 @@ check "pacman показує, що буде далі" "grep -q 'OBS-Legacy' '$T/
 reset_out
 ( unset PKEXEC_UID DOAS_USER; SUDO_UID=0 hook ) > "$T/out/hook.txt"
 check "sudo від root → запам'ятований користувач" "grep -qx -- '-f $self run $me' '$T/out/setsid.calls'"
+reset_out
+( unset PKEXEC_UID DOAS_USER; SUDO_UID=0 ADMIN=0 hook ) > "$T/out/hook.txt"
+check "запам'ятований користувач без прав адміністратора — нічого не запускає" "[[ ! -e '$T/out/setsid.calls' ]]"
 reset_out
 printf 'libolt.so.1\tolt-probe-legacy-580xx\n' > "$kept_list"
 ( unset PKEXEC_UID DOAS_USER; SUDO_UID=$my_uid hook ) > "$T/out/hook.txt"
