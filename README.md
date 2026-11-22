@@ -331,7 +331,9 @@ rebuild by itself and tells you when the packages are ready. Without notificatio
 OBS**; `bash "$(obs-legacy --script-path)" status` lists the kept copies.
 
 **Does it work with package managers and AUR helpers (Matsaky, paru…)?** Yes: a system upgrade from any of
-them goes through, and the background check rebuilds what needs it. A package manager can also take
+them goes through, and the background check rebuilds what needs it — and only that: when an upgrade takes a
+library from ffmpeg alone, only `ffmpeg-legacy-580xx` is rebuilt, and OBS running on kept libraries is just
+relinked instead of compiled again. A package manager can also take
 OBS-Legacy into its own “Upgrade all”, in the right order: system packages, then `obs-legacy --prepare`
 (builds as your user, asks nothing), then installing what `obs-legacy --install-files` lists, then AUR plugins
 for OBS. The details for developers are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (“Пакетні менеджери й

@@ -518,6 +518,20 @@ OBS-Legacy не зупиняють. Якщо стоїть `/usr/lib/obs-legacy/k
 Без пакетного менеджера те саме роблять фонова перевірка (крок 2 — сама після транзакції pacman) і
 «Встановити / оновити OBS» (крок 3).
 
+**Перезбирається лише потрібне.** Коли всі причини `update_reasons` — рядок `ffmpeg: …` (бібліотеки
+ffmpeg-legacy-580xx, збережені копії, рецепт ffmpeg), OBS-Legacy вже встановлено пакетами, а основна версія ffmpeg
+у репозиторії та сама (`version_major`: між основними версіями змінюються sonames libav*), `ffmpeg_only` вмикає
+`ffmpeg_only_build`: збирається лише ffmpeg-legacy-580xx — у теку `~/.local/share/obs-studio-nvenc-artix/ffmpeg-packages/<мітка>/`
+(BUILDINFO з `kind=ffmpeg`, `ffmpeg`, `ffmpeg_arch`, `profile`, `recipe`, `built=` — як у `ffmpeg.txt` пакета), без OBS,
+CEF, плагінів і їхнього пакування; якщо нова збірка дає інші sonames libav*, ніж встановлена, — помилка з порадою
+«Перезібрати OBS». `prepare` її лише готує, `update` ставить тільки її (`finish_ffmpeg_only`, плагіни не прибираються),
+`--install-files` без повного набору дає рядок `install` для неї (`ready_ffmpeg any`), фонова перевірка сповіщає
+«ffmpeg для OBS-Legacy готовий» (`updates::prepare::ready_ffmpeg`). Бібліотеки OBS і плагінів перевіряються окремо
+(`pkgs_missing_lib` по `set_packages`), тож брак бібліотеки лише в ffmpeg не тягне за собою OBS. Коли ж OBS працює на
+збережених копіях чи без бібліотеки, `obs_relink_only` прибирає з кешу збирання лише скомпоновані файли (правила
+`*_LINKER` у build.ninja) — ninja перекомпоновує їх (37 файлів, ~1 хв), не компілюючи наново; начисто — лише коли кешу
+немає чи CMakeCache пам'ятає шлях до бібліотеки, якої вже немає.
+
 ## BUILDINFO.txt
 
 `/usr/share/obs-legacy/BUILDINFO.txt` (пакет OBS): `label`, `obs_version` (git describe), `obs_commit`,

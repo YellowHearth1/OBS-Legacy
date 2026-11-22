@@ -12,7 +12,8 @@ use std::thread;
 use std::time::Duration;
 
 use super::notices::{
-    Notice, fingerprint, kept_notice, libs_notice, notices, prepare_failed, prepare_ready, prepare_started,
+    Notice, fingerprint, kept_notice, libs_notice, notices, prepare_failed, prepare_ready, prepare_ready_ffmpeg,
+    prepare_started,
 };
 use super::prepare::{self, Reasons};
 use super::state::State;
@@ -486,7 +487,13 @@ impl Watch<'_> {
                     log(&trf!("Пакети готові: {label}", "Packages are ready: {label}"));
                     queue(&mut self.pending, &self.st, prepare_ready(&label));
                 }
-                None => log(tr!("Підготовка: готувати нічого.", "Preparation: nothing to prepare.")),
+                None => match prepare::ready_ffmpeg() {
+                    Some(version) => {
+                        log(&trf!("Готовий лише ffmpeg {version}", "Only ffmpeg {version} is ready"));
+                        queue(&mut self.pending, &self.st, prepare_ready_ffmpeg(&version));
+                    }
+                    None => log(tr!("Підготовка: готувати нічого.", "Preparation: nothing to prepare.")),
+                },
             }
             return;
         }

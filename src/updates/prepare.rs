@@ -116,9 +116,58 @@ fn ready_in(builds: &[BuildInfo], active: Option<&str>) -> Option<String> {
     }
 }
 
+/// Окремо перезібраний ffmpeg-legacy-580xx, ще не встановлений (скрипт: `ffmpeg_only_build`), — його
+/// версія. Свіжа збірка — найновіша повна тека сховища, чий час збирання (`built=`, той самий, що в
+/// `/usr/share/obs-legacy/ffmpeg.txt` пакета) новіший за встановлений.
+pub fn ready_ffmpeg() -> Option<String> {
+    let installed = std::fs::read_to_string(crate::system::info_dir().join("ffmpeg.txt")).unwrap_or_default();
+    ready_ffmpeg_in(&paths::ffmpeg_store(), &installed)
+}
+
+fn field<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+    text.lines().find_map(|line| line.strip_prefix(key)?.strip_prefix('=')).filter(|v| !v.is_empty())
+}
+
+fn ready_ffmpeg_in(store: &Path, installed: &str) -> Option<String> {
+    let mut labels: Vec<String> = std::fs::read_dir(store)
+        .ok()?
+        .flatten()
+        .filter(|e| e.path().join(".complete").is_file())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    labels.sort();
+    let newest = labels.pop()?;
+    let info = std::fs::read_to_string(store.join(&newest).join("BUILDINFO.txt")).ok()?;
+    let built = field(&info, "built")?;
+    // ISO 8601 одного годинника — порівнюються як рядки
+    match field(installed, "built") {
+        Some(have) if built <= have => None,
+        _ => Some(field(&info, "ffmpeg").unwrap_or(&newest).to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_ffmpeg_rebuilt_alone_is_ready_until_installed() {
+        let store = std::env::temp_dir().join(format!("obs-legacy-ffstore-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&store);
+        assert_eq!(ready_ffmpeg_in(&store, ""), None, "no store");
+        let dir = store.join("20261122-111500_ffmpeg-2_9.1-1");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("BUILDINFO.txt"), "kind=ffmpeg\nffmpeg=2:9.1-1\nbuilt=2026-11-22T11:20:00+02:00\n")
+            .unwrap();
+        assert_eq!(ready_ffmpeg_in(&store, ""), None, "not complete yet");
+        std::fs::write(dir.join(".complete"), "").unwrap();
+        let older = "arch_version=2:9.1-1.1\nbuilt=2026-11-21T14:50:00+02:00\n";
+        assert_eq!(ready_ffmpeg_in(&store, older).as_deref(), Some("2:9.1-1"));
+        // встановлено саме цю збірку: той самий час у ffmpeg.txt пакета
+        let same = "built=2026-11-22T11:20:00+02:00\n";
+        assert_eq!(ready_ffmpeg_in(&store, same), None);
+        let _ = std::fs::remove_dir_all(&store);
+    }
 
     fn set(label: &str, complete: bool, active: bool) -> BuildInfo {
         BuildInfo { label: label.into(), complete, active, ..Default::default() }

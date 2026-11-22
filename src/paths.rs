@@ -32,6 +32,12 @@ pub fn package_store() -> PathBuf {
     data_home().join("obs-studio-nvenc-artix").join("packages")
 }
 
+/// ffmpeg-legacy-580xx, перезібраний окремо від набору (оновлення системи зачепило лише його) — так
+/// само, як `FFMPEG_STORE` у скрипті.
+pub fn ffmpeg_store() -> PathBuf {
+    data_home().join("obs-studio-nvenc-artix").join("ffmpeg-packages")
+}
+
 pub fn config_home() -> PathBuf {
     xdg_dir("XDG_CONFIG_HOME", ".config")
 }

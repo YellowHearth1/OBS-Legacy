@@ -273,6 +273,20 @@ pub fn prepare_ready(label: &str) -> Notice {
     }
 }
 
+/// Перезібрано лише ffmpeg-legacy-580xx: оновлення системи не зачепило OBS і плагіни.
+pub fn prepare_ready_ffmpeg(version: &str) -> Notice {
+    Notice {
+        items: vec![("ready-ffmpeg".into(), version.into())],
+        title: tr!("ffmpeg для OBS-Legacy готовий", "ffmpeg for OBS-Legacy is ready").into(),
+        body: trf!(
+            "ffmpeg-legacy-580xx {version} зібрано під нові бібліотеки системи; OBS і плагіни перезбирати не довелося. {}",
+            "ffmpeg-legacy-580xx {version} is built for the new system libraries; OBS and the plugins needed no rebuild. {}",
+            how_install_ready()
+        ),
+        urgent: false,
+    }
+}
+
 /// Підготовка не вдалася: що сталося й порада зі звіту.
 pub fn prepare_failed(key: &str, problem: Option<&str>, hint: Option<&str>) -> Notice {
     let what = problem.unwrap_or(tr!("збирання зупинилося з помилкою", "the build stopped with an error"));
