@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use crate::analyzer::{Analyzer, Problem, Tag, tag};
-use crate::script;
+use crate::clock;
+use crate::paths;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
@@ -36,10 +37,27 @@ impl ReportInfo {
     pub fn label(&self) -> &'static str {
         command_label(&self.command)
     }
+
+    /// Звіт збирання OBS: встановлення, оновлення чи перезбирання.
+    pub fn is_build(&self) -> bool {
+        BUILD_COMMANDS.contains(&self.command.as_str())
+    }
 }
 
+/// Для результату й головної проблеми досить кінця звіту: звіти збирання бувають на десятки МБ.
+const SUMMARY_TAIL_BYTES: u64 = 64 * 1024;
+/// Скільки звіту (з кінця) показує вбудований переглядач.
+const VIEWER_TAIL_BYTES: u64 = 8 * 1024 * 1024;
+/// Сотні звітів за роки не потрібні — вистачить найсвіжіших.
+const MAX_REPORTS: usize = 200;
+/// Довжина мітки часу в назві звіту: «20261028-174550».
+const STAMP_LEN: usize = 15;
+
+/// Команди скрипта, що збирають OBS.
+pub const BUILD_COMMANDS: [&str; 4] = ["install", "update", "rebuild", "upgrade-system"];
+
 pub fn dir() -> PathBuf {
-    script::cache_home().join("obs-studio-nvenc-artix").join("reports")
+    paths::cache_home().join("obs-studio-nvenc-artix").join("reports")
 }
 
 pub fn command_label(command: &str) -> &'static str {
@@ -49,6 +67,8 @@ pub fn command_label(command: &str) -> &'static str {
         "update" => tr!("Оновлення OBS", "OBS update"),
         "rebuild" => tr!("Перезбирання OBS", "OBS rebuild"),
         "package" => tr!("Збирання пакетів", "Package build"),
+        "prepare" => tr!("Підготовка пакетів у фоні", "Preparing packages in the background"),
+        "upgrade-system" => tr!("Оновлення системи з OBS-Legacy", "System upgrade with OBS-Legacy"),
         "rollback" => tr!("Відкат", "Rollback"),
         "uninstall" => tr!("Видалення OBS-Legacy", "OBS-Legacy removal"),
         "deps" => tr!("Пакети для збірки", "Build dependencies"),
@@ -56,22 +76,9 @@ pub fn command_label(command: &str) -> &'static str {
     }
 }
 
-/// Сьогоднішня дата як «YYYYmmdd» за місцевим часом.
-fn today() -> String {
-    // SAFETY: time і localtime_r заповнюють передані структури.
-    unsafe {
-        let now = libc::time(std::ptr::null_mut());
-        let mut tm: libc::tm = std::mem::zeroed();
-        if libc::localtime_r(&now, &mut tm).is_null() {
-            return String::new();
-        }
-        format!("{:04}{:02}{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday)
-    }
-}
-
 /// «20261028-174550» → «сьогодні 17:45» або «28.10.2026 17:45» (англійською — «today 17:45», «2026-10-28 17:45»).
 pub fn when(stamp: &str) -> String {
-    when_relative(stamp, &today())
+    when_relative(stamp, &clock::today())
 }
 
 fn when_relative(stamp: &str, today: &str) -> String {
@@ -134,10 +141,10 @@ pub fn summarize(path: &Path) -> Option<ReportInfo> {
     let stem = name.strip_suffix(".txt")?;
     // «20261028-174550-check» → мітка часу і команда.
     let (stamp, command) = stem.rsplit_once('-')?;
-    if stamp.len() != 15 {
+    if stamp.len() != STAMP_LEN {
         return None;
     }
-    let text = read_tail(path, 64 * 1024)?;
+    let text = read_tail(path, SUMMARY_TAIL_BYTES)?;
     let (outcome, warnings, problem) = analyze(&text);
     Some(ReportInfo {
         path: path.to_path_buf(),
@@ -162,13 +169,12 @@ pub fn list_in(dir: &Path) -> Vec<ReportInfo> {
         .unwrap_or_default();
     paths.sort();
     paths.reverse();
-    // Сотні звітів за роки не потрібні — вистачить найсвіжіших.
-    paths.into_iter().take(200).filter_map(|p| summarize(&p)).collect()
+    paths.into_iter().take(MAX_REPORTS).filter_map(|p| summarize(&p)).collect()
 }
 
 /// Повний текст звіту для переглядача (дуже великі — лише кінець).
 pub fn load_lines(path: &Path) -> std::io::Result<Vec<String>> {
-    let text = read_tail(path, 8 * 1024 * 1024).ok_or_else(|| {
+    let text = read_tail(path, VIEWER_TAIL_BYTES).ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::NotFound, tr!("не вдалося прочитати файл", "couldn't read the file"))
     })?;
     Ok(text.lines().map(|l| l.replace('\t', "    ")).collect())

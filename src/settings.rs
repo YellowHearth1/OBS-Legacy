@@ -7,7 +7,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::script;
+use crate::paths;
 
 pub const DEFAULT_PLUGINS: &str = "obs-multi-rtmp";
 
@@ -113,6 +113,23 @@ pub const FIELDS: &[Field] = &[
              tuned for this processor. It replaces the system ffmpeg (pacman asks) — NVENC then works in OBS's \
              \"Custom Output (FFmpeg)\", in Kdenlive and in ffmpeg in the terminal. It is rebuilt only when the \
              repository gets a new ffmpeg. OBS itself encodes with NVENC through its own module even without it.",
+        ),
+        kind: Kind::Toggle,
+        default: "1",
+        advanced: false,
+    },
+    Field {
+        key: "AUTO_PREPARE",
+        label: ("Готувати пакети заздалегідь", "Prepare packages in advance"),
+        help: (
+            "Фонова перевірка (Додатково → «Сповіщення про оновлення») сама збирає нові пакети з найнижчим \
+             пріоритетом: одразу, коли після оновлення системи OBS-Legacy працює на збережених копіях старих \
+             бібліотек чи їх бракує, і разом з оновленням системи, коли вийшли нові OBS, плагіни чи ffmpeg. \
+             Нічого не встановлює: коли пакети готові, сповіщає, а «Встановити / оновити OBS» ставить їх одразу.",
+            "The background check (More → “Update notifications”) builds new packages by itself at the lowest \
+             priority: right away when after a system upgrade OBS-Legacy runs on kept copies of old libraries or \
+             misses libraries, and together with a system upgrade when a new OBS, plugin or ffmpeg version is out. \
+             It installs nothing: it tells you when the packages are ready, and “Install / update OBS” installs them.",
         ),
         kind: Kind::Toggle,
         default: "1",
@@ -316,7 +333,7 @@ pub fn validate(field: &Field, value: &str) -> Result<(), String> {
 pub fn settings_path() -> PathBuf {
     match env::var_os("OBS_LEGACY_SETTINGS") {
         Some(p) if !p.is_empty() => PathBuf::from(p),
-        _ => script::config_dir().join("settings.env"),
+        _ => paths::config_dir().join("settings.env"),
     }
 }
 
@@ -430,15 +447,11 @@ impl Settings {
         self.set("OBS_PLUGINS", &value);
     }
 
+    /// Записує файл надійно: після збою живлення він або старий, або новий, але не порожній.
     pub fn save(&self) -> io::Result<()> {
-        if let Some(dir) = self.path.parent() {
-            fs::create_dir_all(dir)?;
-        }
         let mut body = self.lines.join("\n");
         body.push('\n');
-        let tmp = self.path.with_extension(format!("env.tmp{}", std::process::id()));
-        fs::write(&tmp, body)?;
-        fs::rename(&tmp, &self.path)
+        crate::atomic::write(&self.path, body.as_bytes(), 0o644)
     }
 }
 

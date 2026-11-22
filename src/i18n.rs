@@ -54,6 +54,20 @@ pub fn pick<T>(uk: T, en: T) -> T {
     if self::en() { en } else { uk }
 }
 
+/// Українська множина: plural(4, "потік", "потоки", "потоків") → "потоки".
+pub fn plural<'a>(n: usize, one: &'a str, few: &'a str, many: &'a str) -> &'a str {
+    match (n % 10, n % 100) {
+        (1, r) if r != 11 => one,
+        (2..=4, r) if !(12..=14).contains(&r) => few,
+        _ => many,
+    }
+}
+
+/// Слово поточною мовою для числа `n`: `count_word(5, ["потік", "потоки", "потоків"], ["thread", "threads"])`.
+pub fn count_word<'a>(n: usize, uk: [&'a str; 3], en: [&'a str; 2]) -> &'a str {
+    if self::en() { if n == 1 { en[0] } else { en[1] } } else { plural(n, uk[0], uk[1], uk[2]) }
+}
+
 /// Мова з налаштування (`auto`, `uk`, `en`) і локалі системи.
 pub fn resolve(setting: &str, locale: Option<&str>) -> Lang {
     match setting.trim() {
@@ -123,6 +137,14 @@ mod tests {
         assert_eq!(resolve("en", Some("uk_UA.UTF-8")), Lang::En);
         assert_eq!(locale_conf_lang("# x\nLANG=\"uk_UA.UTF-8\"\nLC_TIME=C\n").as_deref(), Some("uk_UA.UTF-8"));
         assert_eq!(locale_conf_lang("LC_TIME=C\n"), None);
+    }
+
+    #[test]
+    fn ukrainian_plural() {
+        assert_eq!(plural(1, "звіт", "звіти", "звітів"), "звіт");
+        assert_eq!(plural(3, "звіт", "звіти", "звітів"), "звіти");
+        assert_eq!(plural(11, "звіт", "звіти", "звітів"), "звітів");
+        assert_eq!(plural(25, "звіт", "звіти", "звітів"), "звітів");
     }
 
     #[test]

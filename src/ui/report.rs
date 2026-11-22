@@ -10,7 +10,8 @@ use ratatui::widgets::{Paragraph, Wrap};
 
 use super::{buttons, footer, hanging, panel, panel_title, top_bar, truncate, wrap_text};
 use crate::analyzer::{Tag, tag};
-use crate::app::{App, Target, short_path};
+use crate::app::{App, Target};
+use crate::paths::short_path;
 use crate::reports::{self, LineKind, Outcome, ReportInfo};
 use crate::theme::Theme;
 

@@ -8,6 +8,10 @@ use std::time::{Duration, Instant};
 
 type GetMaxSupportedVersion = unsafe extern "C" fn(*mut u32) -> i32;
 
+/// Скільки чекати на окремий процес перевірки: драйвер у поганому стані може зависнути.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
+const PROBE_POLL: Duration = Duration::from_millis(50);
+
 /// Точка входу `--probe-nvenc`: друкує «13.0» і повертає код завершення.
 pub fn probe_main() -> i32 {
     // SAFETY: dlopen/dlsym з коректними C-рядками; сигнатура функції
@@ -49,11 +53,11 @@ pub fn query(exe: &Path) -> Option<String> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    let deadline = Instant::now() + Duration::from_secs(8);
+    let deadline = Instant::now() + PROBE_TIMEOUT;
     loop {
         match child.try_wait() {
             Ok(Some(_)) => break,
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(PROBE_POLL),
             _ => {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -75,7 +79,8 @@ fn is_api_version(s: &str) -> bool {
     ok(parts.next()) && ok(parts.next()) && parts.next().is_none()
 }
 
-/// "13.0" → 13*16+0, для порівняння версій API.
+/// "13.0" → 13*16+0, для порівняння версій API. Так кодує версію й сам драйвер: старші 4 біти —
+/// мінорна версія молодші (див. `probe_main`).
 pub fn api_to_int(s: &str) -> Option<u32> {
     let (major, minor) = s.split_once('.')?;
     Some(major.parse::<u32>().ok()? * 16 + minor.parse::<u32>().ok()?)

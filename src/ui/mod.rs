@@ -6,6 +6,7 @@ mod intro;
 mod lists;
 mod report;
 mod run;
+mod system_panel;
 
 use std::time::Duration;
 
@@ -72,18 +73,10 @@ pub fn truncate(s: &str, max: usize) -> String {
     out
 }
 
-/// Українська множина: plural(4, "потік", "потоки", "потоків") → "потоки".
-pub fn plural<'a>(n: usize, one: &'a str, few: &'a str, many: &'a str) -> &'a str {
-    match (n % 10, n % 100) {
-        (1, r) if r != 11 => one,
-        (2..=4, r) if !(12..=14).contains(&r) => few,
-        _ => many,
-    }
-}
-
-/// Слово поточною мовою для числа `n`: `count_word(5, ["потік", "потоки", "потоків"], ["thread", "threads"])`.
-pub fn count_word<'a>(n: usize, uk: [&'a str; 3], en: [&'a str; 2]) -> &'a str {
-    if crate::i18n::en() { if n == 1 { en[0] } else { en[1] } } else { plural(n, uk[0], uk[1], uk[2]) }
+/// «Встановлення OBS» → «встановлення OBS» (абревіатури лишаються великими).
+pub fn lower_first(s: &str) -> String {
+    let mut chars = s.chars();
+    chars.next().map(|c| c.to_lowercase().chain(chars).collect()).unwrap_or_default()
 }
 
 /// Перенесення тексту за словами в рядки шириною до `width` символів.
@@ -397,13 +390,5 @@ mod tests {
             lines.iter().map(|l| l.iter().map(|s| s.content.to_string()).collect::<String>()).collect();
         assert_eq!(text, ["obs-multi-rtmp 0.8.0.0,", "waveform"]);
         assert!(lines[0][1].style.add_modifier.contains(Modifier::BOLD));
-    }
-
-    #[test]
-    fn ukrainian_plural() {
-        assert_eq!(plural(1, "звіт", "звіти", "звітів"), "звіт");
-        assert_eq!(plural(3, "звіт", "звіти", "звітів"), "звіти");
-        assert_eq!(plural(11, "звіт", "звіти", "звітів"), "звітів");
-        assert_eq!(plural(25, "звіт", "звіти", "звітів"), "звітів");
     }
 }

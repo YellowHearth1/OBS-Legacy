@@ -12,6 +12,7 @@
 | Установник | `install.sh`, `assets/obs-legacy.svg` | У теці з вихідними кодами збирає TUI (`--target-dir` репозиторію) і прибирає `target/`; без неї (`curl … \| bash`) завантажує з релізу готовий `obs-legacy-x86_64` і звіряє SHA-256. Далі однаково: `~/.local/bin`, ярлик у меню й на робочий стіл, пропонує ввімкнути сповіщення |
 | Сповіщення | `src/updates.rs`, `src/notify.rs`, `src/service.rs` | Фонова перевірка оновлень (`obs-legacy --watch`) і сповіщення на робочому столі; служба користувача systemd, dinit, OpenRC, runit, s6 або автозапуск сесії (див. «Сповіщення про оновлення») |
 | Імітатор | `dev/fake-build.sh` | Друкує те саме, що рушій (разом зі звітом), але нічого не робить — для розробки інтерфейсу |
+| Тест keep-libs | `dev/test-keep-libs.sh` | Хук збереження бібліотек без root: генерує його з рушія, «ховає» бібліотеку з кешу ldconfig і перевіряє pre/post (на машині з пакетами OBS-Legacy; без них — пропускає) |
 | Скріншоти | `dev/screenshot.py` | PNG зі знімка `tmux capture-pane -e -p -N` (Pillow) — для `docs/screenshots/` |
 | Іконка й банер | `dev/make-assets.py`, `assets/third-party/` | `assets/obs-legacy.svg` і `assets/banner.png` (1280×640, шапка README і прев'ю репозиторію) з іконки «graphics-card» Phosphor Icons (MIT) і шрифту JetBrains Mono (OFL), текст — кривими. Без логотипів NVIDIA й OBS: це чужі торгові марки, а їхні правила забороняють використання без ліцензії |
 | Пакет програми | `packaging/PKGBUILD`, `packaging/obs-legacy.desktop`, `.github/workflows/package.yml` | Готовий пакет pacman самої програми (`obs-legacy-<версія>-1-x86_64.pkg.tar.zst`) для кожного релізу — див. «Пакет програми» |
@@ -31,6 +32,10 @@ TUI **вбудовує** скрипт (`include_str!` у `src/script.rs`) і п�
 | `update` | те саме, але після `check_driver_vs_headers` — `update_reasons` (див. «Оновлення й перезбирання»): нічого нового → «ОНОВЛЕНЬ НЕМАЄ», без збирання | так, якщо є що оновлювати |
 | `rebuild` | те саме, що `install`, але CMake OBS начисто (`configure_obs … fresh`) і спершу `clear_stale_git_locks` | так |
 | `package` | `build_set` без встановлення: лише набір пакетів у сховищі | лише якщо бракує пакетів для збірки |
+| `prepare` | як `update`, але без встановлення й без жодного питання (бракує пакетів для збірки → `die` з `fix deps`); так його запускає `--watch` (`AUTO_PREPARE`) | ні |
+| `upgrade-system` | `repo-sync` → пробне `pacman -Sup` на копії баз → за потреби спершу `update` (інші soname libav* у репозиторії) і «місток» (`pacman -Syu ffmpeg`: на час оновлення ffmpeg з репозиторію замість `ffmpeg-legacy-580xx` — лише для пакетів без keep-libs, коли той заблокував би оновлення чи втратив бібліотеку, `ffmpeg_libs_change`) → `pacman -Syu` → `update` дочірнім процесом | так |
+| `install-files` | для пакетних менеджерів: найновіший повний набір, новіший за встановлений, з бібліотеками на місці (`set_libs_ok`) → на stdout `install <файл>` і `remove <пакет>` (`stale_plugin_packages`), перед тим `backup_obs_config`; нічого не ставить (див. «Пакетні менеджери й AUR-помічники») | ні |
+| `repo-sync` | власна копія баз синхронізації в `~/.local/state/obs-legacy/pacman` (`fakeroot pacman -Sy --disable-sandbox --dbpath`, `local` — посилання на `/var/lib/pacman/local`); `repo_version` бере новішу з двох баз | ні |
 | `status` | встановлені пакети, BUILDINFO, check-libs, набори в сховищі, оновлення OBS і плагінів | ні |
 | `rollback [НАБІР]` | `pacman -U` збереженого набору (питає підтвердження); поки пакетів немає — стара схема: симлінк `current` у /opt | так |
 | `uninstall` | `pacman -S ffmpeg` (замість `ffmpeg-legacy-580xx`), `pacman -R` інших `*-legacy-580xx`, залишки старої схеми | так |
@@ -108,8 +113,12 @@ OBS-Legacy» з релізу) має `--speed-limit 1 --speed-time 120`: з'єд
 
 - Система змінюється лише через pacman: `pacman -S --needed` (пакети для збірки) і `pacman -U` (пакети
   OBS-Legacy) — обидва після `confirm` і без `--noconfirm`, тож pacman ще й сам питає про заміни.
-  `pacman -Syu` скрипт не запускає. Файли чужих пакетів не перезаписуються: власників файлів нового пакета
+  `pacman -Syu` — лише в `upgrade-system`, яку людина запускає сама (`obs-legacy --upgrade-system`), і теж
+  без `--noconfirm`. Файли чужих пакетів не перезаписуються: власників файлів нового пакета
   скрипт додає в `conflicts` (pacman запропонує замінити), а файл без власника — зупинка з порадою.
+- pacman-хуки пакета OBS змінюють лише своє: `keep-libs` кладе копії бібліотек у `/usr/lib/obs-legacy/kept-libs`
+  (тека з пакета, у `ld.so.conf.d`) і список у `/var/lib/obs-legacy/kept-libs.tsv`, викликає `ldconfig`, ніколи
+  не зупиняє транзакцію (код завжди 0, без `AbortOnFail`); `check-libs` нічого не змінює.
 - Компіляція, тимчасове встановлення й makepkg — без root. `sudo`/`doas` потрібні лише для pacman і
   прибирання старої схеми (`/opt/obs-studio-nvenc`, `/usr/local/bin/obs`, хук у `/etc`).
 - Пакети ставляться лише після `obs-nvenc-test` і перевірки бібліотек. Інакше поточний OBS не змінюється.
@@ -126,7 +135,8 @@ OBS-Legacy» з релізу) має `--speed-limit 1 --speed-time 120`: з'єд
 |---|---|
 | Пакети | `obs-studio-legacy-580xx`, `<назва в AUR>-legacy-580xx`, `ffmpeg-legacy-580xx` — файли в `/usr` |
 | Відомості про збірку | `/usr/share/obs-legacy/BUILDINFO.txt` (пакет OBS), `plugins/<id>` (пакет плагіна), `ffmpeg.txt` (пакет ffmpeg) |
-| pacman-хук | `/usr/share/libalpm/hooks/obs-legacy.hook` → `/usr/lib/obs-legacy/check-libs` (у пакеті OBS) |
+| pacman-хуки | `/usr/share/libalpm/hooks/obs-legacy.hook` → `/usr/lib/obs-legacy/check-libs`; `00-obs-legacy-keep-libs-{pre,post}.hook` → `/usr/lib/obs-legacy/keep-libs` (у пакеті OBS) |
+| Збережені копії бібліотек | `/usr/lib/obs-legacy/kept-libs/` (`/etc/ld.so.conf.d/obs-legacy-kept-libs.conf`), список `/var/lib/obs-legacy/kept-libs.tsv` (keep-libs) |
 | Набори пакетів | `~/.local/share/obs-studio-nvenc-artix/packages/<LABEL>/` (`*.pkg.tar.zst`, `BUILDINFO.txt` набору, `.complete`) |
 | Номер збирання | `~/.local/share/obs-studio-nvenc-artix/build-number` (pkgrel наборів) |
 | Стара схема (прибирається) | `/opt/obs-studio-nvenc/{versions,current}`, `/usr/local/bin/obs`, `~/.local/share/applications/com.obsproject.Studio.desktop`, `/etc/pacman.d/hooks/90-obs-legacy.hook` → `/usr/local/lib/obs-legacy/check-libs` |
@@ -226,7 +236,8 @@ OBS Project, з якого лише прибирається налагоджу�
 не менший за pkgrel встановленого пакета), тож кожен новий набір для pacman «новіший». ffmpeg —
 `<pkgrel Arch>.<n>` (напр. `2:9.0.2-2.1`).
 
-Вміст пакетів: OBS — дерево `stage/usr` + `share/obs-legacy/BUILDINFO.txt` + хук і `check-libs` +
+Вміст пакетів: OBS — дерево `stage/usr` + `share/obs-legacy/BUILDINFO.txt` + хуки, `check-libs`, `keep-libs`,
+порожня `lib/obs-legacy/kept-libs` і `/etc/ld.so.conf.d/obs-legacy-kept-libs.conf` +
 `share/licenses/obs-studio-legacy-580xx/COPYING`; плагін — `plugins/<id>/stage/usr` +
 `share/obs-legacy/plugins/<id>` (`plugin.<id>=<версія> <коміт12>`) + ліцензія (`guess_license` за текстом
 LICENSE/COPYING). `strip_debug_info` прибирає `.debug_*` з бінарників CEF (libcef.so з архіву OBS — 2 ГБ з
@@ -266,10 +277,35 @@ PKGBUILD Arch сам робить `export PKG_CONFIG_PATH=/usr/lib/mbedtls2/pkgc
 `hevc_nvenc` зібраним бінарником (`LD_LIBRARY_PATH` = бібліотеки з `pkg/`); не вийшло — пакет не
 ставиться. Будь-яка невдача ffmpeg — попередження, OBS ставиться без нього.
 
-Коли в репозиторії виходить новий ffmpeg, `pacman -Syu` наш пакет не чіпає (його немає в репозиторіях), а
-хук із пакета OBS пише «у репозиторії новий ffmpeg — перезбери». Якщо новий ffmpeg змінить sonames, pacman
-сам запропонує замінити `ffmpeg-legacy-580xx` репозиторним (NVENC в ffmpeg тоді зникне до перезбирання;
-власний NVENC OBS від цього не залежить).
+Коли в репозиторії виходить новий ffmpeg, `pacman -Syu` наш пакет не чіпає (його немає в репозиторіях).
+`ffmpeg_plan` перезбирає ffmpeg лише за справжньої потреби: нова версія в репозиторії (`version_no_rel`:
+лише `epoch:pkgver`, новий pkgrel — це здебільшого перезбирання під нові бібліотеки, і його ловить таке),
+бібліотеки, які зберіг keep-libs (`kept_libs ffmpeg`), бібліотеки, яких бракує (`ffmpeg_missing_lib`), новий
+`FFMPEG_RECIPE_VERSION` (`recipe=` у `ffmpeg.txt`), профіль заліза чи «Щоразу чиста збірка»
+(`ffmpeg_needs_rebuild`). Тег PKGBUILD Arch для версії Artix (`2:9.1-1.1`) — спершу точний, потім без
+припису до pkgrel (`2-9.1-1`). У BUILDINFO набору — `ffmpeg_arch=` (з якої версії репозиторію зібрано).
+
+**Залежності без жорсткої версії soname.** makepkg перетворює голе `libass.so` у `depends` на `libass.so=9-64`
+(`find_libdepends`), і тоді нова libass зупиняла б `pacman -Syu` («breaks dependency … required by
+ffmpeg-legacy-580xx»). Тому PKGBUILD ffmpeg переписує `*.so` на `*.so>=0` (і на верхньому рівні, і в
+`package()`), а `pkg_deps_for_libs` для OBS і плагінів пише `libjack.so>=0` (будь-який пакет із цим soname,
+будь-якої версії; `pacman -T 'libass.so>=0'` — так, `'libass.so=8-64'` після оновлення — ні). Те, що
+бібліотеку справді замінено, ловить keep-libs (нижче). `RECIPE_VERSION` і `FFMPEG_RECIPE_VERSION` = 2: пакети
+з жорсткими версіями перезбираються першим же «Оновити».
+
+Оновлення системи (`upgrade-system`) — пробний `pacman -Sup` на копії баз. Коли стоїть keep-libs
+(`keep_libs_installed`) нові бібліотеки нічому не заважають: `pacman -Syu`, потім `update`. «Місток» (на час
+оновлення ffmpeg з репозиторію замість `ffmpeg-legacy-580xx`: той самий soname libav*, NVENC в OBS — власний
+модуль) лишився для пакетів, зібраних до рецепта 2: коли пробний прогін падає через `-legacy-580xx` чи keep-libs
+ще немає, а бібліотеки ffmpeg міняються (`ffmpeg_libs_change`). Якщо в репозиторії ffmpeg з іншим soname
+libav*, спершу `update` збирає й ставить OBS-Legacy під нього.
+
+**Готовий набір** (`ready_set`, замість колишнього `pending_set`): `install` і `update` (і `prepare`) перед
+збиранням шукають повний набір, новіший за встановлений, зібраний саме з того, що зібралося б зараз
+(`set_matches_target`: OBS, заголовки, профіль, рецепт, цільові версії плагінів `PLUGIN_TARGET` — плагін, що
+не зібрався з того самого коміту, може бути відсутній, — і `ffmpeg_arch` = версія в репозиторії), і
+перевіряють ldd-ом розпакований набір (`set_libs_ok`: набір міг зібратися до оновлення системи). Такий
+набір ставиться без збирання.
 
 ## Перехід зі старої схеми /opt
 
@@ -311,7 +347,15 @@ OBS 32+ **не має** `buildspec.json`. Дані про залежності �
 дописуються до прапорців компілятора цього плагіна (RewardsTheater: `-Wno-error=deprecated-declarations`).
 Назви в AUR: перша + `-legacy-580xx` — назва пакета (`plugin_pkgname`) і `provides`, усі — `conflicts`
 (немає поля — `obs-<id>`). TUI отримує каталог командою `plugins --tsv`. Формат TSV: `id`, `назва`,
-`вибрано (1/0)`, `типово (1/0)`, `репозиторій`, `пакети`, `опис`, `назва пакета`.
+`вибрано (1/0)`, `типово (1/0)`, `репозиторій`, `пакети`, `опис`, `назва пакета`, `свій (1/0)`.
+
+Свої плагіни власника машини — рядки того самого формату у `plugins.local` поруч із `settings.env`
+(`OBS_LEGACY_PLUGINS_LOCAL` — інший файл). `load_local_plugins` дописує їх у кінець `PLUGIN_CATALOG`
+до `readonly` і запам'ятовує в `PLUGIN_LOCAL`. Рядок перевіряється: `id` — `[a-z0-9][a-z0-9._-]*`, є назва,
+репозиторій починається з `https://`, `ssh://`, `git@`, `file://` або `/`, пакети й назви в AUR — лише
+допустимі для pacman символи, без табуляцій. Невдалий рядок чи `id` з вбудованого каталогу пропускається з
+попередженням. Нічого з файлу не виконується: поля йдуть у ті самі функції, що й поля каталогу, а
+параметри CMake — окремими аргументами.
 
 ### Конвеєр (`build_plugins` → `build_plugin` у підоболонці)
 
@@ -397,16 +441,96 @@ pacman-хука.
 Звичайні, з пакета: `/usr/bin/obs` і `/usr/share/applications/com.obsproject.Studio.desktop`. Обгортки
 `/usr/local/bin/obs` і ярлика-перекриття (стара схема) більше немає — їх прибирає `remove_legacy_install`.
 
-## pacman-хук
+## pacman-хуки
 
-У пакеті OBS (`add_hook_to_tree`, якщо `INSTALL_PACMAN_HOOK=1`):
+У пакеті OBS (`add_hook_to_tree`, якщо `INSTALL_PACMAN_HOOK=1`) — три хуки.
+
+**keep-libs** (як preserved-libs у Gentoo): `00-obs-legacy-keep-libs-pre.hook` (`PreTransaction`,
+`NeedsTargets`) і `00-obs-legacy-keep-libs-post.hook` (`PostTransaction`; «00-», щоб іти раніше за інші, зокрема
+`obs-legacy.hook`), обидва `Upgrade`/`Remove`, `Target = *`, `Exec = /usr/lib/obs-legacy/keep-libs pre|post`.
+- `pre`: файли бібліотек пакетів транзакції (`pacman -Qlq <цілі>`, лише `*.so*`; нових пакетів pacman ще не
+  знає — пропускає) → якщо цілей без бібліотек, вихід за ~0,05 с. Інакше: NEEDED усіх ELF у `bin/` і `*.so*`
+  пакетів `*-legacy-580xx` (один `pacman -Ql`, `readelf -d`) і збережених копій → де їх знаходить завантажувач
+  (`ldconfig -p`, x86-64) → ті, що лежать у файлах цілей, плюс їхні залежності, які теж зникнуть, копіюються
+  (`cp -L`) у `kept-libs.staged`. ~0,3 с.
+- `post`: якщо нічого не збережено й не підготовлено — одразу вихід. Інакше `ldconfig` (кеш уже після
+  транзакції), підготовлені копії бібліотек, яких система тепер не має (`system_has`: шлях з кешу поза
+  `kept-libs`, файл існує), переходять у `kept-libs`; лишаються лише копії, потрібні пакетам OBS-Legacy прямо
+  чи через іншу копію (до сталого стану); список `kept-libs.tsv` («бібліотека<TAB>пакети»), `ldconfig`, якщо
+  щось змінилося, і повідомлення в кінці виводу pacman.
+- Тека `/usr/lib/obs-legacy/kept-libs` — у пакеті OBS (порожня), її шлях — у
+  `/etc/ld.so.conf.d/obs-legacy-kept-libs.conf` (теж у пакеті). Копія знаходиться лише тоді, коли такого
+  soname в системі вже немає, тож нових бібліотек вона не затуляє.
+- Копії прибираються самі, щойно перезібрані пакети встановлено (їх більше ніхто не потребує); `uninstall`
+  прибирає теку й список, коли пакетів OBS-Legacy не лишилося (хук `post` пішов разом з пакетом).
+- `ldd_problems` позначає бібліотеку, знайдену лише в `kept-libs`, як `(kept)`: набір, зібраний до оновлення
+  (`set_libs_ok`), не вважається готовим, а `verify_tree` не пропустить такий файл у пакет.
+- Хто чекає на копії: `kept_libs ffmpeg|obs` у скрипті (`ffmpeg_needs_rebuild`, рядок в `update_reasons`),
+  `updates::kept_libs` у TUI (фонова підготовка й сповіщення), `status`.
+- Тест без root — `dev/test-keep-libs.sh`: файл підключається (`source`, `main` тоді не виконується), теки,
+  список і `ldmap` підставляються, бібліотека чужого пакета «зникає» з кешу ldconfig.
+
+**check-libs**:
 `/usr/share/libalpm/hooks/obs-legacy.hook` спрацьовує на `Upgrade`/`Remove` будь-якого пакета
 (`Target = *`), `When = PostTransaction`, `Exec = /usr/lib/obs-legacy/check-libs`. Скрипт бере файли всіх
 встановлених `*-legacy-580xx` (`pacman -Qlq`), перевіряє ldd для ELF у `bin/` і `*.so*`, а якщо стоїть
-`ffmpeg-legacy-580xx` — порівнює (`vercmp`) версію `ffmpeg` у репозиторії з `arch_version` з
+`ffmpeg-legacy-580xx` — порівнює (`vercmp`, без pkgrel) версію `ffmpeg` у репозиторії з `arch_version` з
 `/usr/share/obs-legacy/ffmpeg.txt`. Друкує щось лише тоді, коли знайшов проблеми (рядки проблем — з
 6 пробілами, їх читає `updates::parse_libcheck`), і завжди завершується з кодом 0. Хук іде й зникає разом
 із пакетом OBS.
+
+## Пакетні менеджери й AUR-помічники
+
+Щоб «Оновити все» в пакетному менеджері (Мацаки, AUR-помічник) не мало окремого кроку для OBS-Legacy і не
+ламало його. Усе нижче — стабільний інтерфейс: змінювати лише сумісно.
+
+**Які пакети наші.** Ті, що мають файли в `/usr/share/obs-legacy/` (`BUILDINFO.txt` — OBS, `ffmpeg.txt` —
+ffmpeg, `plugins/<id>` — плагіни; `pacman -Qqo /usr/share/obs-legacy`). Назви закінчуються на `-legacy-580xx`,
+але на назву краще не покладатися. Їх немає ні в репозиторіях, ні в AUR: не шукати в AUR («не знайдено» —
+не помилка), не пропонувати замінити пакетами з репозиторію чи AUR (у наших `conflicts` — `obs-studio`,
+`ffmpeg`, назви плагінів з AUR, тож у зворотний бік заміну пропонує pacman, і це правильно), не вважати
+«зібраними поза AUR — перезберіть самі»: їх перезбирає OBS-Legacy.
+
+**Бібліотеки.** Залежності — без жорсткої версії soname (`libass.so>=0`), тож оновлення системи пакети
+OBS-Legacy не зупиняють. Якщо стоїть `/usr/lib/obs-legacy/keep-libs` (хуки keep-libs, рецепт 2), бібліотеку,
+яку оновлення забрало б у наших пакетів, хук зберігає в `/usr/lib/obs-legacy/kept-libs` (список —
+`/var/lib/obs-legacy/kept-libs.tsv`: «бібліотека<TAB>пакети»): для наших пакетів «оновлення бібліотеки зламає
+програму» — не причина відкладати оновлення бібліотеки. Без keep-libs (старі пакети) — радити спершу
+«Встановити / оновити OBS» в OBS-Legacy.
+
+**Порядок «Оновити все»:**
+1. Системні пакети (`pacman -Syu`), за бажанням разом з пакетами для збирання OBS-Legacy, яких бракує:
+   `obs-legacy --missing-deps` → рядки `repo <пакет>` (з репозиторіїв) і `norepo <пакет>` (там немає).
+2. `obs-legacy --prepare` — від імені користувача, **не root**, без питань (stdin не потрібен, термінал
+   теж); вивід — для людини (етапи `==> …`, `[OK]`/`[УВАГА]`/`[ПОРАДА]`, прогрес ninja `[N/M]`). Код 0 — готово
+   або збирати нічого; 10 — скасовано; інше — помилка (поради — у рядках `[ПОРАДА]`, звіт — у
+   `~/.cache/obs-studio-nvenc-artix/reports/*-prepare.txt`, шлях — у рядку `Звіт:`). Триває від кількох
+   секунд (нічого нового: перевірка версій OBS і плагінів через мережу) до години (новий OBS і ffmpeg). Якщо
+   фонова перевірка саме готує пакети (блокування `~/.cache/obs-studio-nvenc-artix/.lock`, у файлі
+   «PID режим»), `--prepare` спершу її дочекається.
+3. `obs-legacy --install-files` — рядки `install <файл>` → одна транзакція `pacman -U` цих файлів (на
+   питання pacman про заміну `ffmpeg`, `obs-studio` чи плагінів з AUR — «так»), потім `pacman -R` пакетів з
+   рядків `remove <пакет>`. Порожньо — ставити нічого. Копію налаштувань OBS робить сама команда.
+4. AUR-пакети, що залежать від `obs-studio` (сторонні плагіни: `obs-vaapi`, `obs-vkcapture`…), — після кроку 3.
+   `libobs.so` між версіями OBS має той самий soname, тож бібліотеки цього не покажуть: такі плагіни варто
+   перезібрати, коли змінилася основна версія `obs-studio-legacy-580xx` (33.x → 34.x).
+
+Без пакетного менеджера те саме роблять фонова перевірка (крок 2 — сама після транзакції pacman) і
+«Встановити / оновити OBS» (крок 3).
+
+**Перезбирається лише потрібне.** Коли всі причини `update_reasons` — рядок `ffmpeg: …` (бібліотеки
+ffmpeg-legacy-580xx, збережені копії, рецепт ffmpeg), OBS-Legacy вже встановлено пакетами, а основна версія ffmpeg
+у репозиторії та сама (`version_major`: між основними версіями змінюються sonames libav*), `ffmpeg_only` вмикає
+`ffmpeg_only_build`: збирається лише ffmpeg-legacy-580xx — у теку `~/.local/share/obs-studio-nvenc-artix/ffmpeg-packages/<мітка>/`
+(BUILDINFO з `kind=ffmpeg`, `ffmpeg`, `ffmpeg_arch`, `profile`, `recipe`, `built=` — як у `ffmpeg.txt` пакета), без OBS,
+CEF, плагінів і їхнього пакування; якщо нова збірка дає інші sonames libav*, ніж встановлена, — помилка з порадою
+«Перезібрати OBS». `prepare` її лише готує, `update` ставить тільки її (`finish_ffmpeg_only`, плагіни не прибираються),
+`--install-files` без повного набору дає рядок `install` для неї (`ready_ffmpeg any`), фонова перевірка сповіщає
+«ffmpeg для OBS-Legacy готовий» (`updates::prepare::ready_ffmpeg`). Бібліотеки OBS і плагінів перевіряються окремо
+(`pkgs_missing_lib` по `set_packages`), тож брак бібліотеки лише в ffmpeg не тягне за собою OBS. Коли ж OBS працює на
+збережених копіях чи без бібліотеки, `obs_relink_only` прибирає з кешу збирання лише скомпоновані файли (правила
+`*_LINKER` у build.ninja) — ninja перекомпоновує їх (37 файлів, ~1 хв), не компілюючи наново; начисто — лише коли кешу
+немає чи CMakeCache пам'ятає шлях до бібліотеки, якої вже немає.
 
 ## BUILDINFO.txt
 
@@ -495,7 +619,7 @@ TUI запускає `bash <скрипт> <команда>` у PTY (cwd = `$HOME
 
 | Модуль | Роль |
 |---|---|
-| `main.rs` | аргументи (`--help`, `--version`, `--script-path`, `--probe-nvenc`, `--no-relaunch`, `--check-updates`, `--watch`, `--notifier …`), перезапуск у терміналі, ініціалізація ratatui, миша й bracketed paste |
+| `main.rs` | аргументи (`--help`, `--version`, `--script-path`, `--probe-nvenc`, `--no-relaunch`, `--check-updates`, `--upgrade-system` — команда скрипта просто в цьому терміналі, `--prepare` / `--install-files` / `--missing-deps` — для пакетних менеджерів, без термінала (`run_script`; `--prepare` спершу `updates::wait_script_free`), `--watch`, `--notifier …`), перезапуск у терміналі, ініціалізація ratatui, миша й bracketed paste |
 | `app.rs` | стан, `MENU` (основні кроки + розділ «Додатково», `Row`), екрани (`Intro`, `Home`, `Run`, `Plugins`, `Rollback`, `Settings`, `Reports`, `Report`, `Help`), діалоги, сповіщення, клавіатура й миша, фонові потоки (`Msg`), `key_to_bytes` для PTY |
 | `advice.rs` | порада «Що далі»: чиста функція від `SysInfo`, нових версій (`updates::Facts`), звітів, вибраних плагінів і стану сповіщень → тон, крок (перевірка/встановлення/запуск), текст, дія для Enter, друга кнопка, звіт для `o` |
 | `reports.rs` | список звітів, результат і головна проблема кожного (хвіст 64 КБ), текст для переглядача, класифікація рядків |
@@ -528,7 +652,7 @@ TUI запускає `bash <скрипт> <команда>` у PTY (cwd = `$HOME
 ### Значки
 
 Значки меню й станів підібрано так, щоб вони були в поширених моноширинних шрифтах (JetBrains Mono,
-DejaVu Sans Mono): ◎ ▼ ▶ ⊕ ⋯ ≡ ◫ ◷ ↩ ◈ ↪ ⌫ ✗ ? × ◆ ● ○ ✓ ⚠ ■ ⌨. Уникаємо ★ ↺ ↻ ☰ ⚿ ℹ — у JetBrains Mono їх
+DejaVu Sans Mono): ◎ ▼ ▲ ▶ ⊕ ⋯ ≡ ◫ ◷ ↩ ◈ ↪ ⌫ ✗ ? × ◆ ● ○ ✓ ⚠ ■ ⌨. Уникаємо ★ ↺ ↻ ☰ ⚿ ℹ — у JetBrains Mono їх
 немає.
 
 ### Перезапуск у терміналі
@@ -599,7 +723,19 @@ xfce4-terminal, mate-terminal, qterminal, lxterminal, terminator, tilix, urxvt, 
 | Нові релізи плагінів активної збірки | разом з OBS | `git ls-remote` репозиторію з каталогу; теги `v?X.Y…` — так само, як їх бере скрипт (`resolve_plugin_ref`) |
 | Новий ffmpeg у репозиторіях | разом з OBS | `pacman -Si ffmpeg` (локальна база, без мережі) проти `arch_version` з `/usr/share/obs-legacy/ffmpeg.txt` (`vercmp`); лише коли `ffmpeg-legacy-580xx` встановлено й «Збирати ffmpeg» не вимкнено. Те саме — у пораді «Що далі» й рядку «Оновлення» |
 | Новий OBS-Legacy | разом з OBS | теги origin теки з вихідними кодами (`source-dir`) або `YellowHearth1/OBS-Legacy`; порівняння з `CARGO_PKG_VERSION` |
-| Бібліотеки пакетів OBS-Legacy | після кожної транзакції pacman | змінився mtime `/var/lib/pacman/local` і немає `db.lck` → `/usr/lib/obs-legacy/check-libs` (той, що й у pacman-хука; для старої схеми — `/usr/local/lib/…`); якщо хук вимкнено — не перевіряється |
+| Копія баз pacman | разом з OBS, перед перевіркою | команда скрипта `repo-sync` (без root): новий ffmpeg видно ще до `pacman -Syu` людини; `versions::repo_package_version` бере новішу з двох баз |
+| Бібліотеки пакетів OBS-Legacy | після кожної транзакції pacman (пробудження щохвилини, `TICK`) | змінився mtime `/var/lib/pacman/local` і немає `db.lck` → `/usr/lib/obs-legacy/check-libs` (той, що й у pacman-хука; для старої схеми — `/usr/local/lib/…`) і список keep-libs (`updates::kept_libs`); якщо хук вимкнено — не перевіряється |
+
+**Фонова підготовка пакетів** (`updates/prepare.rs`, `AUTO_PREPARE`, типово 1): якщо є причина
+(`prepare::Reasons`) — одразу: пакети працюють на збережених копіях (keep-libs) чи бібліотек бракує
+(`check-libs`); разом з оновленням системи, тобто лише після транзакції pacman (`Watch::upgraded`): нова версія
+ffmpeg (без pkgrel), новий OBS, нові плагіни (з останньої перевірки, перераховані без мережі —
+`facts_offline`), — і її відбиток (`Reasons::key`) ще не пробували (`prepared=` в `updates.env`: одна спроба на причину, без
+повторів по колу), pacman і скрипт вільні (`db.lck`, `flock` на `~/.cache/obs-studio-nvenc-artix/.lock`),
+`--watch` запускає `ionice -c 3 nice -n 19 bash <скрипт> prepare` і не чекає. Сповіщення: «готую» (замість
+окремих про ffmpeg і бібліотеки), потім «Пакети OBS-Legacy готові» (новіший за встановлений повний набір,
+`prepare::ready_label`) або «не вдалося» з порадою зі звіту `*-prepare.txt`. Скрипт пише в блокування
+`PID режим`, тож друге вікно, що натрапило на `prepare`, пояснює: «у фоні готуються пакети — дочекайся».
 
 Зафіксовані версії не дають сповіщень: `OBS_REF` ≠ `stable` — про OBS, `PLUGIN_REF_<id>` — про плагін.
 Оновлення OBS і плагінів збирає одне сповіщення (плагіни оновлюються разом з OBS). `updates::facts_from`

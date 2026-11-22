@@ -13,13 +13,13 @@ use std::env;
 use std::fs;
 use std::io::Read;
 use std::os::unix::fs::MetadataExt;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::system;
+use crate::desktop;
+use crate::paths;
 
 /// Змінні, які переносяться з графічної сесії в notify-send і в OBS-Legacy,
 /// що відкривається клацанням по сповіщенню.
@@ -37,8 +37,7 @@ const SESSION_VARS: &[&str] = &[
     "PATH",
 ];
 
-/// Підпис кнопки на сповіщенні.
-
+/// Змінні графічної сесії, у якій показувати сповіщення й запускати програми.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Session {
     pub vars: Vec<(String, String)>,
@@ -166,10 +165,7 @@ pub struct Message<'a> {
 
 /// Іконка: файл, який ставить install.sh, або назва з теми значків.
 fn icon() -> String {
-    let data = env::var_os("XDG_DATA_HOME")
-        .filter(|v| !v.is_empty())
-        .map_or_else(|| crate::script::home().join(".local/share"), PathBuf::from);
-    let file = data.join("icons/hicolor/scalable/apps/obs-legacy.svg");
+    let file = paths::data_home().join("icons/hicolor/scalable/apps/obs-legacy.svg");
     if file.is_file() { file.display().to_string() } else { "obs-legacy".into() }
 }
 
@@ -184,7 +180,7 @@ fn read_all(r: Option<impl Read>) -> String {
 /// Показати сповіщення в сесії. Ok — служба сповіщень його прийняла.
 pub fn send(session: &Session, msg: &Message) -> Result<(), String> {
     let mut errors = Vec::new();
-    if system::find_in_path("notify-send").is_some() {
+    if paths::find_in_path("notify-send").is_some() {
         match notify_send(session, msg, msg.open.is_some()) {
             Ok(()) => return Ok(()),
             Err(e) => errors.push(e),
@@ -267,17 +263,8 @@ fn open_app(exe: Option<&Path>, session: &Session) {
     let Some(exe) = exe else { return };
     let mut cmd = Command::new(exe);
     session.apply(&mut cmd);
-    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-    // SAFETY: setsid безпечний між fork і exec; так вікно не залежить від служби.
-    unsafe {
-        cmd.pre_exec(|| {
-            libc::setsid();
-            Ok(())
-        });
-    }
-    if let Ok(mut child) = cmd.spawn() {
-        thread::spawn(move || child.wait());
-    }
+    // Окремо від служби: вікно не залежить від неї.
+    let _ = desktop::spawn_detached(&mut cmd);
 }
 
 /// Рядок у текстовому форматі GVariant.
@@ -287,7 +274,7 @@ fn gv_str(s: &str) -> String {
 
 /// Запасний шлях без libnotify: gdbus з glib2 (кнопки не буде).
 fn gdbus(session: &Session, msg: &Message) -> Result<(), String> {
-    if system::find_in_path("gdbus").is_none() {
+    if paths::find_in_path("gdbus").is_none() {
         return Err(tr!(
             "немає ні notify-send (пакет libnotify), ні gdbus (glib2)",
             "neither notify-send (package libnotify) nor gdbus (glib2) is available"

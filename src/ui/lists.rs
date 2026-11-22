@@ -7,7 +7,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
 
 use super::{footer, kv, panel, panel_title, spinner, top_bar};
-use crate::app::{App, Target, short_path};
+use crate::app::{App, Target};
+use crate::paths::short_path;
 use crate::settings::{self, Kind, Settings};
 use crate::theme::Theme;
 
@@ -113,6 +114,9 @@ pub fn plugins(f: &mut Frame, app: &mut App, area: Rect) {
         if p.default {
             spans.push(Span::styled(tr!("  ◆ радимо", "  ◆ recommended"), t.warn()));
         }
+        if p.local {
+            spans.push(Span::styled(tr!("  свій", "  own"), Style::new().fg(t.accent2)));
+        }
         if let Some((_, v)) = installed.iter().find(|(id, _)| *id == p.id) {
             spans.push(Span::styled(trf!("  ● встановлено {v}", "  ● installed {v}"), t.ok()));
         }
@@ -132,6 +136,15 @@ pub fn plugins(f: &mut Frame, app: &mut App, area: Rect) {
             lines.push(Line::from(Span::styled(
                 tr!("◆ Радимо: увімкнено за замовчуванням.", "◆ Recommended: on by default."),
                 t.warn(),
+            )));
+        }
+        if p.local {
+            lines.push(Line::from(Span::styled(
+                tr!(
+                    "Свій плагін: рядок із файлу plugins.local поруч із налаштуваннями.",
+                    "Your own plugin: a line from the plugins.local file next to the settings."
+                ),
+                Style::new().fg(t.accent2),
             )));
         }
         lines.push(kv(&t, "id", vec![Span::styled(p.id.clone(), t.muted())]));

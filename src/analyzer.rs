@@ -103,6 +103,19 @@ pub struct Problem {
     pub fix: Option<Fix>,
 }
 
+impl Problem {
+    fn new(level: Level, text: &str) -> Self {
+        Self { level, text: text.to_string(), hints: Vec::new(), fix: None }
+    }
+}
+
+/// Оцінку часу до кінця компіляції показуємо, лише коли є з чого рахувати: щонайменше стільки кроків…
+const ETA_MIN_STEPS: u64 = 5;
+/// …і стільки секунд спостереження (на початку швидкість ще стрибає).
+const ETA_MIN_SECS: f64 = 10.0;
+/// Незавершений рядок на «:» чи «?», після якого вивід стільки мовчить, — схоже на запитання.
+const INPUT_SILENCE: Duration = Duration::from_secs(2);
+
 #[derive(Debug, Clone, Copy)]
 pub struct Progress {
     pub done: u64,
@@ -121,7 +134,7 @@ impl Progress {
     pub fn eta(&self) -> Option<Duration> {
         let elapsed = self.last_at.saturating_duration_since(self.first_at).as_secs_f64();
         let done = self.done.saturating_sub(self.first_done);
-        if done < 5 || elapsed < 10.0 || self.done >= self.total {
+        if done < ETA_MIN_STEPS || elapsed < ETA_MIN_SECS || self.done >= self.total {
             return None;
         }
         let rate = done as f64 / elapsed;
@@ -210,47 +223,55 @@ impl Analyzer {
         if s.is_empty() {
             return;
         }
-        let tagged = tag(s);
-        if let Some((Tag::Step, title)) = tagged {
-            self.close_step(now, None);
-            self.compile = None;
-            self.download = None;
-            self.steps.push(Step {
-                title: title.trim().to_string(),
-                started: now,
-                ended: None,
-                state: StepState::Running,
-            });
-        } else if let Some((Tag::Warning, msg)) = tagged {
-            self.warnings.push(msg.to_string());
-            self.problems.push(Problem { level: Level::Warning, text: msg.to_string(), hints: Vec::new(), fix: None });
-            if let Some(step) = self.current()
-                && step.state == StepState::Running
-            {
-                step.state = StepState::Warn;
+        match tag(s) {
+            Some((Tag::Step, title)) => self.start_step(title, now),
+            Some((Tag::Warning, msg)) => {
+                self.warnings.push(msg.to_string());
+                self.problems.push(Problem::new(Level::Warning, msg));
+                if let Some(step) = self.current()
+                    && step.state == StepState::Running
+                {
+                    step.state = StepState::Warn;
+                }
             }
-        } else if let Some((Tag::Error, msg)) = tagged {
-            self.errors.push(msg.to_string());
-            self.problems.push(Problem { level: Level::Error, text: msg.to_string(), hints: Vec::new(), fix: None });
-            if let Some(step) = self.current() {
-                step.state = StepState::Failed;
+            Some((Tag::Error, msg)) => {
+                self.errors.push(msg.to_string());
+                self.problems.push(Problem::new(Level::Error, msg));
+                if let Some(step) = self.current() {
+                    step.state = StepState::Failed;
+                }
             }
-        } else if let Some((Tag::Hint, msg)) = tagged {
-            match self.problems.last_mut() {
+            Some((Tag::Hint, msg)) => match self.problems.last_mut() {
                 Some(p) => p.hints.push(msg.to_string()),
                 None => self.notes.push(msg.to_string()),
+            },
+            Some((Tag::Fix, msg)) => {
+                if let (Some(p), Some((command, label))) = (self.problems.last_mut(), msg.split_once(": ")) {
+                    p.fix = Some(Fix { command: command.trim().to_string(), label: label.trim().to_string() });
+                }
             }
-        } else if let Some((Tag::Fix, msg)) = tagged {
-            if let (Some(p), Some((command, label))) = (self.problems.last_mut(), msg.split_once(": ")) {
-                p.fix = Some(Fix { command: command.trim().to_string(), label: label.trim().to_string() });
-            }
-        } else if let Some((Tag::Cancelled, msg)) = tagged {
-            self.cancelled = Some(msg.to_string());
-        } else if let Some((Tag::Report, path)) = tagged {
-            self.report = Some(path.trim().to_string());
-        } else if let Some((Tag::Summary, text)) = tagged {
-            self.summary = Some(text.trim().to_string());
-        } else if let Some((done, total)) = ninja_progress(s) {
+            Some((Tag::Cancelled, msg)) => self.cancelled = Some(msg.to_string()),
+            Some((Tag::Report, path)) => self.report = Some(path.trim().to_string()),
+            Some((Tag::Summary, text)) => self.summary = Some(text.trim().to_string()),
+            Some((Tag::Ok | Tag::Result, _)) | None => self.track_progress(s, now),
+        }
+        // Рядки ninja «[123/4567] …» в останній рядок не потрапляють — їх показує смуга прогресу.
+        if ninja_progress(s).is_none() {
+            self.last_line = s.to_string();
+        }
+    }
+
+    /// Рядок «==> Назва»: попередній етап закінчився, почався новий.
+    fn start_step(&mut self, title: &str, now: Instant) {
+        self.close_step(now, None);
+        self.compile = None;
+        self.download = None;
+        self.steps.push(Step { title: title.trim().to_string(), started: now, ended: None, state: StepState::Running });
+    }
+
+    /// Прогрес компіляції ninja; дописаний до кінця рядок curl — завантаження завершилося.
+    fn track_progress(&mut self, s: &str, now: Instant) {
+        if let Some((done, total)) = ninja_progress(s) {
             let reset = match self.compile {
                 Some(p) => p.total != total || done < p.done,
                 None => true,
@@ -262,11 +283,7 @@ impl Analyzer {
                 p.last_at = now;
             }
         } else if curl_percent(s).is_some() {
-            // Завантаження завершилося (curl дописав рядок до кінця).
             self.download = None;
-        }
-        if !s.starts_with('[') || ninja_progress(s).is_none() {
-            self.last_line = s.to_string();
         }
     }
 
@@ -329,7 +346,7 @@ impl Analyzer {
         } else if lower.contains("password") || lower.contains("пароль") {
             Some(Prompt::Password)
         } else if (tail.ends_with(':') || tail.ends_with('?'))
-            && now.saturating_duration_since(self.partial_at) > Duration::from_secs(2)
+            && now.saturating_duration_since(self.partial_at) > INPUT_SILENCE
         {
             Some(Prompt::Input)
         } else {
