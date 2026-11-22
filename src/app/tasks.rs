@@ -171,10 +171,8 @@ impl App {
                         self.toast(
                             ToastKind::Ok,
                             trf!(
-                                "Сповіщення про нові версії OBS і OBS-Legacy ввімкнено ({}). Вимкнути: Додатково → \
-                                 «Сповіщення про оновлення».",
-                                "Notifications about new OBS and OBS-Legacy versions are on ({}). To turn them off: \
-                                 More → “Update notifications”.",
+                                "Сповіщення про оновлення ввімкнено ({}) — вимкнути в «Додатково».",
+                                "Update notifications are on ({}) — turn them off in “More”.",
                                 b.label()
                             ),
                         );
