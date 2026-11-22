@@ -130,13 +130,30 @@ target_user() {
 }
 
 # Викликає хук pacman (від root, усередині транзакції): лише запустити run окремо й вийти.
+# Чи потрібні збережені копії keep-libs пакетам набору — власникам файлів /usr/share/obs-legacy
+# (OBS, плагіни, ffmpeg), як set_packages у рушії. Копії для іншого пакета з тією самою припискою
+# (чужого чи забутого) набір не лагодить, тож і казати «перезбираю» через них не варто.
+kept_for_set() {
+  local f
+  local -a files=()
+  [[ -s "$kept_list" ]] || return 1
+  for f in "${info%/*}"/BUILDINFO.txt "${info%/*}"/ffmpeg.txt "${info%/*}"/plugins/*; do
+    if [[ -f "$f" ]]; then files+=("$f"); fi
+  done
+  ((${#files[@]})) || return 1
+  LC_ALL=C pacman -Qqo -- "${files[@]}" 2>/dev/null | sort -u \
+    | awk -F'\t' 'NR == FNR { set[$1] = 1; next }
+                  { n = split($2, a, " "); for (i = 1; i <= n; i++) if (a[i] in set) found = 1 }
+                  END { exit !found }' - "$kept_list"
+}
+
 hook() {
   local entry
   # Наш власний pacman -U (крок 3) — не запускати себе по колу.
   [[ "${OBS_LEGACY_AUTO_UPDATE:-}" != 1 ]] || return 0
   [[ -f "$info" && -x "$program" && "$(id -u)" == 0 ]] || return 0
   if ! entry=$(target_user); then
-    if [[ -s "$kept_list" ]]; then printf '%s\n' "$m_nouser"; fi
+    if kept_for_set; then printf '%s\n' "$m_nouser"; fi
     return 0
   fi
   mkdir -p -- "$state" 2>/dev/null \
@@ -144,7 +161,7 @@ hook() {
     && mv -f -- "$state/auto-update.user.tmp" "$state/auto-update.user" 2>/dev/null
   # Усі три потоки — геть від pacman: він читає вивід хука до кінця, тож інакше чекав би.
   setsid -f "$self" run "${entry%%:*}" </dev/null >/dev/null 2>&1 || return 0
-  if [[ -s "$kept_list" ]]; then printf "$m_started" "$log"; fi
+  if kept_for_set; then printf "$m_started" "$log"; fi
 }
 
 # Чекати, доки pacman звільнить базу: хук ще всередині транзакції.
@@ -216,7 +233,7 @@ run() {   # $1 = користувач
   fi
   rm -rf -- "$work" && install -d -m 700 -- "$work" || return 0
   if ((repair)); then
-    if [[ -s "$kept_list" ]]; then notify started; fi
+    if kept_for_set; then notify started; fi
     say "$m_repair" "$name"
     as_user "$program" --repair > "$work/repair.out" 2>&1
     rc=$?

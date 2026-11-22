@@ -50,6 +50,12 @@ pub fn cache_home() -> PathBuf {
     xdg_dir("XDG_CACHE_HOME", ".cache")
 }
 
+/// Чи запущено від root (`sudo obs-legacy`): тоді служб користувача програма сама не вмикає.
+pub fn is_root() -> bool {
+    // SAFETY: geteuid не має передумов.
+    unsafe { libc::geteuid() == 0 }
+}
+
 /// Стан фонової перевірки оновлень (~/.local/state/obs-legacy).
 pub fn state_dir() -> PathBuf {
     xdg_dir("XDG_STATE_HOME", ".local/state").join("obs-legacy")

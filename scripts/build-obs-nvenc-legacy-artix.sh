@@ -64,7 +64,7 @@ set -Eeuo pipefail
 shopt -s inherit_errexit 2>/dev/null || true
 umask 022
 
-readonly SCRIPT_VERSION="2026.11.22.2"
+readonly SCRIPT_VERSION="2026.11.22.3"
 # Номер рецепта збирання й пакування. Підвищувати, лише коли зміна в рушії вимагає
 # перезібрати вже встановлені пакети (прапорці, розкладка, залежності): тоді «Оновити»
 # збере їх знову. Зміни інтерфейсу й підказок його не чіпають.
@@ -3506,9 +3506,18 @@ pkgs_missing_lib() {   # пакети
 
 ffmpeg_missing_lib() { pkgs_missing_lib "$FFMPEG_PKG"; }
 
-# Наші пакети, крім ffmpeg-legacy-580xx: OBS і плагіни.
+# Пакети встановленого набору, крім ffmpeg-legacy-580xx: OBS і плагіни — власники його файлів у
+# $INFO_DIR. Інший пакет з тією самою припискою (чужий чи забутий) набір не перезбере, тож через
+# нього лагодити й перезбирати OBS не можна: інакше кожне оновлення системи перезбирало б усе знову.
 set_packages() {
-  pacman -Qq 2>/dev/null | grep -E -- "-$PKG_SUFFIX\$" | grep -vxF -- "$FFMPEG_PKG" || true
+  local f
+  local -a files=()
+  for f in "$INFO_DIR/BUILDINFO.txt" "$INFO_DIR"/plugins/*; do
+    if [[ -f "$f" ]]; then files+=("$f"); fi
+  done
+  ((${#files[@]})) || return 0
+  LC_ALL=C pacman -Qqo -- "${files[@]}" 2>/dev/null | grep -E -- "-$PKG_SUFFIX\$" \
+    | grep -vxF -- "$FFMPEG_PKG" | sort -u || true
 }
 
 # Версія без pkgrel: 2:9.1-1.1 → 2:9.1. Новий pkgrel у репозиторії — це здебільшого
@@ -3518,15 +3527,17 @@ version_no_rel() {   # $1 = версія pacman
 }
 
 # Бібліотеки, які зберіг keep-libs (їх забрало оновлення системи), через пробіл: ffmpeg —
-# потрібні ffmpeg-legacy-580xx, set — решті пакетів OBS-Legacy (OBS і плагіни), obs — самому
+# потрібні ffmpeg-legacy-580xx, set — пакетам набору (set_packages: OBS і плагіни), obs — самому
 # пакету OBS. Порожньо — немає.
 kept_libs() {   # $1 = ffmpeg | set | obs
+  local set=""
   [[ -r "$KEPT_LIBS_LIST" ]] || return 0
-  awk -F'\t' -v want="$1" -v ff="$FFMPEG_PKG" -v obs="$OBS_PKG" '
+  if [[ "$1" == set ]]; then set=" $(set_packages | tr '\n' ' ') "; fi
+  awk -F'\t' -v want="$1" -v ff="$FFMPEG_PKG" -v obs="$OBS_PKG" -v set="$set" '
     { n = split($2, a, " "); hit = 0
       for (i = 1; i <= n; i++) {
         if (want == "ffmpeg" && a[i] == ff) hit = 1
-        if (want == "set" && a[i] != ff) hit = 1
+        if (want == "set" && index(set, " " a[i] " ")) hit = 1
         if (want == "obs" && a[i] == obs) hit = 1
       }
       if (hit) { printf "%s%s", sep, $1; sep = " " } }

@@ -195,9 +195,45 @@ pub fn status() -> Status {
     }
 }
 
+/// Позначка «людина вже вирішила щодо сповіщень» (увімкнула, вимкнула чи відповіла install.sh): після
+/// неї програма більше не вмикає їх сама. Цей шлях пише й install.sh.
+fn decided_marker() -> PathBuf {
+    paths::state_dir().join("notifier-decided")
+}
+
+fn mark_decided() {
+    // Без позначки найгірше — програма ще раз сама ввімкне сповіщення; це не причина зупиняти команду.
+    let _ = fs::create_dir_all(paths::state_dir()).and_then(|()| fs::write(decided_marker(), ""));
+}
+
+/// Сповіщення типово ввімкнені: перший запуск меню вмикає фонову перевірку, якщо її ще немає і людина
+/// про неї не вирішувала (вимкнути — «Додатково → Сповіщення про оновлення»). Запуск для розробки
+/// (`OBS_LEGACY_SCRIPT`) і від root нічого не вмикає. Повертає службу, якщо щойно ввімкнулась.
+pub fn enable_by_default() -> Option<Backend> {
+    if decided_marker().exists()
+        || !installed().is_empty()
+        || std::env::var_os("OBS_LEGACY_SCRIPT").is_some()
+        || paths::is_root()
+    {
+        return None;
+    }
+    mark_decided();
+    let ok = Command::new(exe_path())
+        .args(["--notifier", "enable"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    if ok { installed().first().map(|p| p.backend) } else { None }
+}
+
 /// `obs-legacy --notifier [status|enable [служба]|disable|restart|test]`.
 pub fn main(args: &[String]) -> ExitCode {
     let backend = args.get(1).map(|s| (s, Backend::from_name(s)));
+    if matches!(args.first().map(String::as_str), Some("enable" | "disable")) {
+        mark_decided();
+    }
     match (args.first().map(String::as_str), backend) {
         (None | Some("status"), None) => print_status(),
         (Some("enable"), None) => enable_cmd(None),

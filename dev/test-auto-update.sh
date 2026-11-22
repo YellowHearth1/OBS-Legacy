@@ -45,6 +45,17 @@ as_user() { "$@"; }
 db_lock_path() { printf '%s\n' "$T/db.lck"; }
 setsid() { printf '%s\n' "$*" >> "$T/out/setsid.calls"; }
 pacman() {
+  local f
+  # Власники файлів набору (kept_for_set): BUILDINFO.txt — OBS, ffmpeg.txt — ffmpeg. Запит, не дія.
+  if [[ "$1" == -Qqo ]]; then
+    for f in "${@:2}"; do
+      case "${f##*/}" in
+        BUILDINFO.txt) echo obs-studio-legacy-580xx ;;
+        ffmpeg.txt) echo ffmpeg-legacy-580xx ;;
+      esac
+    done
+    return 0
+  fi
   printf '%s|%s\n' "${OBS_LEGACY_AUTO_UPDATE:-}" "$*" >> "$T/out/pacman.calls"
   return "${PACMAN_RC:-0}"
 }
@@ -82,6 +93,7 @@ echo "hook"
 ( unset SUDO_UID PKEXEC_UID DOAS_USER; hook ) > "$T/out/hook.txt"
 check "без пакетів OBS-Legacy нічого не запускає" '[[ ! -e $T/out/setsid.calls ]]'
 echo 'obs_version=33.0.3' > "$info"
+touch "$T/sys/ffmpeg.txt"
 ( OBS_LEGACY_AUTO_UPDATE=1 SUDO_UID=$my_uid hook ) > "$T/out/hook.txt"
 check "власний pacman -U не запускає себе знову" '[[ ! -e $T/out/setsid.calls ]]'
 printf 'libjxl.so.0.12\tffmpeg-legacy-580xx\n' > "$kept_list"
@@ -92,6 +104,12 @@ check "pacman показує, що буде далі" "grep -q 'OBS-Legacy' '$T/
 reset_out
 ( unset PKEXEC_UID DOAS_USER; SUDO_UID=0 hook ) > "$T/out/hook.txt"
 check "sudo від root → запам'ятований користувач" "grep -qx -- '-f $self run $me' '$T/out/setsid.calls'"
+reset_out
+printf 'libolt.so.1\tolt-probe-legacy-580xx\n' > "$kept_list"
+( unset PKEXEC_UID DOAS_USER; SUDO_UID=$my_uid hook ) > "$T/out/hook.txt"
+check "копії лише для пакета не з набору — запускає, але не каже «перезбираю»" \
+  "grep -qx -- '-f $self run $me' '$T/out/setsid.calls' && ! grep -q 'OBS-Legacy' '$T/out/hook.txt'"
+printf 'libjxl.so.0.12\tffmpeg-legacy-580xx\n' > "$kept_list"
 rm -f "$state/auto-update.user"; reset_out
 ( unset PKEXEC_UID DOAS_USER; SUDO_UID=0 DOAS_USER='-s' hook ) > "$T/out/hook.txt"
 check "без відомого користувача нічого не запускає, лише порада" "[[ ! -e '$T/out/setsid.calls' ]] && grep -q 'OBS-Legacy' '$T/out/hook.txt'"

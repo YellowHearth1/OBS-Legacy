@@ -195,9 +195,10 @@ with `obs-legacy-<version>-1-x86_64.pkg.tar.zst`, built from the release sources
 sudo pacman -U obs-legacy-0.0.7-1-x86_64.pkg.tar.zst
 ```
 
-The program lands in `/usr/bin/obs-legacy` with an **OBS-Legacy** entry in the application menu. Turn on
-[update notifications](#update-notifications) (**More → Update notifications**) to hear about new versions;
-update with the package from the new release the same way.
+The program lands in `/usr/bin/obs-legacy` with an **OBS-Legacy** entry in the application menu. The first
+time you open it, it turns on [update notifications](#update-notifications) by itself, so you hear about a new
+OBS and a new OBS-Legacy (turn them off in **More → Update notifications**); update with the package from the
+new release the same way.
 
 **Moving from `install.sh` to the package.** pacman never writes into home folders, so a copy that `install.sh`
 put in `~/.local/bin` would stay first in `PATH` and keep its menu entry and the notification service. After
@@ -479,8 +480,8 @@ Installed with the one command: `curl -fsSL https://github.com/YellowHearth1/OBS
 
 ### Update notifications
 
-**More → Update notifications** turns on a background check;
-the installer offers it too. It looks for:
+A background check is on by default: the first start of the menu turns it on (the installer asks
+instead), and **More → Update notifications** turns it off or on again. It looks for:
 
 - a newer OBS, new releases of the plugins in your build, a newer ffmpeg in the repositories (then
   `ffmpeg-legacy-580xx` needs a rebuild) and a new OBS-Legacy — every 12 hours;

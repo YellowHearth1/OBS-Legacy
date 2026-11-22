@@ -87,6 +87,11 @@ pub fn notice_main(args: &[String]) -> ExitCode {
         ));
         return ExitCode::from(2);
     };
+    // «Почав перезбирати» — лише коли збережені копії справді потрібні пакетам набору: добудовувач
+    // бачить увесь список keep-libs, а там може бути й пакет не з набору (його не лагодять).
+    if args.first().is_some_and(|k| k == "started") && super::kept_libs().is_empty() {
+        return ExitCode::SUCCESS;
+    }
     let Some(session) = notify::find_session() else {
         cli::warn(tr!(
             "Графічної сесії не знайдено — сповіщення не показано.",

@@ -470,6 +470,10 @@ pacman-хука.
   (`set_libs_ok`), не вважається готовим, а `verify_tree` не пропустить такий файл у пакет.
 - Хто чекає на копії: `kept_libs ffmpeg|obs` у скрипті (`ffmpeg_needs_rebuild`, рядок в `update_reasons`),
   `updates::kept_libs` у TUI (фонова підготовка й сповіщення), `status`.
+- Рахуються лише копії для пакетів **набору** — власників файлів `/usr/share/obs-legacy` (`set_packages` у
+  скрипті, `updates::set_packages` у TUI, `kept_for_set` у добудовувача). keep-libs зберігає бібліотеки для
+  будь-якого пакета `*-legacy-580xx`, але чужий чи забутий пакет з тією самою припискою набір не перезбере:
+  якби він рахувався, кожне оновлення системи перезбирало б усе по колу.
 - Тест без root — `dev/test-keep-libs.sh`: файл підключається (`source`, `main` тоді не виконується), теки,
   список і `ldmap` підставляються, бібліотека чужого пакета «зникає» з кешу ldconfig.
 
@@ -780,6 +784,11 @@ xfce4-terminal, mate-terminal, qterminal, lxterminal, terminator, tilix, urxvt, 
 
 Фонова перевірка — той самий бінарник у режимі `obs-legacy --watch`. Його запускає служба користувача
 (`service.rs`), а сповіщення показує `notify.rs`. Без root і без змін у системі.
+
+Сповіщення ввімкнені типово: перший запуск меню (`service::enable_by_default` з фонового потоку
+`spawn_sys`) вмикає службу, якщо її немає і людина ще не вирішувала, і показує про це рядок унизу.
+Рішення — позначка `~/.local/state/obs-legacy/notifier-decided`: її пишуть `--notifier enable|disable` і
+`install.sh`, коли питає. Запуск для розробки (`OBS_LEGACY_SCRIPT`) і від root нічого не вмикає.
 
 ### Що перевіряється
 
