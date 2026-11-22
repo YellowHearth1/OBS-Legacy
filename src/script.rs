@@ -45,6 +45,18 @@ pub enum SelfSource {
 /// Куди ставить програму пакет pacman (packaging/PKGBUILD).
 pub const PACKAGE_EXE: &str = "/usr/bin/obs-legacy";
 
+impl SelfSource {
+    /// Чи «Оновити OBS-Legacy» ставить пакет pacman (тоді знадобиться пароль sudo/doas): пакет — завжди,
+    /// копія з релізу — там, де є pacman, бо install.sh з релізу переводить її на пакет.
+    pub fn updates_with_pacman(&self) -> bool {
+        match self {
+            Self::Package => true,
+            Self::Release => crate::paths::find_in_path("pacman").is_some(),
+            Self::Git(_) => false,
+        }
+    }
+}
+
 /// Як оновлювати саму програму з меню; None — лише вручну (зібрано без install.sh).
 pub fn self_source() -> Option<SelfSource> {
     // Запущено копію з пакета: її оновлює лише новий пакет, навіть якщо десь лишився клон, з
@@ -86,6 +98,12 @@ pub fn ensure_extracted() -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn package_and_git_updates_do_not_depend_on_this_machine() {
+        assert!(SelfSource::Package.updates_with_pacman());
+        assert!(!SelfSource::Git(PathBuf::from("/home/u/OBS-Legacy")).updates_with_pacman());
+    }
 
     #[test]
     fn script_version_is_parsed() {

@@ -480,6 +480,22 @@ impl App {
                 )
                 .into(),
             ],
+            Some(src @ SelfSource::Release) if src.updates_with_pacman() => vec![
+                tr!(
+                    "install.sh з найновішого релізу на GitHub поставить пакет pacman obs-legacy (перевірить \
+                     контрольну суму, sudo pacman -U) і прибере цю копію з ~/.local/bin.",
+                    "install.sh from the latest release on GitHub installs the obs-legacy pacman package (checks \
+                     the checksum, sudo pacman -U) and removes this copy from ~/.local/bin."
+                )
+                .into(),
+                tr!(
+                    "З пакетом пакети OBS-Legacy оновлюються разом із системою. Знадобиться пароль sudo/doas; \
+                     твій OBS і налаштування не зміняться.",
+                    "With the package, the OBS-Legacy packages are updated together with the system. The sudo/doas \
+                     password is needed; your OBS and settings stay as they are."
+                )
+                .into(),
+            ],
             Some(SelfSource::Release) => vec![
                 tr!(
                     "Готова програма з найновішого релізу на GitHub, без збирання.",

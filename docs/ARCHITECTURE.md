@@ -9,7 +9,7 @@
 |---|---|---|
 | Рушій | `scripts/build-obs-nvenc-legacy-artix.sh` (bash, ~3700 рядків) | Уся реальна робота: профіль заліза, перевірка, збирання OBS, плагінів і ffmpeg, пакети pacman (`*-legacy-580xx`), встановлення через `pacman -U`, відкат, видалення, pacman-хук у пакеті |
 | TUI | `src/` (Rust, ratatui 0.30) | Інтерфейс поверх рушія: меню, панель стану, вбудований термінал, плагіни, налаштування |
-| Установник | `install.sh`, `assets/obs-legacy.svg` | У теці з вихідними кодами збирає TUI (`--target-dir` репозиторію) і прибирає `target/`; без неї (`curl … \| bash`) завантажує з релізу готовий `obs-legacy-x86_64` і звіряє SHA-256. Далі однаково: `~/.local/bin`, ярлик у меню й на робочий стіл, пропонує ввімкнути сповіщення |
+| Установник | `install.sh`, `assets/obs-legacy.svg` | Без теки з вихідними кодами (`curl … \| bash`) на Arch/Artix ставить пакет `obs-legacy` з релізу (SHA-256, `sudo pacman -U` локального файлу; копію з `~/.local/bin` пакет переймає сам); без pacman чи з `--no-package` — готовий `obs-legacy-x86_64` у `~/.local/bin`. У теці з вихідними кодами збирає TUI (`--target-dir` репозиторію) у `~/.local/bin` і прибирає `target/`. Далі однаково: ярлик у меню (у пакета — свій) і на робочий стіл, пропонує ввімкнути сповіщення |
 | Сповіщення | `src/updates.rs`, `src/notify.rs`, `src/service.rs` | Фонова перевірка оновлень (`obs-legacy --watch`) і сповіщення на робочому столі; служба користувача systemd, dinit, OpenRC, runit, s6 або автозапуск сесії (див. «Сповіщення про оновлення») |
 | Імітатор | `dev/fake-build.sh` | Друкує те саме, що рушій (разом зі звітом), але нічого не робить — для розробки інтерфейсу |
 | Тест keep-libs | `dev/test-keep-libs.sh` | Хук збереження бібліотек без root: генерує його з рушія, «ховає» бібліотеку з кешу ldconfig і перевіряє pre/post (на машині з пакетами OBS-Legacy; без них — пропускає) |
@@ -729,13 +729,26 @@ xfce4-terminal, mate-terminal, qterminal, lxterminal, terminator, tilix, urxvt, 
 «Оновити OBS-Legacy»: `git pull --ff-only` + `./install.sh --update` (неінтерактивно; бінарник
 замінюється атомарно через `mv`). Після цього TUI треба перезапустити.
 
-Поставлена однією командою (`curl … | bash`, `install.sh` без вихідних кодів поруч) програма — той самий
-бінарник, що в пакеті, з релізу (`obs-legacy-x86_64` + `.sha256`). `install.sh` пише тег релізу в
+Однією командою (`curl … | bash`, `install.sh` без вихідних кодів поруч) на Arch/Artix ставиться пакет
+`obs-legacy` з релізу (`install_package`): тег — закріплений у копії install.sh з релізу (`RELEASE_TAG`), інакше з
+переадресації `releases/latest` (`release_tag`); `obs-legacy-<версія>-1-x86_64.pkg.tar.zst` і `.sha256` — у
+тимчасову теку, сума (`sha256_matches`), тоді `sudo pacman -U <файл>` (або doas). Пакет тієї самої версії вже
+стоїть — pacman не запускається. Без термінала (CI) pacman отримує `--noconfirm` (`pacman_opts`): відповісти
+нікому, а sudo без пароля там дозволено явно. Копію з `~/.local/bin`, якщо була, переймає `obs-legacy.install`
+(`auto-update use-package` від імені `SUDO_UID`), а `install.sh` про всяк випадок ще раз запускає
+`/usr/bin/obs-legacy --use-package` (повтор нешкідливий, `adopt_home_copy`). Ярлик на робочому столі від
+install.sh перехід прибирає, тож install.sh пам'ятає, що він був, і пише його знову з `Exec=/usr/bin/obs-legacy`.
+`--uninstall` вимикає сповіщення тією програмою, що є, і прибирає пакет (`sudo pacman -R obs-legacy`).
+
+Без pacman чи з `--no-package` програма — той самий бінарник, що в пакеті, з релізу (`obs-legacy-x86_64` +
+`.sha256`) у `~/.local/bin`. `install.sh` пише тег релізу в
 `release-install` і прибирає `source-dir` (і навпаки: збирання з вихідних кодів прибирає `release-install`,
 тож діє останній спосіб). `script::self_source()` повертає `SelfSource::Git(тека)` чи `SelfSource::Release` (або `Package`, див. нижче);
 другий — лише коли запущено саме `~/.local/bin/obs-legacy`. Для `Release` пункт меню завантажує
 `releases/latest/download/install.sh` і запускає його з `--prebuilt --update` (`--prebuilt` — щоб тимчасова
-тека не вважалася теками з вихідними кодами), а сповіщення радить той самий пункт меню.
+тека не вважалася теками з вихідними кодами), а сповіщення радить той самий пункт меню. Там, де є pacman,
+цей install.sh ставить уже пакет, тож копія з релізу так сама переходить на пакет;
+`SelfSource::updates_with_pacman` каже діалогу й опису пункту, що знадобиться пароль.
 
 Під `curl … | bash` stdin — сам скрипт, тому `main` тоді читає з `/dev/tty` (якщо термінал є): питання
 працюють, а наприкінці `exec obs-legacy` відкриває меню. Без термінала (CI) — без питань, як `--update`.
@@ -753,8 +766,8 @@ xfce4-terminal, mate-terminal, qterminal, lxterminal, terminator, tilix, urxvt, 
 `Package` → `SelfInstall::Package`, і сповіщення радить той самий пункт меню (з поясненням, що ставить
 pacman); опис пункту в меню для пакета показує «Пароль: знадобиться» і «Система: змінюється». Тест
 `package_update_from_real_release` (`--ignored`, мережа) проганяє команду на справжньому релізі з
-підставними sudo/doas. `install.sh` попереджає, якщо пакет `obs-legacy` уже стоїть: копія в
-`~/.local/bin` його перекрила б.
+підставними sudo/doas. `install.sh --no-package` (і збирання з вихідних кодів) попереджає, якщо пакет
+`obs-legacy` уже стоїть: копія в `~/.local/bin` його перекрила б.
 
 ### Пакет програми
 
@@ -787,7 +800,9 @@ pacman); опис пункту в меню для пакета показує «
 `install.sh` з підставленим тегом (`RELEASE_TAG="${OBS_LEGACY_TAG:-vX.Y.Z}"`): установник релізу бере програму
 саме з нього, а `releases/latest/download/install.sh` — завжди з найновішого. Перед вивантаженням крок
 «Try install.sh» ставить і прибирає програму так, як `curl … | bash` (`bash -s < install.sh`, файли — з
-`file://` замість релізу); PR, що змінює `install.sh`, теж його запускає.
+`file://` замість релізу, `OBS_LEGACY_TAG` — версія пакета): спершу `--no-package` (копія в `~/.local/bin`), тоді
+пакетом через sudo без пароля — він має перейняти копію, — ще раз (пакет уже стоїть) і `--uninstall`, після якого
+пакета немає. PR, що змінює `install.sh`, теж його запускає.
 
 ## Сповіщення про оновлення
 

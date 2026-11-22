@@ -3,8 +3,10 @@ name: Package
 # Готова програма для релізу, зібрана в чистому контейнері Arch з архіву тегу (у .BUILDINFO
 # пакета лише пакети цього контейнера, а не список програм чийогось комп'ютера):
 #   * obs-legacy-<версія>-1-x86_64.pkg.tar.zst — пакет pacman;
-#   * obs-legacy-x86_64 — той самий бінарник без пакета (його ставить install.sh);
-#   * install.sh — установник «curl … | bash», що бере obs-legacy-x86_64 саме з цього релізу.
+#   * obs-legacy-x86_64 — той самий бінарник без пакета (його ставить install.sh без pacman
+#     чи з --no-package);
+#   * install.sh — установник «curl … | bash», що бере пакет (чи obs-legacy-x86_64) саме з
+#     цього релізу.
 # Коли:
 #   * реліз опубліковано — збирає й прикріплює до нього;
 #   * вручну (Actions → Package → Run workflow, тег) — те саме для наявного релізу
@@ -81,21 +83,35 @@ jobs:
 
       - name: Try install.sh
         run: |
-          # Як «curl … | bash», лише файли — з цієї теки замість релізу. Встановити й прибрати.
+          # Як «curl … | bash», лише файли — з цієї теки замість релізу. Спершу копія в ~/.local/bin
+          # (--no-package), тоді пакет pacman через sudo, як на Arch: він переймає ту копію. Наприкінці
+          # прибрати все. Без термінала install.sh дає pacman --noconfirm, а sudo тут — без пароля.
           cd /home/builder/pkg
           mkdir -p try/dl try/home
-          cp obs-legacy-x86_64 obs-legacy-x86_64.sha256 "$GITHUB_WORKSPACE/assets/obs-legacy.svg" try/dl/
+          cp ./*.pkg.tar.zst ./*.pkg.tar.zst.sha256 obs-legacy-x86_64 obs-legacy-x86_64.sha256 \
+            "$GITHUB_WORKSPACE/assets/obs-legacy.svg" try/dl/
           chown -R builder: try
+          install -m 440 /dev/stdin /etc/sudoers.d/builder <<< 'builder ALL=(ALL:ALL) NOPASSWD: ALL'
+          pkg=$(basename ./obs-legacy-*-x86_64.pkg.tar.zst)
+          ver=${pkg#obs-legacy-}
+          ver=${ver%-1-x86_64.pkg.tar.zst}
           sudo -u builder env -i HOME="$PWD/try/home" PATH=/usr/bin LANG=C.UTF-8 \
-            OBS_LEGACY_DOWNLOAD_URL="file://$PWD/try/dl" bash -c '
+            OBS_LEGACY_DOWNLOAD_URL="file://$PWD/try/dl" OBS_LEGACY_TAG="v$ver" bash -c '
               set -ex
-              bash -s -- --no-desktop < install.sh
+              bash -s -- --no-desktop --no-package < install.sh
               "$HOME/.local/bin/obs-legacy" --version
               test -f "$HOME/.local/share/applications/obs-legacy.desktop"
               test -f "$HOME/.local/share/icons/hicolor/scalable/apps/obs-legacy.svg"
               test -s "$HOME/.local/share/obs-legacy/release-install"
+              bash -s -- --no-desktop < install.sh
+              pacman -Q obs-legacy
+              /usr/bin/obs-legacy --version
+              test ! -e "$HOME/.local/bin/obs-legacy"
+              test ! -e "$HOME/.local/share/applications/obs-legacy.desktop"
+              test ! -e "$HOME/.local/share/obs-legacy/release-install"
+              bash -s -- --no-desktop < install.sh
               bash -s -- --uninstall < install.sh
-              test ! -e "$HOME/.local/bin/obs-legacy"'
+              if pacman -Q obs-legacy; then exit 1; fi'
 
       - name: Upload to the release
         if: env.TAG != ''

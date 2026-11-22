@@ -169,9 +169,11 @@ to the same places as the repo OBS (`/usr`), so pacman itself offers to replace 
 
 You need Artix or Arch (x86_64) and the NVIDIA 580xx driver. Pick one of three ways.
 
-**One command** — the quickest. It downloads the ready-made program from the latest
-[release](https://github.com/YellowHearth1/OBS-Legacy/releases/latest), checks its SHA-256, puts it into
-`~/.local/bin`, adds an **OBS-Legacy** entry to the application menu and starts it. No Rust, no build:
+**One command** — the quickest. On Arch and Artix it downloads the `obs-legacy` pacman package from the latest
+[release](https://github.com/YellowHearth1/OBS-Legacy/releases/latest), checks its SHA-256, installs it with
+`sudo pacman -U` (it asks for your password) and starts the program. The package brings an **OBS-Legacy** entry
+in the application menu and the pacman hook that keeps the OBS-Legacy packages working through
+system upgrades (see [Features](#features)). No Rust, no build:
 
 ```bash
 curl -fsSL https://github.com/YellowHearth1/OBS-Legacy/releases/latest/download/install.sh | bash
@@ -184,12 +186,15 @@ wget -qO- https://github.com/YellowHearth1/OBS-Legacy/releases/latest/download/i
 ```
 
 Want to read the script first? Download `install.sh` from the release, look through it and run
-`bash install.sh`. To update, run the same command again (or use **More → Update OBS-Legacy**). To remove the
-program, add `-s -- --uninstall` after `bash`.
+`bash install.sh`. To update, use **More → Update OBS-Legacy** (or run the same command again). To remove the
+program, add `-s -- --uninstall` after `bash`. Without pacman, or with `-s -- --no-package`, the command puts
+the same ready-made program into `~/.local/bin` instead, with no sudo — but then OBS-Legacy is not updated
+together with the system.
 
 **Ready package.** Every [release](https://github.com/YellowHearth1/OBS-Legacy/releases) since 0.0.3 comes
 with `obs-legacy-<version>-1-x86_64.pkg.tar.zst`, built from the release sources in a clean Arch container
-([`packaging/PKGBUILD`](packaging/PKGBUILD)). No Rust needed: download it and install it with pacman.
+([`packaging/PKGBUILD`](packaging/PKGBUILD)) — the one command installs exactly this file. No Rust needed:
+download it and install it with pacman.
 
 ```bash
 sudo pacman -U obs-legacy-0.0.7-1-x86_64.pkg.tar.zst
@@ -197,12 +202,14 @@ sudo pacman -U obs-legacy-0.0.7-1-x86_64.pkg.tar.zst
 
 The program lands in `/usr/bin/obs-legacy` with an **OBS-Legacy** entry in the application menu. The first
 time you open it, it turns on [update notifications](#update-notifications) by itself, so you hear about a new
-OBS and a new OBS-Legacy (turn them off in **More → Update notifications**); update with the package from the
-new release the same way.
+OBS and a new OBS-Legacy (turn them off in **More → Update notifications**). To update, use **More → Update
+OBS-Legacy**: it fetches the package of the new release, checks it and installs it with pacman.
 
-**Moving from `install.sh` to the package.** pacman never writes into home folders, so a copy that `install.sh`
-put in `~/.local/bin` would stay first in `PATH` and keep its menu entry and the notification service. After
-installing the package, run once as your user (Matsaky does it by itself; pacman reminds you):
+**Moving from `install.sh` to the package** needs nothing by hand: run the one command again, or **More → Update
+OBS-Legacy** in the old copy. pacman never writes into home folders, so the package takes over the copy that
+`install.sh` put in `~/.local/bin` (from a release or built from source) by itself. Installed the package with
+your own `pacman -U` and pacman could not tell who you are? It reminds you to run once as your user (Matsaky
+does it by itself):
 
 ```bash
 /usr/bin/obs-legacy --use-package
@@ -227,8 +234,8 @@ entry to the application menu (and, if you like, to the desktop). It also offers
 [update notifications](#update-notifications). Then just click the entry or type `obs-legacy` in a
 terminal.
 
-Use one way, not both: a copy in `~/.local/bin` hides the packaged one. Switching to the package? Remove the
-copy first: `./install.sh --uninstall` (or the one command with `-s -- --uninstall`).
+Use one way, not both: a copy in `~/.local/bin` hides the packaged one. Switching to the package? Just run the
+one command — it takes the copy over.
 
 ## Usage
 
@@ -461,12 +468,13 @@ applies to the script without it. An environment variable always takes priority 
   and reuses the previous build, so it is faster. **Rebuild** (or **More → Rebuild OBS**) builds from
   scratch.
 - **Update the program itself** — **More → Update OBS-Legacy**, or `git pull && ./install.sh --update` in the
-  repository folder. Installed with the one command? The same menu item fetches the ready-made program from
-  the latest release, or just run the command again. Installed from the ready package? The same menu item
+  repository folder. Installed with the one command or from the ready package? The same menu item
   downloads `obs-legacy-<version>-1-x86_64.pkg.tar.zst` and its `.sha256` from the latest release into
   `~/.cache/obs-legacy`, checks the checksum and installs that local file with `sudo pacman -U` (it asks for
   the sudo/doas password). A local file is used on purpose: release packages have no `.sig` signature, so
   `pacman -U <URL>` fails with `SigLevel = Required`. The update notification points to this menu item too.
+  A copy in `~/.local/bin` (installed with `--no-package` or by a version before 0.0.8) is updated by the same menu item: the
+  new `install.sh` moves it to the package where pacman is available, or replaces the copy otherwise.
 - **Roll back** — **More → Roll back to another build**: installs a saved package set with `pacman -U`,
   no rebuild.
 - **Uninstall** — **More → Remove OBS-Legacy**: `pacman -R` of the
@@ -478,8 +486,9 @@ applies to the script without it. An environment variable always takes priority 
 ./install.sh --uninstall
 ```
 
-Installed with the one command: `curl -fsSL https://github.com/YellowHearth1/OBS-Legacy/releases/latest/download/install.sh | bash -s -- --uninstall`. From the ready package:
-`sudo pacman -R obs-legacy`.
+Installed with the one command or from the ready package:
+`curl -fsSL https://github.com/YellowHearth1/OBS-Legacy/releases/latest/download/install.sh | bash -s -- --uninstall` —
+it turns off the update notifications and removes the `obs-legacy` package with `sudo pacman -R`.
 
 ### Update notifications
 

@@ -58,9 +58,9 @@ git clone https://github.com/YellowHearth1/OBS-Legacy.git && cd OBS-Legacy
 - [ ] Ярлик на робочому столі запускається (у GNOME/Xfce може знадобитися «Дозволити запуск»).
 - [ ] `obs-legacy --version` у терміналі (якщо `~/.local/bin` є в PATH).
 
-### 1а. Готовий пакет замість `install.sh`
+### 1а. Готовий пакет вручну
 
-Спершу `./install.sh --uninstall`, якщо програма вже стоїть з вихідних кодів. Пакет — з релізу на GitHub:
+Пакет — з релізу на GitHub (те саме ставить одна команда з розділу 1б):
 
 ```bash
 sudo pacman -U obs-legacy-0.0.7-1-x86_64.pkg.tar.zst
@@ -68,27 +68,31 @@ sudo pacman -U obs-legacy-0.0.7-1-x86_64.pkg.tar.zst
 
 - [ ] `pacman -Qi obs-legacy` — версія релізу; `command -v obs-legacy` → `/usr/bin/obs-legacy`.
 - [ ] Ярлик «OBS-Legacy» з іконкою є в меню й відкриває вікно термінала з першим екраном.
-- [ ] У «Додатково» немає «Оновити OBS-Legacy» (теки з вихідними кодами немає) — так і має бути.
-- [ ] Коли вийде новіший реліз, сповіщення радить пакет із нього й `sudo pacman -U …`, а не `git pull`.
-- [ ] `./install.sh` поруч із пакетом попереджає, що копія в `~/.local/bin` його перекриє.
-- [ ] `sudo pacman -R obs-legacy` прибирає програму; пакети `*-legacy-580xx` лишаються.
+- [ ] Якщо копія з `~/.local/bin` була: у виводі pacman — `obs-legacy --use-package`, а копії, її ярлика й
+      `~/.local/share/obs-legacy/release-install` (чи `source-dir`) більше немає.
+- [ ] «Додатково → Оновити OBS-Legacy» є й показує «Пароль: знадобиться»; коли вийде новіший реліз,
+      сповіщення радить саме цей пункт.
+- [ ] `./install.sh --no-package` поруч із пакетом попереджає, що копія в `~/.local/bin` його перекриє.
 
-### 1б. Однією командою (готова програма з релізу)
-
-Спершу `./install.sh --uninstall`, якщо програма вже стоїть з вихідних кодів:
+### 1б. Однією командою (пакет pacman з релізу)
 
 ```bash
 curl -fsSL https://github.com/YellowHearth1/OBS-Legacy/releases/latest/download/install.sh | bash
 ```
 
-- [ ] `==> Завантажую готову програму: …/obs-legacy-x86_64`, `[OK] Сума SHA-256 збігається`,
-      `[OK] Програма: ~/.local/bin/obs-legacy (obs-legacy <версія> …)` — без Rust і без `cargo build`.
-- [ ] Питання про ярлик на робочому столі й про сповіщення працюють, хоч stdin — сам скрипт.
+- [ ] `==> Завантажую пакет obs-legacy: …/obs-legacy-<версія>-1-x86_64.pkg.tar.zst`,
+      `[OK] Сума SHA-256 збігається`, `==> Ставлю пакет: sudo pacman -U …` — pacman питає пароль і
+      «Продовжити встановлення? [Т/н]», далі `[OK] Програма: /usr/bin/obs-legacy (obs-legacy <версія>)`.
+- [ ] Копію з `~/.local/bin`, якщо вона була (з релізу чи з вихідних кодів), пакет перейняв: її, її ярлика в меню
+      й позначок `release-install`/`source-dir` немає; служба сповіщень запускає `/usr/bin/obs-legacy --watch`.
+- [ ] Ярлик на робочому столі, якщо був, лишився й відкриває програму з пакета (`Exec=/usr/bin/obs-legacy`).
+- [ ] Питання про ярлик на столі й про сповіщення працюють, хоч stdin — сам скрипт.
 - [ ] «Відкрити OBS-Legacy зараз? [Y/n]» — Enter відкриває меню в тому самому терміналі.
-- [ ] Ярлик «OBS-Legacy» з іконкою є в меню програм.
-- [ ] `cat ~/.local/share/obs-legacy/release-install` — тег релізу, а `source-dir` немає.
-- [ ] «Додатково → Оновити OBS-Legacy» є (з 0.0.4) і ставить програму з найновішого релізу.
-- [ ] `curl -fsSL …/install.sh | bash -s -- --uninstall` прибирає програму, ярлики й сповіщення.
+- [ ] Та сама команда ще раз — `[OK] Пакет obs-legacy … уже встановлено`, без sudo.
+- [ ] `… | bash -s -- --no-package` — готова програма в `~/.local/bin` без sudo (як до 0.0.8):
+      `cat ~/.local/share/obs-legacy/release-install` — тег релізу; «Оновити OBS-Legacy» в ній ставить уже пакет.
+- [ ] `curl -fsSL …/install.sh | bash -s -- --uninstall` вимикає сповіщення, прибирає ярлики й пакет
+      `obs-legacy` (`sudo pacman -R`); пакети `*-legacy-580xx` лишаються.
 
 ## 2. Головний екран
 

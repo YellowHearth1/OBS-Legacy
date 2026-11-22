@@ -177,8 +177,8 @@ fn draw_about(f: &mut Frame, app: &App, area: Rect, row: Row) {
                     lines.extend(fact(tr!("Час", "Time"), item.duration(), Style::new()));
                 }
                 // Пакет pacman оновлюється через sudo pacman -U, а не в домашній теці.
-                let by_pacman =
-                    action == crate::app::Action::SelfUpdate && app.self_source == Some(script::SelfSource::Package);
+                let by_pacman = action == crate::app::Action::SelfUpdate
+                    && app.self_source.as_ref().is_some_and(script::SelfSource::updates_with_pacman);
                 lines.extend(if item.sudo || by_pacman {
                     fact(tr!("Пароль", "Password"), tr!("знадобиться", "needed"), t.warn())
                 } else {
